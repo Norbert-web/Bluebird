@@ -6,28 +6,92 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.*
-import androidx.compose.ui.draw.*
+import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Contacts
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Message
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.Divider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.*
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.bluebird.LauncherViewModel
@@ -569,16 +633,16 @@ private fun StepContainer(
 @Composable
 private fun WelcomeStep(onNext: () -> Unit) {
     StepContainer(
-        title = "Welcome to Bluebird OS",
-        subtitle = "Your modern, intuitive mobile launcher experience. Let's set things up.",
+        title = "LAMN-NOBERT Welcomes you to Bluebird OS",
+        subtitle = "Your modern, intuitive mobile launcher experience,a way forward to a mini OS environmont for you to play with and learn more!. Let's set things up.",
         icon = Icons.Default.Home
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             val features = listOf(
                 Triple(Icons.Default.Dashboard, "Clean Interface", "Beautiful, minimal design inspired by modern systems"),
-                Triple(Icons.Default.Settings, "Customizable", "Organize your apps and widgets exactly how you want"),
+                Triple(Icons.Default.Settings, "Customizable", "Organize your apps and widgets exactly how you want and DON'T FORGET, BLUEBIRD IS OPEN SOURCE,CUSTOMIZE TO YOUR FEEL AND CONTRIBUTE MORE!"),
                 Triple(Icons.Default.Security, "Privacy-Focused", "Your data stays on your device"),
-                Triple(Icons.Default.Speed, "Lightweight", "Fast, smooth, and responsive performance"),
+                Triple(Icons.Default.Speed, "Lightweight", "Fast, smooth, and responsive performance,optimized right just for your phone,call it a mini PC now!"),
             )
 
             features.forEach { (icon, title, desc) ->
@@ -647,7 +711,7 @@ private fun PermissionsStep(
 ) {
     StepContainer(
         title = "Permissions",
-        subtitle = "We need a few permissions to provide the full experience. Optional permissions can be skipped.",
+        subtitle = "We need a few permissions to provide the full experience. Optional permissions can be skipped,but note that some features cause app crashes if their specific permissions are not granted,so please if you encounter crashes,check that all permissions are granted or the feature your using meets that condition.",
         icon = Icons.Default.Lock
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -826,7 +890,7 @@ private fun UsernameStep(
                     ),
                     placeholder = {
                         Text(
-                            "e.g. Alex Johnson",
+                            "e.g. Mirembe Comfort",
                             color = ProfessionalDS.textTertiary,
                             fontSize = 14.sp
                         )
@@ -1089,7 +1153,7 @@ private fun PrivacyPolicyContent() {
         )
         LegalSection(
             "Third-party Services",
-            "We do not share your personal data with third parties. Any integrations are done transparently and only with services you explicitly authorize."
+            "We do not share your personal data with third parties."
         )
         LegalSection(
             "Updates",
@@ -1115,7 +1179,7 @@ private fun AboutContent() {
         )
         LegalSection(
             "Credits",
-            "Bluebird OS is maintained by the community. Special thanks to all contributors and users who help make this project better."
+            "Bluebird OS is maintained by the community. Special thanks to all contributors and users who help make this project better.Whereas the community is just basically me Lamn Nobert and my fami... I hope for more to join and support this project. ~trebronwayne@gmail.com/ +256790014428"
         )
     }
 }
@@ -1303,8 +1367,15 @@ private fun PrimaryButton(
             .height(44.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(
-                if (enabled) ProfessionalDS.accentGradient()
-                else ProfessionalDS.bgInputField
+                 brush = if (enabled) {ProfessionalDS.accentGradient()}
+                else {
+                    Brush.linearGradient(
+                        listOf(
+                        ProfessionalDS.bgInputField,
+                        ProfessionalDS.bgInputField
+                    )
+                     )
+                 }
             )
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center

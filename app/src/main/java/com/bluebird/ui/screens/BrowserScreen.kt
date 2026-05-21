@@ -1,12 +1,9 @@
-package com.bluebird.ui.screens
+package com.win11launcher.ui.screens
 
 import android.app.DownloadManager
 import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
-import android.net.http.SslError
-import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
@@ -125,8 +122,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -967,9 +962,8 @@ private fun EdgeTabItem(
             .background(bg)
             .then(
                 if (isActive) Modifier.drawBehind {
-                    drawRect(accentBlue, topLeft = Offset(0f, 0f),
-                        size = Size(size.width, 2.dp.toPx())
-                    )
+                    drawRect(accentBlue, topLeft = androidx.compose.ui.geometry.Offset(0f, 0f),
+                        size = androidx.compose.ui.geometry.Size(size.width, 2.dp.toPx()))
                 } else Modifier
             )
             .clickable { onSelect() }
@@ -2165,7 +2159,7 @@ private fun EdgeWebView(
                 }
 
                 // Safe dark mode — only on API 29+, no deprecated forceDark
-                if (isDark && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                if (isDark && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                     @Suppress("DEPRECATION")
                     webViewSettings.forceDark = WebSettings.FORCE_DARK_AUTO
                 }
@@ -2189,7 +2183,7 @@ private fun EdgeWebView(
                         if (u.startsWith("http://") || u.startsWith("https://")) return false
                         return try {
                             ctx.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(u))
+                                android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(u))
                             ); true
                         } catch (_: Exception) { true }
                     }
@@ -2202,7 +2196,7 @@ private fun EdgeWebView(
                         }
                     }
                     override fun onReceivedSslError(
-                        view: WebView, handler: SslErrorHandler, error: SslError
+                        view: WebView, handler: SslErrorHandler, error: android.net.http.SslError
                     ) { handler.cancel() }
                 }
 
