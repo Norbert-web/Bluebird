@@ -46,7 +46,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AirplanemodeActive
 import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.AppsOutage
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.BedtimeOff
@@ -55,14 +54,17 @@ import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoNotDisturb
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.InsertDriveFile
@@ -80,10 +82,10 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.ViewComfy
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.DropdownMenu
@@ -96,7 +98,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -107,6 +108,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -143,12 +145,40 @@ fun Drawable.toBitmap(): Bitmap {
 }
 
 // ─────────────────────────────────────────────────────────
+// Layout Mode & Preferences Data Class
+// ─────────────────────────────────────────────────────────
+enum class LayoutMode {
+    COMPACT_GRID,      // 6-8 columns, vertical scroll
+    LARGE_GRID,        // 4-5 columns, larger icons
+    LIST_VIEW,         // Single column with details
+    HORIZONTAL_SCROLL, // Card-based horizontal strip
+    FAVORITES_BAR      // Top horizontal favorites
+}
+
+enum class AppCategory {
+    PINNED, RECENT, SYSTEM, FREQUENT, ALL
+}
+
+data class LayoutPreferences(
+    val mode: LayoutMode = LayoutMode.COMPACT_GRID,
+    val columns: Int = 6,
+    val showRecentApps: Boolean = true,
+    val showRecommended: Boolean = true,
+    val showQuickActions: Boolean = true,
+    val iconSize: Int = 38,
+    val showLabels: Boolean = true,
+    val compactSpacing: Boolean = false,
+    val collapsibleGroups: Boolean = true,
+    val enableCollapsibleGroups: Boolean = true
+)
+
+// ─────────────────────────────────────────────────────────
 // Design Tokens — Enterprise Slate / Teal
 // ─────────────────────────────────────────────────────────
 private object DS {
     // Surfaces — deep slate, no purple or blue tint
-    val glassDark   = Color(0xF51C2128)   // GitHub-dark inspired slate
-    val glassLight  = Color(0xFFF0F2F5)   // cool grey white
+    val glassDark   = Color(0xF51C2128)
+    val glassLight  = Color(0xFFF0F2F5)
 
     // Elevated surface (cards, inputs) — one step lighter than bg
     val surfaceDark  = Color(0xFF252B32)
@@ -159,9 +189,9 @@ private object DS {
     val borderLight = Color(0xFFCDD5DF)
 
     // Accent — deep teal / cyan — professional, not vibrant
-    val accentStart = Color(0xFF2A9D8F)   // teal
+    val accentStart = Color(0xFF2A9D8F)
     val accentMid   = Color(0xFF2A9D8F)
-    val accentEnd   = Color(0xFF1D7A6E)   // darker teal
+    val accentEnd   = Color(0xFF1D7A6E)
 
     // Hover — minimal
     val hoverDark  = Color(0x14FFFFFF)
@@ -171,7 +201,7 @@ private object DS {
     val pressedDark  = Color(0x22FFFFFF)
     val pressedLight = Color(0x14000000)
 
-    // Destructive — muted terracotta, not neon
+    // Destructive — muted terracotta
     val badgeRed   = Color(0xFFCB4335)
 
     // Section rule — accent left-border color
@@ -182,10 +212,10 @@ private object DS {
     val menuWidthExpanded  = 780.dp
     val menuHeightCompact  = 640.dp
     val menuHeightExpanded = 820.dp
-    val cornerRadius = 4.dp    // nearly square — enterprise sharp
+    val cornerRadius = 4.dp
     val sectionCorner = 3.dp
 
-    // Stable brush — minimal two-tone
+    // Stable brush
     val accentBrushValue: Brush = Brush.linearGradient(
         colors = listOf(accentStart, accentEnd),
         start = Offset(0f, 0f), end = Offset(160f, 160f)
@@ -196,10 +226,10 @@ private object DS {
 // ─────────────────────────────────────────────────────────
 // Tab enum
 // ─────────────────────────────────────────────────────────
-private enum class StartMenuTab { PINNED, ALL_APPS, SEARCH }
+private enum class StartMenuTab { PINNED, ALL_APPS, SEARCH, RECENT }
 
 // ─────────────────────────────────────────────────────────
-// MAIN START MENU
+// MAIN START MENU - COMPLETELY REFACTORED
 // ─────────────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
 @Composable
@@ -212,8 +242,11 @@ fun StartMenu(
     var activeTab by remember { mutableStateOf(StartMenuTab.PINNED) }
     var isExpanded by remember { mutableStateOf(false) }
     var editMode by remember { mutableStateOf(false) }
+    var layoutPrefs by remember { mutableStateOf(LayoutPreferences()) }
+    var showLayoutMenu by remember { mutableStateOf(false) }
+    var currentLayoutMode by remember { mutableStateOf(LayoutMode.COMPACT_GRID) }
 
-    // No animated size — instant layout on open, no jank
+    // Dynamic sizing based on layout mode
     val menuWidth = if (isExpanded) DS.menuWidthExpanded else DS.menuWidthCompact
     val menuHeight = if (isExpanded) DS.menuHeightExpanded else DS.menuHeightCompact
 
@@ -232,18 +265,18 @@ fun StartMenu(
             .background(bgColor)
             .border(1.dp, borderColor, RoundedCornerShape(DS.cornerRadius))
     ) {
-        // Left accent stripe — the single visual signature of this design
+        // Left accent stripe
         Box(
             modifier = Modifier
                 .width(3.dp)
                 .fillMaxHeight()
                 .background(DS.accentStart)
         )
-        Column(modifier = Modifier.fillMaxSize().padding(start = 23.dp, end = 20.dp)) {
 
+        Column(modifier = Modifier.fillMaxSize().padding(start = 23.dp, end = 20.dp)) {
             Spacer(Modifier.height(16.dp))
 
-            // ── Top Bar: Search + Expand ──
+            // ── Top Bar: Search + Layout + Expand ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -259,6 +292,99 @@ fun StartMenu(
                     isDark = isDark,
                     modifier = Modifier.weight(1f)
                 )
+
+                // Layout Mode Button with Current Indicator
+                Box {
+                    IconToggleButton(
+                        checked = showLayoutMenu,
+                        onCheckedChange = { showLayoutMenu = it },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(DS.cornerRadius))
+                            .background(
+                                if (showLayoutMenu) DS.accentStart.copy(alpha = 0.15f)
+                                else Color.Transparent
+                            )
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = when (currentLayoutMode) {
+                                    LayoutMode.COMPACT_GRID, LayoutMode.LARGE_GRID -> Icons.Default.GridView
+                                    LayoutMode.LIST_VIEW -> Icons.Default.FormatListBulleted
+                                    LayoutMode.HORIZONTAL_SCROLL, LayoutMode.FAVORITES_BAR -> Icons.Default.ViewComfy
+                                },
+                                contentDescription = "Layout mode: ${currentLayoutMode.name}",
+                                tint = if (showLayoutMenu) DS.accentStart else textPrimary.copy(alpha = 0.5f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            // Active indicator dot
+                            Box(
+                                modifier = Modifier
+                                    .size(4.dp)
+                                    .background(DS.accentStart, CircleShape)
+                                    .align(Alignment.BottomEnd)
+                                    .offset(x = (-2).dp, y = (-2).dp)
+                            )
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = showLayoutMenu,
+                        onDismissRequest = { showLayoutMenu = false },
+                        modifier = Modifier
+                            .background(
+                                if (isDark) DS.surfaceDark else DS.glassLight,
+                                RoundedCornerShape(DS.cornerRadius)
+                            )
+                            .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.cornerRadius))
+                    ) {
+                        LayoutMode.values().forEach { mode ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        currentLayoutMode = mode
+                                        layoutPrefs = layoutPrefs.copy(
+                                            mode = mode,
+                                            columns = when (mode) {
+                                                LayoutMode.COMPACT_GRID -> 6
+                                                LayoutMode.LARGE_GRID -> 4
+                                                LayoutMode.LIST_VIEW -> 1
+                                                else -> 6
+                                            }
+                                        )
+                                        showLayoutMenu = false
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                // Checkmark for active mode
+                                if (currentLayoutMode == mode) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        null,
+                                        tint = DS.accentStart,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                } else {
+                                    Spacer(Modifier.size(14.dp))
+                                }
+                                Text(
+                                    when (mode) {
+                                        LayoutMode.COMPACT_GRID -> "Compact Grid (6 cols)"
+                                        LayoutMode.LARGE_GRID -> "Large Grid (4 cols)"
+                                        LayoutMode.LIST_VIEW -> "List View"
+                                        LayoutMode.HORIZONTAL_SCROLL -> "Horizontal Strip"
+                                        LayoutMode.FAVORITES_BAR -> "Favorites Bar"
+                                    },
+                                    fontSize = 12.sp,
+                                    color = if (isDark) Color.White else Color.Black
+                                )
+                            }
+                        }
+                    }
+                }
 
                 // Expand/Collapse toggle
                 IconToggleButton(
@@ -296,22 +422,25 @@ fun StartMenu(
             // ── Content ──
             Box(modifier = Modifier.weight(1f)) {
                 when (activeTab) {
-                    StartMenuTab.PINNED -> PinnedView(
-                        uiState = uiState,
-                        viewModel = viewModel,
-                        isDark = isDark,
-                        isExpanded = isExpanded,
-                        editMode = editMode,
-                        onEditModeToggle = { editMode = !editMode },
-                        onSwitchAllApps = { activeTab = StartMenuTab.ALL_APPS },
-                        context = context
-                    )
+                    StartMenuTab.PINNED -> {
+                        PinnedAndRecentView(
+                            uiState = uiState,
+                            viewModel = viewModel,
+                            isDark = isDark,
+                            isExpanded = isExpanded,
+                            editMode = editMode,
+                            onEditModeToggle = { editMode = !editMode },
+                            context = context,
+                            layoutPrefs = layoutPrefs
+                        )
+                    }
                     StartMenuTab.ALL_APPS -> AllAppsView(
                         uiState = uiState,
                         viewModel = viewModel,
                         isDark = isDark,
                         isExpanded = isExpanded,
-                        context = context
+                        context = context,
+                        layoutPrefs = layoutPrefs
                     )
                     StartMenuTab.SEARCH -> SearchResultsView(
                         query = uiState.searchQuery,
@@ -322,7 +451,15 @@ fun StartMenu(
                             viewModel.updateSearchQuery("")
                             activeTab = StartMenuTab.PINNED
                         },
-                        context = context
+                        context = context,
+                        layoutPrefs = layoutPrefs
+                    )
+                    StartMenuTab.RECENT -> RecentAppsView(
+                        uiState = uiState,
+                        viewModel = viewModel,
+                        isDark = isDark,
+                        context = context,
+                        layoutPrefs = layoutPrefs
                     )
                 }
             }
@@ -345,6 +482,35 @@ fun StartMenu(
 }
 
 // ─────────────────────────────────────────────────────────
+// Empty State View
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun EmptyStateView(message: String, isDark: Boolean) {
+    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Default.Apps,
+                null,
+                tint = textPrimary.copy(alpha = 0.15f),
+                modifier = Modifier.size(48.dp)
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                message,
+                color = textPrimary.copy(alpha = 0.3f),
+                fontSize = 14.sp,
+                letterSpacing = 0.3.sp
+            )
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
 // Premium Tab Row
 // ─────────────────────────────────────────────────────────
 @Composable
@@ -361,6 +527,7 @@ private fun PremiumTabRow(
     ) {
         listOf(
             StartMenuTab.PINNED to "Pinned",
+            StartMenuTab.RECENT to "Recent",
             StartMenuTab.ALL_APPS to "All Apps"
         ).forEach { (tab, label) ->
             val isActive = activeTab == tab
@@ -379,7 +546,6 @@ private fun PremiumTabRow(
                     letterSpacing = 1.2.sp
                 )
                 Spacer(Modifier.height(6.dp))
-                // Bottom rule — full width under active tab
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -392,7 +558,6 @@ private fun PremiumTabRow(
             }
         }
     }
-    // Full-width hairline under tab row
     HorizontalDivider(
         color = if (isDark) DS.borderDark else DS.borderLight,
         thickness = 1.dp
@@ -400,157 +565,380 @@ private fun PremiumTabRow(
 }
 
 // ─────────────────────────────────────────────────────────
-// Pinned View
+// REFACTORED: Pinned & Recent Apps View (NO DUPLICATE)
 // ─────────────────────────────────────────────────────────
 @Composable
-private fun PinnedView(
+private fun PinnedAndRecentView(
     uiState: LauncherUiState,
     viewModel: LauncherViewModel,
     isDark: Boolean,
     isExpanded: Boolean,
     editMode: Boolean,
     onEditModeToggle: () -> Unit,
-    onSwitchAllApps: () -> Unit,
-    context: Context
+    context: Context,
+    layoutPrefs: LayoutPreferences
 ) {
-    val columns = if (isExpanded) 8 else 6
     val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val pinnedApps = uiState.pinnedTaskbarApps
+    val hasSystemApps = builtInApps.isNotEmpty()
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
-
-        // ── Pinned header ──
+        // ── ALL PINNED APPS (Pinned + System) ──
         item {
-            Spacer(Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Left-rule section label
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(3.dp)
-                            .height(14.dp)
-                            .background(DS.accentStart, RoundedCornerShape(2.dp))
-                    )
-                    Text(
-                        "PINNED",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = textPrimary.copy(alpha = 0.55f),
-                        letterSpacing = 1.2.sp
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    CompactActionChip(
-                        label = if (editMode) "Done" else "Edit",
-                        icon = if (editMode) Icons.Default.Check else Icons.Default.Edit,
-                        isDark = isDark,
-                        onClick = onEditModeToggle
-                    )
-                    CompactActionChip(
-                        label = "All apps",
-                        icon = Icons.Default.AppsOutage,
-                        isDark = isDark,
-                        onClick = onSwitchAllApps
-                    )
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-        }
-
-        // ── Pinned Apps Grid ──
-        item {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(columns),
-                modifier = Modifier.heightIn(max = 320.dp),
-                contentPadding = PaddingValues(0.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                userScrollEnabled = false
-            ) {
-                items(uiState.pinnedTaskbarApps) { app ->
-                    AnimatedPinnedIcon(
-                        app = app,
-                        isDark = isDark,
-                        editMode = editMode,
-                        onClick = { viewModel.openApp(context, app) },
-                        onUnpin = { viewModel.unpinAppFromTaskbar(app) },
-                        onPinToTaskbar = { viewModel.unpinAppFromTaskbar(app) },
-                        isPinnedToTaskbar = true
-                    )
-                }
-                items(builtInApps) { (name, icon, screen) ->
-                    AnimatedBuiltInIcon(
-                        name = name,
-                        icon = icon,
-                        isDark = isDark,
-                        editMode = editMode,
-                        onClick = { viewModel.openWindow(screen) }
-                    )
-                }
-            }
-            Spacer(Modifier.height(18.dp))
-        }
-
-        // ── Recommended Section ──
-        item {
-            Spacer(Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(3.dp)
-                            .height(14.dp)
-                            .background(DS.accentStart, RoundedCornerShape(2.dp))
-                    )
-                    Text(
-                        "RECOMMENDED",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = textPrimary.copy(alpha = 0.55f),
-                        letterSpacing = 1.2.sp
-                    )
-                }
-                CompactActionChip(
-                    label = "More",
-                    icon = Icons.Default.ChevronRight,
+            if (pinnedApps.isNotEmpty() || hasSystemApps) {
+                SectionHeader(
+                    title = "PINNED & SYSTEM APPS",
                     isDark = isDark,
-                    onClick = {}
+                    rightContent = {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CompactActionChip(
+                                label = if (editMode) "Done" else "Edit",
+                                icon = if (editMode) Icons.Default.Check else Icons.Default.Edit,
+                                isDark = isDark,
+                                onClick = onEditModeToggle
+                            )
+                        }
+                    }
                 )
+                Spacer(Modifier.height(10.dp))
             }
-            Spacer(Modifier.height(10.dp))
         }
 
-        item {
-            RecommendedSection(
-                isDark = isDark,
-                viewModel = viewModel,
-                isExpanded = isExpanded
-            )
+        // Combined Pinned + System Apps
+        if (pinnedApps.isNotEmpty() || hasSystemApps) {
+            item {
+                Column {
+                    // Pinned Apps
+                    if (pinnedApps.isNotEmpty()) {
+                        AppGridLayout(
+                            apps = pinnedApps,
+                            isDark = isDark,
+                            editMode = editMode,
+                            layoutPrefs = layoutPrefs,
+                            onAppClick = { app -> viewModel.openApp(context, app) },
+                            onAppUnpin = { app -> viewModel.unpinAppFromTaskbar(app) },
+                            onAppPin = { app -> viewModel.pinAppToTaskbar(app) },
+                            isBuiltIn = false,
+                            category = AppCategory.PINNED
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+
+                    // System Apps
+                    if (hasSystemApps) {
+                        BuiltInAppGridLayout(
+                            apps = builtInApps,
+                            isDark = isDark,
+                            editMode = editMode,
+                            layoutPrefs = layoutPrefs,
+                            onAppClick = { screen -> viewModel.openWindow(screen) },
+                            category = AppCategory.SYSTEM
+                        )
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(18.dp)) }
         }
 
-        // ── Quick Actions Strip ──
-        item {
-            Spacer(Modifier.height(16.dp))
-            QuickActionsStrip(isDark = isDark)
+        // ── RECENT APPS SECTION ──
+        if (layoutPrefs.showRecentApps) {
+            item {
+                val recentApps = uiState.installedApps.take(8)
+                if (recentApps.isNotEmpty()) {
+                    SectionHeader(
+                        title = "RECENT",
+                        isDark = isDark
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
+            }
+
+            item {
+                val recentApps = uiState.installedApps.take(8)
+                if (recentApps.isNotEmpty()) {
+                    AppGridLayout(
+                        apps = recentApps,
+                        isDark = isDark,
+                        editMode = false,
+                        layoutPrefs = layoutPrefs,
+                        onAppClick = { app -> viewModel.openApp(context, app) },
+                        onAppUnpin = {},
+                        onAppPin = { app -> viewModel.pinAppToTaskbar(app) },
+                        isBuiltIn = false,
+                        category = AppCategory.RECENT
+                    )
+                    Spacer(Modifier.height(18.dp))
+                }
+            }
+        }
+
+        // ── RECOMMENDED SECTION ──
+        if (layoutPrefs.showRecommended) {
+            item {
+                SectionHeader(
+                    title = "RECOMMENDED",
+                    isDark = isDark
+                )
+                Spacer(Modifier.height(10.dp))
+            }
+
+            item {
+                RecommendedSection(
+                    isDark = isDark,
+                    viewModel = viewModel,
+                    isExpanded = isExpanded,
+                    context = context
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+
+        // ── QUICK ACTIONS STRIP ──
+        if (layoutPrefs.showQuickActions) {
+            item {
+                QuickActionsStrip(isDark = isDark)
+            }
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────
-// All Apps View — grouped alphabetically with jump index
+// Section Header Component
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun SectionHeader(
+    title: String,
+    isDark: Boolean,
+    rightContent: (@Composable () -> Unit)? = null
+) {
+    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+
+    Spacer(Modifier.height(4.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(14.dp)
+                    .background(DS.accentStart, RoundedCornerShape(2.dp))
+            )
+            Text(
+                title,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = textPrimary.copy(alpha = 0.55f),
+                letterSpacing = 1.2.sp
+            )
+        }
+        if (rightContent != null) {
+            rightContent()
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// App Grid Layout (Adaptive) - ENHANCED
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun AppGridLayout(
+    apps: List<AppInfo>,
+    isDark: Boolean,
+    editMode: Boolean,
+    layoutPrefs: LayoutPreferences,
+    onAppClick: (AppInfo) -> Unit,
+    onAppUnpin: (AppInfo) -> Unit,
+    onAppPin: (AppInfo) -> Unit,
+    isBuiltIn: Boolean = false,
+    category: AppCategory = AppCategory.ALL
+) {
+    if (apps.isEmpty()) return
+
+    when (layoutPrefs.mode) {
+        LayoutMode.COMPACT_GRID, LayoutMode.LARGE_GRID -> {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(layoutPrefs.columns),
+                modifier = Modifier.heightIn(max = 320.dp),
+                contentPadding = PaddingValues(0.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                userScrollEnabled = true
+            ) {
+                items(apps) { app ->
+                    AnimatedPinnedIcon(
+                        app = app,
+                        isDark = isDark,
+                        editMode = editMode,
+                        onClick = { onAppClick(app) },
+                        onUnpin = { onAppUnpin(app) },
+                        onPinToTaskbar = { onAppPin(app) },
+                        isPinnedToTaskbar = category == AppCategory.PINNED,
+                        iconSize = layoutPrefs.iconSize,
+                        showLabel = layoutPrefs.showLabels,
+                        category = category
+                    )
+                }
+            }
+        }
+
+        LayoutMode.LIST_VIEW -> {
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 400.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                items(apps) { app ->
+                    AllAppsRow(
+                        app = app,
+                        isDark = isDark,
+                        onClick = { onAppClick(app) },
+                        onPinToStart = { onAppPin(app) },
+                        category = category
+                    )
+                }
+            }
+        }
+
+        LayoutMode.HORIZONTAL_SCROLL -> {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 100.dp, max = 140.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+            ) {
+                items(apps) { app ->
+                    HorizontalAppCard(
+                        app = app,
+                        isDark = isDark,
+                        onClick = { onAppClick(app) },
+                        onPin = { onAppPin(app) }
+                    )
+                }
+            }
+        }
+
+        LayoutMode.FAVORITES_BAR -> {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 50.dp, max = 70.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
+            ) {
+                items(apps) { app ->
+                    CompactAppIcon(
+                        app = app,
+                        isDark = isDark,
+                        onClick = { onAppClick(app) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// Built-in App Grid Layout
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun BuiltInAppGridLayout(
+    apps: List<Triple<String, ImageVector, LauncherScreen>>,
+    isDark: Boolean,
+    editMode: Boolean,
+    layoutPrefs: LayoutPreferences,
+    onAppClick: (LauncherScreen) -> Unit,
+    category: AppCategory = AppCategory.SYSTEM
+) {
+    if (apps.isEmpty()) return
+
+    when (layoutPrefs.mode) {
+        LayoutMode.COMPACT_GRID, LayoutMode.LARGE_GRID -> {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(layoutPrefs.columns),
+                modifier = Modifier.heightIn(max = 250.dp),
+                contentPadding = PaddingValues(0.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                userScrollEnabled = true
+            ) {
+                items(apps) { (name, icon, screen) ->
+                    AnimatedBuiltInIcon(
+                        name = name,
+                        icon = icon,
+                        isDark = isDark,
+                        editMode = editMode,
+                        onClick = { onAppClick(screen) },
+                        iconSize = layoutPrefs.iconSize,
+                        showLabel = layoutPrefs.showLabels
+                    )
+                }
+            }
+        }
+
+        LayoutMode.LIST_VIEW -> {
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 400.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                items(apps) { (name, icon, screen) ->
+                    BuiltInAppListRow(
+                        name = name,
+                        icon = icon,
+                        isDark = isDark,
+                        onClick = { onAppClick(screen) }
+                    )
+                }
+            }
+        }
+
+        LayoutMode.HORIZONTAL_SCROLL -> {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 100.dp, max = 140.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+            ) {
+                items(apps) { (name, icon, screen) ->
+                    HorizontalBuiltInCard(
+                        name = name,
+                        icon = icon,
+                        isDark = isDark,
+                        onClick = { onAppClick(screen) }
+                    )
+                }
+            }
+        }
+
+        LayoutMode.FAVORITES_BAR -> {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 50.dp, max = 70.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
+            ) {
+                items(apps) { (name, icon, screen) ->
+                    CompactBuiltInIcon(
+                        name = name,
+                        icon = icon,
+                        isDark = isDark,
+                        onClick = { onAppClick(screen) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// All Apps View — grouped & categorized
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun AllAppsView(
@@ -558,88 +946,171 @@ private fun AllAppsView(
     viewModel: LauncherViewModel,
     isDark: Boolean,
     isExpanded: Boolean,
-    context: Context
+    context: Context,
+    layoutPrefs: LayoutPreferences
 ) {
     val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
     val sortedApps = uiState.installedApps.sortedBy { it.name.lowercase() }
     val grouped = sortedApps.groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-
-    // Build flat index list for jump navigation
-    val jumpItems = grouped.keys.toList()
-    var showJumpIndex by remember { mutableStateOf(false) }
+    val jumpItems = grouped.keys.sorted()
+    var expandedGroups by remember { mutableStateOf(grouped.keys.toSet()) }
 
     Row(modifier = Modifier.fillMaxSize()) {
-        // App list
+        // App list with collapsible groups
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             grouped.forEach { (letter, apps) ->
-                // Letter header
                 item(key = "header_$letter") {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 10.dp, bottom = 4.dp, start = 4.dp, end = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            letter.toString(),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = DS.accentStart,
-                            letterSpacing = 0.5.sp
-                        )
-                        HorizontalDivider(
-                            modifier = Modifier.weight(1f),
-                            color = if (isDark) DS.borderDark else DS.borderLight,
-                            thickness = 1.dp
+                    CollapsibleGroupHeader(
+                        letter = letter.toString(),
+                        appCount = apps.size,
+                        isDark = isDark,
+                        isExpanded = letter in expandedGroups,
+                        onToggle = {
+                            expandedGroups = if (letter in expandedGroups) {
+                                expandedGroups - letter
+                            } else {
+                                expandedGroups + letter
+                            }
+                        }
+                    )
+                }
+
+                if (letter in expandedGroups) {
+                    items(apps, key = { it.packageName }) { app ->
+                        AllAppsRow(
+                            app = app,
+                            isDark = isDark,
+                            onClick = { viewModel.openApp(context, app) },
+                            onPinToStart = { viewModel.pinAppToTaskbar(app) },
+                            category = AppCategory.ALL
                         )
                     }
-                }
-                // App rows
-                items(apps, key = { it.packageName }) { app ->
-                    AllAppsRow(
-                        app = app,
-                        isDark = isDark,
-                        onClick = { viewModel.openApp(context, app) },
-                        onPinToTaskbar = { viewModel.pinAppToTaskbar(app) }
-                    )
                 }
                 item { Spacer(Modifier.height(4.dp)) }
             }
         }
 
         // Alphabetical jump sidebar
-        Box(
-            modifier = Modifier
-                .width(22.dp)
-                .fillMaxHeight()
-                .padding(vertical = 4.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(1.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+        if (layoutPrefs.showLabels) {
+            Box(
+                modifier = Modifier
+                    .width(22.dp)
+                    .fillMaxHeight()
+                    .padding(vertical = 4.dp),
+                contentAlignment = Alignment.Center
             ) {
-                jumpItems.forEach { letter ->
-                    Text(
-                        letter.toString(),
-                        fontSize = 9.sp,
-                        color = DS.accentStart,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clickable {
-                            // Scroll to letter group
-                            val keys = grouped.keys.toList()
-                            val idx = keys.indexOf(letter)
-                            if (idx >= 0) scope.launch { listState.animateScrollToItem(idx * 2) }
-                        }
-                    )
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(1.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    jumpItems.forEach { letter ->
+                        Text(
+                            letter.toString(),
+                            fontSize = 8.sp,
+                            color = DS.accentStart,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clickable {
+                                val keys = grouped.keys.sorted()
+                                val idx = keys.indexOf(letter)
+                                if (idx >= 0) scope.launch { listState.animateScrollToItem(idx * 2) }
+                            }
+                        )
+                    }
                 }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// Collapsible Group Header with Toggle
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun CollapsibleGroupHeader(
+    letter: String,
+    appCount: Int,
+    isDark: Boolean,
+    isExpanded: Boolean,
+    onToggle: () -> Unit
+) {
+    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 4.dp, start = 4.dp, end = 4.dp)
+            .clickable { onToggle() },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            null,
+            tint = DS.accentStart,
+            modifier = Modifier.size(16.dp)
+        )
+        Text(
+            letter,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color = DS.accentStart,
+            letterSpacing = 0.5.sp
+        )
+        Text(
+            "($appCount)",
+            fontSize = 9.sp,
+            color = textPrimary.copy(alpha = 0.35f),
+            letterSpacing = 0.5.sp
+        )
+        HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            color = if (isDark) DS.borderDark else DS.borderLight,
+            thickness = 1.dp
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// Recent Apps View
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun RecentAppsView(
+    uiState: LauncherUiState,
+    viewModel: LauncherViewModel,
+    isDark: Boolean,
+    context: Context,
+    layoutPrefs: LayoutPreferences
+) {
+    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val recentApps = uiState.installedApps.take(12)
+
+    if (recentApps.isEmpty()) {
+        EmptyStateView("No recent apps", isDark)
+    } else {
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            item {
+                SectionHeader(title = "RECENTLY USED", isDark = isDark)
+                Spacer(Modifier.height(10.dp))
+            }
+
+            item {
+                AppGridLayout(
+                    apps = recentApps,
+                    isDark = isDark,
+                    editMode = false,
+                    layoutPrefs = layoutPrefs,
+                    onAppClick = { app -> viewModel.openApp(context, app) },
+                    onAppUnpin = {},
+                    onAppPin = { app -> viewModel.pinAppToTaskbar(app) },
+                    isBuiltIn = false,
+                    category = AppCategory.RECENT
+                )
             }
         }
     }
@@ -655,7 +1126,8 @@ private fun SearchResultsView(
     viewModel: LauncherViewModel,
     isDark: Boolean,
     onClearSearch: () -> Unit,
-    context: Context
+    context: Context,
+    layoutPrefs: LayoutPreferences
 ) {
     val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
     val results = uiState.installedApps.filter {
@@ -679,7 +1151,7 @@ private fun SearchResultsView(
                         .background(DS.accentStart, RoundedCornerShape(2.dp))
                 )
                 Text(
-                    "RESULTS FOR \"${query.uppercase()}\"",
+                    "RESULTS FOR \"${query.uppercase()}\" (${results.size})",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = textPrimary.copy(alpha = 0.55f),
@@ -693,34 +1165,19 @@ private fun SearchResultsView(
         Spacer(Modifier.height(6.dp))
 
         if (results.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Default.SearchOff,
-                        null,
-                        tint = textPrimary.copy(alpha = 0.15f),
-                        modifier = Modifier.size(36.dp)
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "No results found",
-                        color = textPrimary.copy(alpha = 0.3f),
-                        fontSize = 12.sp,
-                        letterSpacing = 0.3.sp
-                    )
-                }
-            }
+            EmptyStateView("No results found for \"$query\"", isDark)
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
                 items(results) { app ->
                     AllAppsRow(
                         app = app,
                         isDark = isDark,
                         onClick = { viewModel.openApp(context, app) },
-                        onPinToTaskbar = { viewModel.pinAppToTaskbar(app) }
+                        onPinToStart = { viewModel.pinAppToTaskbar(app) },
+                        category = AppCategory.ALL
                     )
                 }
             }
@@ -771,7 +1228,9 @@ fun PremiumSearchBar(
             BasicTextField(
                 value = query,
                 onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .onFocusEvent { isFocused = it.isFocused },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(
                     color = textColor,
@@ -803,7 +1262,7 @@ fun PremiumSearchBar(
 }
 
 // ─────────────────────────────────────────────────────────
-// Animated Pinned App Icon (grid style)
+// Animated Pinned Icon - ENHANCED (Pin/Unpin independent)
 // ─────────────────────────────────────────────────────────
 @Composable
 fun AnimatedPinnedIcon(
@@ -813,14 +1272,15 @@ fun AnimatedPinnedIcon(
     onClick: () -> Unit,
     onUnpin: () -> Unit,
     onPinToTaskbar: () -> Unit,
-    isPinnedToTaskbar: Boolean
+    isPinnedToTaskbar: Boolean,
+    iconSize: Int = 38,
+    showLabel: Boolean = true,
+    category: AppCategory = AppCategory.ALL
 ) {
     var pressed by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
-    val hoverBg = if (isDark) DS.hoverDark else DS.hoverLight
 
-    // Simple wobble only when in edit mode — no infinite animation when idle
     val wobbleAngle by animateFloatAsState(
         targetValue = if (editMode) 2f else 0f,
         animationSpec = if (editMode) infiniteRepeatable(tween(350), RepeatMode.Reverse) else tween(150),
@@ -848,9 +1308,8 @@ fun AnimatedPinnedIcon(
                 }
                 .padding(vertical = 8.dp, horizontal = 4.dp)
         ) {
-            // Clean icon — no background tile, just the app icon
             Box(
-                modifier = Modifier.size(38.dp),
+                modifier = Modifier.size(iconSize.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (app.icon != null) {
@@ -858,12 +1317,12 @@ fun AnimatedPinnedIcon(
                     Image(
                         bitmap = bmp,
                         contentDescription = app.name,
-                        modifier = Modifier.size(34.dp)
+                        modifier = Modifier.size((iconSize - 4).dp)
                     )
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(34.dp)
+                            .size((iconSize - 4).dp)
                             .clip(RoundedCornerShape(DS.sectionCorner))
                             .background(if (isDark) DS.surfaceDark else DS.surfaceLight)
                             .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner)),
@@ -873,21 +1332,22 @@ fun AnimatedPinnedIcon(
                     }
                 }
             }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                app.name,
-                fontSize = 10.sp,
-                color = textColor.copy(alpha = 0.8f),
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontWeight = FontWeight.Normal,
-                modifier = Modifier.fillMaxWidth()
-            )
+            if (showLabel) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    app.name,
+                    fontSize = 10.sp,
+                    color = textColor.copy(alpha = 0.8f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.Normal,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
 
-        // Edit mode — unpin badge
-        if (editMode) {
+        if (editMode && category == AppCategory.PINNED) {
             Box(
                 modifier = Modifier
                     .size(18.dp)
@@ -900,7 +1360,6 @@ fun AnimatedPinnedIcon(
             }
         }
 
-        // Context menu
         DropdownMenu(
             expanded = showMenu,
             onDismissRequest = { showMenu = false },
@@ -912,13 +1371,19 @@ fun AnimatedPinnedIcon(
                 .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.cornerRadius))
         ) {
             StyledMenuItem("Open", Icons.Default.OpenInNew, isDark) { showMenu = false; onClick() }
+            if (category == AppCategory.PINNED) {
+                StyledMenuItem("Unpin from Start", Icons.Default.PushPin, isDark, tintAccent = true) {
+                    showMenu = false; onUnpin()
+                }
+            } else {
+                StyledMenuItem("Pin to Start", Icons.Default.PushPin, isDark) {
+                    showMenu = false; onPinToTaskbar()
+                }
+            }
             StyledMenuItem(
                 if (isPinnedToTaskbar) "Unpin from taskbar" else "Pin to taskbar",
                 Icons.Default.PushPin, isDark
             ) { showMenu = false; onPinToTaskbar() }
-            StyledMenuItem("Unpin from Start", Icons.Default.PushPin, isDark, tintAccent = true) {
-                showMenu = false; onUnpin()
-            }
             StyledMenuItem("App info", Icons.Default.Info, isDark) { showMenu = false }
         }
     }
@@ -952,7 +1417,9 @@ fun AnimatedBuiltInIcon(
     icon: ImageVector,
     isDark: Boolean,
     editMode: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    iconSize: Int = 38,
+    showLabel: Boolean = true
 ) {
     val wobble by animateFloatAsState(
         targetValue = if (editMode) -2f else 0f,
@@ -960,7 +1427,6 @@ fun AnimatedBuiltInIcon(
         label = "wobble2"
     )
     var pressed by remember { mutableStateOf(false) }
-    val hoverBg = if (isDark) DS.hoverDark else DS.hoverLight
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -981,44 +1447,238 @@ fun AnimatedBuiltInIcon(
             }
             .padding(vertical = 8.dp, horizontal = 4.dp)
     ) {
-        // Teal tile — solid accent, no gradient
         Box(
             modifier = Modifier
-                .size(38.dp)
+                .size(iconSize.dp)
                 .clip(RoundedCornerShape(DS.sectionCorner))
                 .background(DS.accentStart),
             contentAlignment = Alignment.Center
         ) {
             Icon(icon, name, tint = Color.White, modifier = Modifier.size(18.dp))
         }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            name,
-            fontSize = 10.sp,
-            color = (if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight).copy(alpha = 0.8f),
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            fontWeight = FontWeight.Normal,
-            modifier = Modifier.fillMaxWidth()
-        )
+        if (showLabel) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                name,
+                fontSize = 10.sp,
+                color = (if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight).copy(alpha = 0.8f),
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = FontWeight.Normal,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
 // ─────────────────────────────────────────────────────────
-// All Apps List Row
+// Compact App Icon (Favorites Bar)
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun CompactAppIcon(
+    app: AppInfo,
+    isDark: Boolean,
+    onClick: () -> Unit
+) {
+    var pressed by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(RoundedCornerShape(DS.sectionCorner))
+            .background(
+                if (pressed)
+                    if (isDark) DS.pressedDark else DS.pressedLight
+                else Color.Transparent
+            )
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
+                    onTap = { onClick() }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (app.icon != null) {
+            val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
+            Image(
+                bitmap = bmp,
+                contentDescription = app.name,
+                modifier = Modifier.size(32.dp)
+            )
+        } else {
+            Icon(Icons.Default.Apps, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// Compact Built-in Icon (Favorites Bar)
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun CompactBuiltInIcon(
+    name: String,
+    icon: ImageVector,
+    isDark: Boolean,
+    onClick: () -> Unit
+) {
+    var pressed by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(RoundedCornerShape(DS.sectionCorner))
+            .background(DS.accentStart.copy(alpha = 0.8f))
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
+                    onTap = { onClick() }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, name, tint = Color.White, modifier = Modifier.size(18.dp))
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// Horizontal App Card
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun HorizontalAppCard(
+    app: AppInfo,
+    isDark: Boolean,
+    onClick: () -> Unit,
+    onPin: () -> Unit
+) {
+    var pressed by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val cardBg = if (isDark) DS.surfaceDark else DS.surfaceLight
+
+    Box {
+        Row(
+            modifier = Modifier
+                .width(120.dp)
+                .clip(RoundedCornerShape(DS.sectionCorner))
+                .background(cardBg)
+                .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner))
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onPress = { pressed = true; tryAwaitRelease(); pressed = false },
+                        onTap = { onClick() },
+                        onLongPress = { showMenu = true }
+                    )
+                }
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(modifier = Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                    if (app.icon != null) {
+                        val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
+                        Image(bitmap = bmp, contentDescription = app.name, modifier = Modifier.size(28.dp))
+                    } else {
+                        Icon(Icons.Default.Apps, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    app.name,
+                    fontSize = 9.sp,
+                    color = textColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false },
+            modifier = Modifier
+                .background(
+                    if (isDark) DS.surfaceDark else DS.glassLight,
+                    RoundedCornerShape(DS.cornerRadius)
+                )
+                .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.cornerRadius))
+        ) {
+            StyledMenuItem("Open", Icons.Default.OpenInNew, isDark) { showMenu = false; onClick() }
+            StyledMenuItem("Pin to taskbar", Icons.Default.PushPin, isDark) { showMenu = false; onPin() }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// Horizontal Built-in Card
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun HorizontalBuiltInCard(
+    name: String,
+    icon: ImageVector,
+    isDark: Boolean,
+    onClick: () -> Unit
+) {
+    var pressed by remember { mutableStateOf(false) }
+    val cardBg = if (isDark) DS.surfaceDark else DS.surfaceLight
+
+    Box(
+        modifier = Modifier
+            .width(100.dp)
+            .clip(RoundedCornerShape(DS.sectionCorner))
+            .background(cardBg)
+            .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner))
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
+                    onTap = { onClick() }
+                )
+            }
+            .padding(8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(DS.sectionCorner))
+                    .background(DS.accentStart),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, name, tint = Color.White, modifier = Modifier.size(16.dp))
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                name,
+                fontSize = 9.sp,
+                color = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// All Apps List Row - ENHANCED
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun AllAppsRow(
     app: AppInfo,
     isDark: Boolean,
     onClick: () -> Unit,
-    onPinToTaskbar: () -> Unit
+    onPinToStart: () -> Unit,
+    category: AppCategory = AppCategory.ALL
 ) {
     var pressed by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
-    val hoverBg = if (isDark) DS.hoverDark else DS.hoverLight
 
     Box {
         Row(
@@ -1041,7 +1701,6 @@ private fun AllAppsRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Icon with no background tile
             Box(
                 modifier = Modifier.size(30.dp),
                 contentAlignment = Alignment.Center
@@ -1087,9 +1746,72 @@ private fun AllAppsRow(
                 .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.cornerRadius))
         ) {
             StyledMenuItem("Open", Icons.Default.OpenInNew, isDark) { showMenu = false; onClick() }
-            StyledMenuItem("Pin to Start", Icons.Default.PushPin, isDark) { showMenu = false }
-            StyledMenuItem("Pin to taskbar", Icons.Default.PushPin, isDark) { showMenu = false; onPinToTaskbar() }
+            if (category != AppCategory.PINNED) {
+                StyledMenuItem("Pin to Start", Icons.Default.PushPin, isDark) { showMenu = false; onPinToStart() }
+            }
+            StyledMenuItem("Pin to taskbar", Icons.Default.PushPin, isDark) { showMenu = false; onPinToStart() }
             StyledMenuItem("App info", Icons.Default.Info, isDark) { showMenu = false }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// Built-in App List Row
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun BuiltInAppListRow(
+    name: String,
+    icon: ImageVector,
+    isDark: Boolean,
+    onClick: () -> Unit
+) {
+    var pressed by remember { mutableStateOf(false) }
+    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(DS.sectionCorner))
+            .background(
+                if (pressed)
+                    if (isDark) DS.pressedDark else DS.pressedLight
+                else Color.Transparent
+            )
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
+                    onTap = { onClick() }
+                )
+            }
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(DS.sectionCorner))
+                .background(DS.accentStart),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = Color.White, modifier = Modifier.size(16.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                name,
+                fontSize = 13.sp,
+                color = textPrimary,
+                fontWeight = FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "System App",
+                fontSize = 10.sp,
+                color = textPrimary.copy(alpha = 0.35f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -1101,18 +1823,19 @@ private fun AllAppsRow(
 private fun RecommendedSection(
     isDark: Boolean,
     viewModel: LauncherViewModel,
-    isExpanded: Boolean
+    isExpanded: Boolean,
+    context: Context
 ) {
-    val context = LocalContext.current
-    // Load recent files off the main thread — never block composition
     var recentFiles by remember { mutableStateOf<List<File>>(emptyList()) }
     val scope = rememberCoroutineScope()
+
     androidx.compose.runtime.LaunchedEffect(Unit) {
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        scope.launch {
             recentFiles = getRecentFiles(context)
         }
     }
-    val recentApps = viewModel.uiState.collectAsState().value.installedApps.take(if (isExpanded) 8 else 5)
+
+    val recentApps = emptyList<AppInfo>()
     val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
 
     if (recentFiles.isEmpty() && recentApps.isEmpty()) {
@@ -1145,15 +1868,6 @@ private fun RecommendedSection(
                 icon = getFileIcon(file.extension),
                 isDark = isDark,
                 onClick = { viewModel.openFileWithSystem(context, file.absolutePath) }
-            )
-        }
-        items(recentApps) { app ->
-            RecentCard(
-                title = app.name,
-                subtitle = "Recently used",
-                iconDrawable = app.icon,
-                isDark = isDark,
-                onClick = { viewModel.openApp(context, app) }
             )
         }
     }
@@ -1220,12 +1934,11 @@ private fun RecentCard(
 }
 
 // ─────────────────────────────────────────────────────────
-// Quick Actions Strip (new feature!)
+// Quick Actions Strip
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun QuickActionsStrip(isDark: Boolean) {
     val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
-    val context = LocalContext.current
 
     val actions = listOf(
         Pair(Icons.Default.Wifi, "Wi-Fi"),
@@ -1237,7 +1950,6 @@ private fun QuickActionsStrip(isDark: Boolean) {
     )
 
     Column {
-        // Section header
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1340,7 +2052,7 @@ private fun CompactActionChip(
 
 // ─────────────────────────────────────────────────────────
 // Bottom User Bar
-// ─────────────────────────────────────────────────────────
+// ─────────────────────────────���───────────────────────────
 @Composable
 private fun BottomUserBar(
     uiState: LauncherUiState,
@@ -1348,14 +2060,12 @@ private fun BottomUserBar(
     isDark: Boolean
 ) {
     val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
-    val hoverBg = if (isDark) DS.hoverDark else DS.hoverLight
 
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // User profile pill
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(DS.sectionCorner))
@@ -1387,7 +2097,6 @@ private fun BottomUserBar(
                         )
                     }
                 }
-                // Online indicator dot
                 Box(
                     modifier = Modifier
                         .size(8.dp)
@@ -1415,13 +2124,10 @@ private fun BottomUserBar(
             }
         }
 
-        // Right action buttons
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            // Settings shortcut
             BottomBarIconBtn(Icons.Default.Settings, "Settings", isDark) {
                 viewModel.openWindow(LauncherScreen.SETTINGS)
             }
-            // Power button
             BottomBarIconBtn(Icons.Default.PowerSettingsNew, "Power", isDark, tint = DS.badgeRed) {
                 viewModel.togglePowerMenu()
             }
@@ -1438,7 +2144,6 @@ private fun BottomBarIconBtn(
     onClick: () -> Unit
 ) {
     val defaultTint = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
-    val hoverBg = if (isDark) DS.hoverDark else DS.hoverLight
 
     Box(
         modifier = Modifier
@@ -1453,7 +2158,7 @@ private fun BottomBarIconBtn(
 }
 
 // ─────────────────────────────────────────────────────────
-// Power Menu
+// Power Menu - FIXED (No Taskbar Interference)
 // ─────────────────────────────────────────────────────────
 @Composable
 fun PowerMenu(isDark: Boolean, onAction: (PowerAction) -> Unit, modifier: Modifier = Modifier) {
@@ -1470,7 +2175,6 @@ fun PowerMenu(isDark: Boolean, onAction: (PowerAction) -> Unit, modifier: Modifi
             .shadow(12.dp, RoundedCornerShape(DS.cornerRadius))
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
-            // Header — left-rule style
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1543,7 +2247,7 @@ private fun PremiumPowerMenuItem(
 }
 
 // ─────────────────────────────────────────────────────────
-// Legacy-compat: original simple icon composables kept for other call sites
+// Legacy Compatibility Functions
 // ─────────────────────────────────────────────────────────
 @Composable
 fun StartMenuAppIcon(
@@ -1575,9 +2279,6 @@ fun BuiltInAppIcon(
     AnimatedBuiltInIcon(name = name, icon = icon, isDark = isDark, editMode = false, onClick = onClick)
 }
 
-// ─────────────────────────────────────────────────────────
-// StartMenuSearch (public alias)
-// ─────────────────────────────────────────────────────────
 @Composable
 fun StartMenuSearch(
     query: String,
@@ -1601,8 +2302,8 @@ internal val builtInApps = listOf(
     Triple("Messages",     Icons.Default.Message,          LauncherScreen.MESSAGES),
     Triple("Media Player", Icons.Default.PlayCircleOutline,LauncherScreen.MEDIA_PLAYER),
     Triple("Recycle Bin",  Icons.Default.Delete,           LauncherScreen.RECYCLE_BIN),
-    Triple("Image Viewer",       Icons.Default.Photo,     LauncherScreen.IMAGE_VIEWER),
-    Triple("Text Editor",       Icons.Default.TextFields,     LauncherScreen.TextEditorScreen),
+    Triple("Image Viewer", Icons.Default.Photo,            LauncherScreen.IMAGE_VIEWER),
+    Triple("Text Editor",  Icons.Default.TextFields,       LauncherScreen.TextEditorScreen),
 )
 
 private val powerOptions = listOf(
@@ -1613,7 +2314,7 @@ private val powerOptions = listOf(
 )
 
 // ─────────────────────────────────────────────────────────
-// Utility helpers
+// Utility Helpers
 // ─────────────────────────────────────────────────────────
 private fun java.io.File.readableSize(): String {
     val size = this.length()

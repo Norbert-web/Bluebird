@@ -10,6 +10,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -18,6 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.*
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -31,54 +33,58 @@ import coil.compose.AsyncImage
 import com.bluebird.LauncherViewModel
 
 // ─────────────────────────────────────────────────────────
-// Design System
+// Professional Design System - Inspired by Microsoft Fluent
 // ─────────────────────────────────────────────────────────
-private object EdgeDS {
-    // Core palette — Edge-inspired deep navy + electric blue
-    val bgDeep       = Color(0xFF0A0E1A)
-    val bgPanel      = Color(0xFF0F1420)
-    val bgCard       = Color(0xFF141928)
-    val bgElevated   = Color(0xFF1A2035)
-    val bgInput      = Color(0xFF111827)
+private object ProfessionalDS {
+    // Modern, clean color palette
+    val bgPrimary       = Color(0xFFFAFAFA)
+    val bgSecondary     = Color(0xFFF3F3F3)
+    val bgCard          = Color(0xFFFFFFFF)
+    val bgInverse       = Color(0xFF1F1F1F)
+    val bgInputField    = Color(0xFFF0F0F0)
 
-    val accentBlue   = Color(0xFF0078D4)   // Edge signature blue
-    val accentCyan   = Color(0xFF00B4D8)
-    val accentGlow   = Color(0xFF4FC3F7)
+    val accentPrimary   = Color(0xFF0078D4)   // Microsoft Blue
+    val accentHover     = Color(0xFF106EBE)
+    val accentPress     = Color(0xFF004B8D)
+    val accentLight     = Color(0xFFEBF4F8)
 
-    val borderSubtle = Color(0x18FFFFFF)
-    val borderMid    = Color(0x28FFFFFF)
-    val borderAccent = Color(0x60FFFFFF)
+    val successGreen    = Color(0xFF107C10)
+    val warningAmber    = Color(0xFFFFB900)
+    val errorRed        = Color(0xFFE81123)
 
-    val textPrimary  = Color(0xFFE8EAF0)
-    val textSecond   = Color(0xFF8892A4)
-    val textHint     = Color(0xFF4D5668)
+    val borderSubtle    = Color(0xFFE1E1E1)
+    val borderMid       = Color(0xFFCACACB)
 
-    val successGreen = Color(0xFF22C55E)
-    val warningAmber = Color(0xFFF59E0B)
+    val textPrimary     = Color(0xFF242424)
+    val textSecondary   = Color(0xFF616161)
+    val textTertiary    = Color(0xFF757575)
+    val textDisabled    = Color(0xFFA19F9D)
+
+    val divider         = Color(0xFFE1E1E1)
 
     fun accentGradient() = Brush.linearGradient(
-        colors = listOf(accentBlue, accentCyan),
-        start = Offset(0f, 0f), end = Offset(400f, 200f)
+        colors = listOf(accentPrimary, Color(0xFF0063B1)),
+        start = Offset(0f, 0f),
+        end = Offset(400f, 200f)
     )
 
-    fun panelGradient() = Brush.verticalGradient(
-        colors = listOf(Color(0xFF0F1829), Color(0xFF080D18))
-    )
-
-    fun glowBrush() = Brush.radialGradient(
-        colors = listOf(accentBlue.copy(alpha = 0.25f), Color.Transparent),
-        radius = 500f
-    )
+    fun shadowElevation(elevation: Dp) = when (elevation) {
+        2.dp -> Color.Black.copy(alpha = 0.04f)
+        4.dp -> Color.Black.copy(alpha = 0.06f)
+        8.dp -> Color.Black.copy(alpha = 0.08f)
+        else -> Color.Transparent
+    }
 }
 
 // ─────────────────────────────────────────────────────────
-// Data models
+// Data Models
 // ─────────────────────────────────────────────────────────
 private data class PermissionGroup(
     val title: String,
     val description: String,
     val icon: ImageVector,
-    val permissions: List<String>
+    val permissions: List<String>,
+    val optional: Boolean = false
 )
 
 private fun areAllPermissionsGranted(
@@ -89,18 +95,20 @@ private fun areAllPermissionsGranted(
             android.content.pm.PackageManager.PERMISSION_GRANTED
 }
 
-// Step metadata
 private data class StepMeta(val icon: ImageVector, val label: String, val subtitle: String)
 
 private val stepMeta = listOf(
-    StepMeta(Icons.Default.Carpenter,    "Welcome",     "Let's get started"),
-    StepMeta(Icons.Default.Security,       "Permissions", "Access & Privacy"),
-    StepMeta(Icons.Default.Person,         "Your Profile","Name & Identity"),
-    StepMeta(Icons.Default.PhotoCamera,    "Your Photo",  "Profile Picture"),
+    StepMeta(Icons.Default.Home,            "Welcome",     "Get started"),
+    StepMeta(Icons.Default.Lock,            "Permissions", "Access & Privacy"),
+    StepMeta(Icons.Default.Person,          "Profile",     "Name & Identity"),
+    StepMeta(Icons.Default.Image,           "Photo",       "Profile Picture"),
+    StepMeta(Icons.Default.Description,     "Legal",       "Terms & Privacy"),
 )
 
+private enum class StepState { DONE, ACTIVE, UPCOMING }
+
 // ─────────────────────────────────────────────────────────
-// ROOT SETUP SCREEN — Landscape split-panel layout
+// ROOT SETUP SCREEN
 // ─────────────────────────────────────────────────────────
 @Composable
 fun SetupScreen(
@@ -111,35 +119,40 @@ fun SetupScreen(
     val step = uiState.setupStep
     val context = LocalContext.current
 
-    // Show "Set as default launcher" dialog after setup completes
-    var showDefaultLauncherPrompt by remember { mutableStateOf(false) }
+    // Dialog states - Use NonCancellable to prevent dismissal
+    var showDefaultLauncherDialog by remember { mutableStateOf(false) }
+    var setupCompleted by remember { mutableStateOf(false) }
 
     val permissionGroups = remember {
         listOf(
             PermissionGroup(
-                "Storage", "Browse and manage your files",
+                "Storage", "Access photos, documents, and files",
                 Icons.Default.FolderOpen,
                 listOf(
                     Manifest.permission.READ_EXTERNAL_STORAGE,
                     Manifest.permission.READ_MEDIA_IMAGES,
                     Manifest.permission.READ_MEDIA_VIDEO,
                     Manifest.permission.READ_MEDIA_AUDIO
-                )
+                ),
+                optional = false
             ),
             PermissionGroup(
-                "Phone & Contacts", "Make calls and view contacts",
-                Icons.Default.Phone,
-                listOf(Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE)
+                "Contacts & Calls", "Make calls and view your contacts",
+                Icons.Default.Contacts,
+                listOf(Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE),
+                optional = true
             ),
             PermissionGroup(
-                "SMS", "Read and send messages",
+                "Messages", "Read and send text messages",
                 Icons.Default.Message,
-                listOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS)
+                listOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS),
+                optional = true
             ),
             PermissionGroup(
-                "Camera", "Take profile photos",
+                "Camera", "Capture profile photos and video",
                 Icons.Default.PhotoCamera,
-                listOf(Manifest.permission.CAMERA)
+                listOf(Manifest.permission.CAMERA),
+                optional = false
             )
         )
     }
@@ -162,188 +175,193 @@ fun SetupScreen(
         requestedGroup = null
     }
 
-    // Full-screen background
-    Box(modifier = Modifier.fillMaxSize().background(EdgeDS.bgDeep)) {
+    // Main background
+    Box(modifier = Modifier.fillMaxSize().background(ProfessionalDS.bgPrimary)) {
 
-        // Ambient glow top-left
+        // Subtle corner accents
         Box(
             modifier = Modifier
-                .size(600.dp)
-                .offset((-150).dp, (-150).dp)
+                .size(300.dp)
+                .offset((-80).dp, (-80).dp)
                 .background(
-                    Brush.radialGradient(
-                        colors = listOf(EdgeDS.accentBlue.copy(alpha = 0.12f), Color.Transparent)
-                    )
+                    ProfessionalDS.accentLight.copy(alpha = 0.4f),
+                    RoundedCornerShape(50)
                 )
         )
-        // Ambient glow bottom-right
         Box(
             modifier = Modifier
-                .size(400.dp)
+                .size(200.dp)
                 .align(Alignment.BottomEnd)
-                .offset(100.dp, 100.dp)
+                .offset(60.dp, 60.dp)
                 .background(
-                    Brush.radialGradient(
-                        colors = listOf(EdgeDS.accentCyan.copy(alpha = 0.08f), Color.Transparent)
-                    )
+                    ProfessionalDS.accentLight.copy(alpha = 0.3f),
+                    RoundedCornerShape(50)
                 )
         )
 
-        // ── Landscape split: Left branding panel + Right content ──
-        Row(modifier = Modifier.fillMaxSize()) {
-
-            // ── LEFT PANEL (branding + step nav) ──
-            LeftBrandPanel(currentStep = step, modifier = Modifier.width(280.dp).fillMaxHeight())
-
-            // Vertical divider
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .fillMaxHeight()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color.Transparent,
-                                EdgeDS.borderMid,
-                                EdgeDS.borderSubtle,
-                                Color.Transparent
-                            )
-                        )
-                    )
+        // Main content
+        if (setupCompleted) {
+            // Show default launcher dialog instead of progressing
+            DefaultLauncherDialog(
+                onSetDefault = {
+                    val intent = Intent(Settings.ACTION_HOME_SETTINGS)
+                    context.startActivity(intent)
+                    showDefaultLauncherDialog = false
+                    viewModel.completeSetup()
+                },
+                onSkip = {
+                    showDefaultLauncherDialog = false
+                    viewModel.completeSetup()
+                }
             )
+        } else {
+            Row(modifier = Modifier.fillMaxSize()) {
+                // Left sidebar
+                LeftSidebar(currentStep = step, modifier = Modifier.width(280.dp).fillMaxHeight())
 
-            // ── RIGHT PANEL (step content) ──
-            Box(
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-                contentAlignment = Alignment.Center
-            ) {
-                AnimatedContent(
-                    targetState = step,
-                    transitionSpec = {
-                        if (targetState > initialState) {
-                            slideInHorizontally { it / 2 } + fadeIn(tween(320)) togetherWith
-                                    slideOutHorizontally { -it / 2 } + fadeOut(tween(200))
-                        } else {
-                            slideInHorizontally { -it / 2 } + fadeIn(tween(320)) togetherWith
-                                    slideOutHorizontally { it / 2 } + fadeOut(tween(200))
-                        }
-                    },
-                    label = "step_content"
-                ) { currentStep ->
-                    when (currentStep) {
-                        0 -> WelcomeStep(onNext = { viewModel.advanceSetupStep() })
-                        1 -> PermissionsStep(
-                            permissionGroups = permissionGroups,
-                            grantedStates = grantedStates,
-                            onRequestPermission = { group ->
-                                requestedGroup = group
-                                permLauncher.launch(group.permissions.toTypedArray())
-                            },
-                            onRequestNotificationAccess = onRequestNotificationAccess,
-                            onNext = { viewModel.advanceSetupStep() }
-                        )
-                        2 -> UsernameStep(
-                            currentName = uiState.userProfile.userName,
-                            onNameChange = { viewModel.setUserName(it) },
-                            onNext = { viewModel.advanceSetupStep() }
-                        )
-                        3 -> AvatarStep(
-                            onAvatarPicked = { viewModel.setProfilePicture(context, Uri.parse(it)) },
-                            onNext = {
-                                viewModel.advanceSetupStep()
-                                showDefaultLauncherPrompt = true
+                // Vertical divider
+                Divider(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .fillMaxHeight(),
+                    color = ProfessionalDS.borderSubtle
+                )
+
+                // Right content
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AnimatedContent(
+                        targetState = step,
+                        transitionSpec = {
+                            if (targetState > initialState) {
+                                slideInHorizontally(
+                                    animationSpec = tween(300, easing = FastOutSlowInEasing),
+                                    initialOffsetX = { it / 3 }
+                                ) + fadeIn(tween(300)) togetherWith
+                                        slideOutHorizontally(
+                                            animationSpec = tween(300, easing = FastOutSlowInEasing),
+                                            targetOffsetX = { -it / 3 }
+                                        ) + fadeOut(tween(300))
+                            } else {
+                                slideInHorizontally(
+                                    animationSpec = tween(300, easing = FastOutSlowInEasing),
+                                    initialOffsetX = { -it / 3 }
+                                ) + fadeIn(tween(300)) togetherWith
+                                        slideOutHorizontally(
+                                            animationSpec = tween(300, easing = FastOutSlowInEasing),
+                                            targetOffsetX = { it / 3 }
+                                        ) + fadeOut(tween(300))
                             }
-                        )
-                        else -> {
-                            LaunchedEffect(Unit) { viewModel.completeSetup() }
+                        },
+                        label = "setup_steps"
+                    ) { currentStep ->
+                        when (currentStep) {
+                            0 -> WelcomeStep(onNext = { viewModel.advanceSetupStep() })
+                            1 -> PermissionsStep(
+                                permissionGroups = permissionGroups,
+                                grantedStates = grantedStates,
+                                onRequestPermission = { group ->
+                                    requestedGroup = group
+                                    permLauncher.launch(group.permissions.toTypedArray())
+                                },
+                                onRequestNotificationAccess = onRequestNotificationAccess,
+                                onNext = { viewModel.advanceSetupStep() }
+                            )
+                            2 -> UsernameStep(
+                                currentName = uiState.userProfile.userName,
+                                onNameChange = { viewModel.setUserName(it) },
+                                onNext = { viewModel.advanceSetupStep() }
+                            )
+                            3 -> AvatarStep(
+                                onAvatarPicked = { viewModel.setProfilePicture(context, Uri.parse(it)) },
+                                onNext = { viewModel.advanceSetupStep() }
+                            )
+                            4 -> LegalStep(
+                                onNext = {
+                                    setupCompleted = true
+                                }
+                            )
+                            else -> {
+                                LaunchedEffect(Unit) {
+                                    setupCompleted = true
+                                }
+                            }
                         }
                     }
                 }
             }
         }
 
-        // ── Bottom step dots ──
-        StepDots(
-            total = 4,
-            current = step,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp)
-        )
-    }
-
-    // ── Default Launcher Dialog ──
-    if (showDefaultLauncherPrompt) {
-        DefaultLauncherDialog(
-            onSetDefault = {
-                showDefaultLauncherPrompt = false
-                val intent = Intent(Settings.ACTION_HOME_SETTINGS)
-                context.startActivity(intent)
-                viewModel.completeSetup()
-            },
-            onSkip = {
-                showDefaultLauncherPrompt = false
-                viewModel.completeSetup()
-            }
-        )
+        // Bottom progress indicator
+        if (!setupCompleted) {
+            StepProgressIndicator(
+                total = 5,
+                current = step,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+            )
+        }
     }
 }
 
 // ─────────────────────────────────────────────────────────
-// Left Branding Panel
+// Left Sidebar Navigation
 // ─────────────────────────────────────────────────────────
 @Composable
-private fun LeftBrandPanel(currentStep: Int, modifier: Modifier = Modifier) {
+private fun LeftSidebar(currentStep: Int, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
-            .background(EdgeDS.panelGradient())
-            .padding(horizontal = 28.dp, vertical = 32.dp),
+            .background(ProfessionalDS.bgCard)
+            .padding(24.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Logo + brand
+        // Logo and branding
         Column {
-            // Edge-style logo mark
             Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(EdgeDS.accentGradient()),
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(ProfessionalDS.accentGradient()),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.Window,
+                    Icons.Default.Home,
                     null,
                     tint = Color.White,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
             Text(
-                "Win11\nLauncher",
-                fontSize = 22.sp,
+                "Bluebird OS",
+                fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                color = EdgeDS.textPrimary,
-                lineHeight = 28.sp
+                color = ProfessionalDS.textPrimary
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                "Setup Assistant",
+                "Setup Wizard",
                 fontSize = 12.sp,
-                color = EdgeDS.textSecond,
+                color = ProfessionalDS.textSecondary,
                 letterSpacing = 0.5.sp
             )
         }
 
-        // Step navigator
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Step navigation
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 "SETUP STEPS",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = EdgeDS.textHint,
-                letterSpacing = 1.5.sp,
-                modifier = Modifier.padding(bottom = 6.dp)
+                color = ProfessionalDS.textTertiary,
+                letterSpacing = 1.2.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
             )
             stepMeta.forEachIndexed { index, meta ->
-                StepNavItem(
+                SidebarStepItem(
                     index = index,
                     meta = meta,
                     state = when {
@@ -357,124 +375,135 @@ private fun LeftBrandPanel(currentStep: Int, modifier: Modifier = Modifier) {
 
         // Footer
         Column {
-            HorizontalDivider(color = EdgeDS.borderSubtle, modifier = Modifier.padding(bottom = 14.dp))
+            Divider(color = ProfessionalDS.borderSubtle, modifier = Modifier.padding(bottom = 14.dp))
             Text(
-                "Win11 Launcher",
+                "Bluebird OS Setup",
                 fontSize = 11.sp,
-                color = EdgeDS.textHint
+                color = ProfessionalDS.textTertiary
             )
             Text(
-                "v2.0 • Landscape Edition",
+                "Version 1.0",
                 fontSize = 10.sp,
-                color = EdgeDS.textHint.copy(alpha = 0.6f)
+                color = ProfessionalDS.textDisabled
             )
         }
     }
 }
 
-private enum class StepState { DONE, ACTIVE, UPCOMING }
-
 @Composable
-private fun StepNavItem(index: Int, meta: StepMeta, state: StepState) {
-    val bgAlpha by animateFloatAsState(if (state == StepState.ACTIVE) 1f else 0f, label = "stepBg")
-    val iconTint = when (state) {
-        StepState.DONE     -> EdgeDS.successGreen
-        StepState.ACTIVE   -> Color.White
-        StepState.UPCOMING -> EdgeDS.textHint
+private fun SidebarStepItem(index: Int, meta: StepMeta, state: StepState) {
+    val bgColor = when (state) {
+        StepState.DONE -> ProfessionalDS.accentLight
+        StepState.ACTIVE -> ProfessionalDS.accentLight
+        StepState.UPCOMING -> Color.Transparent
     }
+
+    val iconTint = when (state) {
+        StepState.DONE -> ProfessionalDS.successGreen
+        StepState.ACTIVE -> ProfessionalDS.accentPrimary
+        StepState.UPCOMING -> ProfessionalDS.textTertiary
+    }
+
     val textColor = when (state) {
-        StepState.DONE     -> EdgeDS.textSecond
-        StepState.ACTIVE   -> EdgeDS.textPrimary
-        StepState.UPCOMING -> EdgeDS.textHint
+        StepState.DONE -> ProfessionalDS.textSecondary
+        StepState.ACTIVE -> ProfessionalDS.textPrimary
+        StepState.UPCOMING -> ProfessionalDS.textTertiary
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(
-                if (state == StepState.ACTIVE)
-                    Brush.horizontalGradient(listOf(EdgeDS.accentBlue.copy(alpha = 0.2f), Color.Transparent))
-                else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
-            )
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .clip(RoundedCornerShape(8.dp))
+            .background(bgColor)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Step circle
+        // Step indicator
         Box(
             modifier = Modifier
                 .size(28.dp)
+                .clip(CircleShape)
                 .background(
                     when (state) {
-                        StepState.DONE   -> SolidColor(EdgeDS.successGreen.copy(alpha = 0.15f))
-                        StepState.ACTIVE -> EdgeDS.accentGradient()
-                        StepState.UPCOMING -> Brush.linearGradient(
-                            listOf(EdgeDS.bgElevated, EdgeDS.bgElevated)
-                        )
-                    },
-                    CircleShape
+                        StepState.DONE -> ProfessionalDS.successGreen.copy(alpha = 0.12f)
+                        StepState.ACTIVE -> ProfessionalDS.accentPrimary.copy(alpha = 0.12f)
+                        StepState.UPCOMING -> ProfessionalDS.bgInputField
+                    }
                 )
                 .border(
-                    1.dp,
+                    1.5.dp,
                     when (state) {
-                        StepState.DONE -> EdgeDS.successGreen.copy(alpha = 0.4f)
-                        StepState.ACTIVE -> Color.Transparent
-                        StepState.UPCOMING -> EdgeDS.borderSubtle
+                        StepState.DONE -> ProfessionalDS.successGreen
+                        StepState.ACTIVE -> ProfessionalDS.accentPrimary
+                        StepState.UPCOMING -> ProfessionalDS.borderMid
                     },
                     CircleShape
                 ),
             contentAlignment = Alignment.Center
         ) {
             if (state == StepState.DONE) {
-                Icon(Icons.Default.Check, null, tint = EdgeDS.successGreen, modifier = Modifier.size(14.dp))
+                Icon(Icons.Default.Check, null, tint = ProfessionalDS.successGreen, modifier = Modifier.size(14.dp))
             } else {
                 Text(
                     "${index + 1}",
                     fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                     color = iconTint
                 )
             }
         }
 
-        Column {
-            Text(meta.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = textColor)
-            Text(meta.subtitle, fontSize = 10.sp, color = textColor.copy(alpha = 0.6f))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                meta.label,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = textColor
+            )
+            Text(
+                meta.subtitle,
+                fontSize = 10.sp,
+                color = textColor.copy(alpha = 0.7f)
+            )
         }
 
         if (state == StepState.ACTIVE) {
-            Spacer(Modifier.weight(1f))
-            Box(
-                modifier = Modifier
-                    .size(5.dp)
-                    .background(EdgeDS.accentBlue, CircleShape)
+            Icon(
+                Icons.Default.ChevronRight,
+                null,
+                tint = ProfessionalDS.accentPrimary,
+                modifier = Modifier.size(18.dp)
             )
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────
-// Step Dots (bottom indicator)
+// Progress Indicator
 // ─────────────────────────────────────────────────────────
 @Composable
-private fun StepDots(total: Int, current: Int, modifier: Modifier = Modifier) {
+private fun StepProgressIndicator(total: Int, current: Int, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         repeat(total) { index ->
             val isActive = index == current
-            val width by animateDpAsState(if (isActive) 22.dp else 6.dp, spring(0.6f, 500f), label = "dot")
+            val width by animateDpAsState(
+                targetValue = if (isActive) 24.dp else 4.dp,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
+                label = "progress_dot"
+            )
             Box(
                 modifier = Modifier
-                    .height(6.dp)
+                    .height(4.dp)
                     .width(width)
-                    .clip(RoundedCornerShape(3.dp))
+                    .clip(RoundedCornerShape(2.dp))
                     .background(
-                        if (isActive) EdgeDS.accentGradient()
-                        else Brush.linearGradient(listOf(EdgeDS.borderMid, EdgeDS.borderMid))
+                        if (isActive) ProfessionalDS.accentPrimary
+                        else ProfessionalDS.borderMid
                     )
             )
         }
@@ -482,10 +511,10 @@ private fun StepDots(total: Int, current: Int, modifier: Modifier = Modifier) {
 }
 
 // ─────────────────────────────────────────────────────────
-// Step content wrapper
+// Step Container
 // ─────────────────────────────────────────────────────────
 @Composable
-private fun StepPane(
+private fun StepContainer(
     title: String,
     subtitle: String,
     icon: ImageVector,
@@ -493,28 +522,42 @@ private fun StepPane(
 ) {
     Column(
         modifier = Modifier
-            .widthIn(max = 460.dp)
-            .padding(horizontal = 32.dp, vertical = 24.dp)
+            .widthIn(max = 500.dp)
+            .padding(horizontal = 40.dp, vertical = 32.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         // Header
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(EdgeDS.accentGradient()),
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(ProfessionalDS.accentLight),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                Icon(
+                    icon,
+                    null,
+                    tint = ProfessionalDS.accentPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
             }
-            Spacer(Modifier.height(4.dp))
-            Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = EdgeDS.textPrimary)
-            Text(subtitle, fontSize = 13.sp, color = EdgeDS.textSecond)
+            Text(
+                title,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = ProfessionalDS.textPrimary
+            )
+            Text(
+                subtitle,
+                fontSize = 14.sp,
+                color = ProfessionalDS.textSecondary,
+                lineHeight = 20.sp
+            )
         }
 
-        HorizontalDivider(color = EdgeDS.borderSubtle)
+        Divider(color = ProfessionalDS.borderSubtle)
 
         content()
     }
@@ -525,54 +568,68 @@ private fun StepPane(
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun WelcomeStep(onNext: () -> Unit) {
-    StepPane(
-        title = "Welcome to Win11 Launcher",
-        subtitle = "The Windows 11 experience, on Android.",
-        icon = Icons.Default.Laptop
+    StepContainer(
+        title = "Welcome to Bluebird OS",
+        subtitle = "Your modern, intuitive mobile launcher experience. Let's set things up.",
+        icon = Icons.Default.Home
     ) {
-        // Feature chips
-        val features = listOf(
-            Triple(Icons.Default.Dashboard, "Start Menu", "Full Win11 Start Menu with pinned apps"),
-            Triple(Icons.Default.ViewModule, "Task Manager", "Monitor and manage running apps"),
-            Triple(Icons.Default.Notifications, "Notification Center", "Action center & quick settings"),
-            Triple(Icons.Default.Search, "Search", "System-wide search across apps & files"),
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            val features = listOf(
+                Triple(Icons.Default.Dashboard, "Clean Interface", "Beautiful, minimal design inspired by modern systems"),
+                Triple(Icons.Default.Settings, "Customizable", "Organize your apps and widgets exactly how you want"),
+                Triple(Icons.Default.Security, "Privacy-Focused", "Your data stays on your device"),
+                Triple(Icons.Default.Speed, "Lightweight", "Fast, smooth, and responsive performance"),
+            )
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             features.forEach { (icon, title, desc) ->
-                FeatureRow(icon = icon, title = title, desc = desc)
+                FeatureCard(icon = icon, title = title, desc = desc)
             }
         }
 
-        Spacer(Modifier.height(4.dp))
-        EdgeButton(text = "Get Started", icon = Icons.Default.ArrowForward, onClick = onNext)
+        Spacer(modifier = Modifier.height(8.dp))
+        PrimaryButton(text = "Get Started", icon = Icons.Default.ArrowForward, onClick = onNext)
     }
 }
 
 @Composable
-private fun FeatureRow(icon: ImageVector, title: String, desc: String) {
+private fun FeatureCard(icon: ImageVector, title: String, desc: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(EdgeDS.bgElevated)
-            .border(1.dp, EdgeDS.borderSubtle, RoundedCornerShape(10.dp))
-            .padding(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .clip(RoundedCornerShape(8.dp))
+            .background(ProfessionalDS.bgSecondary)
+            .border(1.dp, ProfessionalDS.borderSubtle, RoundedCornerShape(8.dp))
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(EdgeDS.accentBlue.copy(alpha = 0.15f)),
+                .size(40.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(ProfessionalDS.accentLight),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, null, tint = EdgeDS.accentCyan, modifier = Modifier.size(18.dp))
+            Icon(
+                icon,
+                null,
+                tint = ProfessionalDS.accentPrimary,
+                modifier = Modifier.size(20.dp)
+            )
         }
         Column {
-            Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = EdgeDS.textPrimary)
-            Text(desc, fontSize = 11.sp, color = EdgeDS.textSecond)
+            Text(
+                title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = ProfessionalDS.textPrimary
+            )
+            Text(
+                desc,
+                fontSize = 12.sp,
+                color = ProfessionalDS.textSecondary,
+                lineHeight = 16.sp
+            )
         }
     }
 }
@@ -588,108 +645,129 @@ private fun PermissionsStep(
     onRequestNotificationAccess: () -> Unit,
     onNext: () -> Unit
 ) {
-    StepPane(
+    StepContainer(
         title = "Permissions",
-        subtitle = "Required for full functionality. You can change these later.",
-        icon = Icons.Default.Security
+        subtitle = "We need a few permissions to provide the full experience. Optional permissions can be skipped.",
+        icon = Icons.Default.Lock
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             permissionGroups.forEach { group ->
-                EdgePermissionRow(
+                PermissionCard(
                     icon = group.icon,
                     title = group.title,
                     desc = group.description,
                     isGranted = grantedStates[group.title] ?: false,
+                    isOptional = group.optional,
                     onGrant = { onRequestPermission(group) }
                 )
             }
-            EdgePermissionRow(
+            PermissionCard(
                 icon = Icons.Default.Notifications,
                 title = "Notifications",
-                desc = "Show live system notifications",
+                desc = "Show timely notifications and alerts",
                 isGranted = false,
+                isOptional = true,
                 onGrant = onRequestNotificationAccess,
                 grantLabel = "Open Settings"
             )
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            EdgeButton("Continue", Icons.Default.ArrowForward, onClick = onNext)
-            TextButton(
-                onClick = onNext,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Skip for now", color = EdgeDS.textSecond, fontSize = 13.sp)
-            }
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            PrimaryButton("Continue", Icons.Default.ArrowForward, onClick = onNext)
+            SecondaryButton("Skip", onClick = onNext, modifier = Modifier.fillMaxWidth())
         }
     }
 }
 
 @Composable
-private fun EdgePermissionRow(
+private fun PermissionCard(
     icon: ImageVector,
     title: String,
     desc: String,
     isGranted: Boolean,
+    isOptional: Boolean = false,
     onGrant: () -> Unit,
     grantLabel: String = "Grant"
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(EdgeDS.bgElevated)
+            .clip(RoundedCornerShape(8.dp))
+            .background(ProfessionalDS.bgSecondary)
             .border(
                 1.dp,
-                if (isGranted) EdgeDS.successGreen.copy(alpha = 0.3f) else EdgeDS.borderSubtle,
-                RoundedCornerShape(10.dp)
+                if (isGranted) ProfessionalDS.successGreen.copy(alpha = 0.3f) else ProfessionalDS.borderSubtle,
+                RoundedCornerShape(8.dp)
             )
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(9.dp))
+                .size(40.dp)
+                .clip(RoundedCornerShape(8.dp))
                 .background(
-                    if (isGranted) EdgeDS.successGreen.copy(alpha = 0.12f)
-                    else EdgeDS.accentBlue.copy(alpha = 0.12f)
+                    if (isGranted) ProfessionalDS.successGreen.copy(alpha = 0.12f)
+                    else ProfessionalDS.accentLight
                 ),
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                icon, null,
-                tint = if (isGranted) EdgeDS.successGreen else EdgeDS.accentCyan,
-                modifier = Modifier.size(18.dp)
+                icon,
+                null,
+                tint = if (isGranted) ProfessionalDS.successGreen else ProfessionalDS.accentPrimary,
+                modifier = Modifier.size(20.dp)
             )
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = EdgeDS.textPrimary)
-            Text(desc, fontSize = 10.sp, color = EdgeDS.textSecond)
-        }
-        if (isGranted) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(EdgeDS.successGreen.copy(alpha = 0.12f))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Icon(Icons.Default.CheckCircle, null, tint = EdgeDS.successGreen, modifier = Modifier.size(14.dp))
-                Text("Granted", fontSize = 11.sp, color = EdgeDS.successGreen, fontWeight = FontWeight.Medium)
+                Text(
+                    title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = ProfessionalDS.textPrimary
+                )
+                if (isOptional) {
+                    Text(
+                        "Optional",
+                        fontSize = 10.sp,
+                        color = ProfessionalDS.textTertiary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(ProfessionalDS.bgInputField)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
+            Text(desc, fontSize = 12.sp, color = ProfessionalDS.textSecondary)
+        }
+        if (isGranted) {
+            Icon(
+                Icons.Default.CheckCircle,
+                null,
+                tint = ProfessionalDS.successGreen,
+                modifier = Modifier.size(20.dp)
+            )
         } else {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(EdgeDS.accentBlue.copy(alpha = 0.15f))
-                    .border(1.dp, EdgeDS.accentBlue.copy(alpha = 0.5f), RoundedCornerShape(7.dp))
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(ProfessionalDS.accentLight)
                     .clickable(onClick = onGrant)
-                    .padding(horizontal = 12.dp, vertical = 5.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
-                Text(grantLabel, fontSize = 11.sp, color = EdgeDS.accentGlow, fontWeight = FontWeight.SemiBold)
+                Text(
+                    grantLabel,
+                    fontSize = 12.sp,
+                    color = ProfessionalDS.accentPrimary,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }
@@ -707,51 +785,67 @@ private fun UsernameStep(
     var name by remember { mutableStateOf(currentName) }
     var isFocused by remember { mutableStateOf(false) }
 
-    StepPane(
+    StepContainer(
         title = "What's your name?",
-        subtitle = "Shown on the Start Menu, lock screen, and user profile.",
+        subtitle = "This will be displayed on your lock screen and Start Menu.",
         icon = Icons.Default.Person
     ) {
-        // Name input
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Display Name", fontSize = 12.sp, color = EdgeDS.textSecond, fontWeight = FontWeight.Medium)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Display Name",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = ProfessionalDS.textPrimary
+            )
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(EdgeDS.bgInput)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(ProfessionalDS.bgInputField)
                     .border(
-                        1.dp,
-                        if (isFocused) EdgeDS.accentBlue else EdgeDS.borderMid,
-                        RoundedCornerShape(10.dp)
+                        1.5.dp,
+                        if (isFocused) ProfessionalDS.accentPrimary else ProfessionalDS.borderSubtle,
+                        RoundedCornerShape(8.dp)
                     )
             ) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { isFocused = it.isFocused },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Color.Transparent,
                         unfocusedBorderColor = Color.Transparent,
-                        focusedTextColor = EdgeDS.textPrimary,
-                        unfocusedTextColor = EdgeDS.textPrimary,
-                        focusedLabelColor = EdgeDS.accentCyan,
-                        unfocusedLabelColor = EdgeDS.textSecond,
-                        cursorColor = EdgeDS.accentBlue,
+                        focusedTextColor = ProfessionalDS.textPrimary,
+                        unfocusedTextColor = ProfessionalDS.textPrimary,
+                        cursorColor = ProfessionalDS.accentPrimary,
                         focusedContainerColor = Color.Transparent,
                         unfocusedContainerColor = Color.Transparent,
                     ),
-                    placeholder = { Text("e.g. Alex Johnson", color = EdgeDS.textHint, fontSize = 14.sp) },
+                    placeholder = {
+                        Text(
+                            "e.g. Alex Johnson",
+                            color = ProfessionalDS.textTertiary,
+                            fontSize = 14.sp
+                        )
+                    },
                     singleLine = true,
                     leadingIcon = {
-                        Icon(Icons.Default.Person, null, tint = EdgeDS.accentCyan, modifier = Modifier.size(20.dp))
+                        Icon(
+                            Icons.Default.Person,
+                            null,
+                            tint = ProfessionalDS.accentPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
                     },
                     trailingIcon = {
                         if (name.isNotEmpty()) {
                             Icon(
-                                Icons.Default.CheckCircle, null,
-                                tint = EdgeDS.successGreen,
+                                Icons.Default.CheckCircle,
+                                null,
+                                tint = ProfessionalDS.successGreen,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -760,15 +854,14 @@ private fun UsernameStep(
             }
 
             Text(
-                "This can be changed later in Settings.",
-                fontSize = 11.sp,
-                color = EdgeDS.textHint
+                "Can be changed later in settings",
+                fontSize = 12.sp,
+                color = ProfessionalDS.textTertiary
             )
         }
 
-        Spacer(Modifier.height(4.dp))
-
-        EdgeButton(
+        Spacer(modifier = Modifier.height(8.dp))
+        PrimaryButton(
             text = "Continue",
             icon = Icons.Default.ArrowForward,
             enabled = name.isNotBlank(),
@@ -792,32 +885,32 @@ private fun AvatarStep(
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri ->
-        uri?.let { selectedUri = it; onAvatarPicked(it.toString()) }
+        uri?.let {
+            selectedUri = it
+            onAvatarPicked(it.toString())
+        }
     }
 
-    StepPane(
+    StepContainer(
         title = "Add a profile photo",
-        subtitle = "Personalize your Start Menu and lock screen.",
-        icon = Icons.Default.AccountCircle
+        subtitle = "This will appear on your Start Menu and lock screen.",
+        icon = Icons.Default.Image
     ) {
-        // Avatar preview + picker
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Avatar circle
             Box(
                 modifier = Modifier
-                    .size(100.dp)
+                    .size(120.dp)
                     .clip(CircleShape)
                     .background(
-                        if (selectedUri == null) EdgeDS.accentBlue.copy(alpha = 0.15f) else Color.Transparent
+                        if (selectedUri == null) ProfessionalDS.accentLight else Color.Transparent
                     )
                     .border(
                         2.dp,
-                        if (selectedUri != null) EdgeDS.accentGradient()
-                        else Brush.linearGradient(listOf(EdgeDS.borderMid, EdgeDS.borderMid)),
+                        if (selectedUri != null) ProfessionalDS.accentPrimary else ProfessionalDS.borderMid,
                         CircleShape
                     )
                     .clickable { imagePicker.launch("image/*") },
@@ -826,65 +919,79 @@ private fun AvatarStep(
                 if (selectedUri != null) {
                     AsyncImage(
                         model = selectedUri,
-                        contentDescription = "Avatar",
+                        contentDescription = "Profile photo",
                         modifier = Modifier.fillMaxSize().clip(CircleShape),
                         contentScale = ContentScale.Crop
                     )
                 } else {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(
-                            Icons.Default.AddAPhoto, null,
-                            tint = EdgeDS.accentCyan,
-                            modifier = Modifier.size(28.dp)
+                            Icons.Default.AddAPhoto,
+                            null,
+                            tint = ProfessionalDS.accentPrimary,
+                            modifier = Modifier.size(32.dp)
                         )
-                        Spacer(Modifier.height(4.dp))
-                        Text("Add photo", fontSize = 10.sp, color = EdgeDS.textSecond)
+                        Text(
+                            "Add Photo",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = ProfessionalDS.textSecondary
+                        )
                     }
                 }
             }
 
-            // Right side actions
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
                     if (selectedUri != null) "Photo selected!" else "No photo selected",
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (selectedUri != null) EdgeDS.successGreen else EdgeDS.textPrimary
+                    color = if (selectedUri != null) ProfessionalDS.successGreen else ProfessionalDS.textPrimary
                 )
                 Text(
-                    "Tap the circle or use the button below to choose from your gallery.",
+                    "Tap the circle or use the button to choose a photo from your device.",
                     fontSize = 12.sp,
-                    color = EdgeDS.textSecond
+                    color = ProfessionalDS.textSecondary,
+                    lineHeight = 18.sp
                 )
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .background(EdgeDS.bgElevated)
-                        .border(1.dp, EdgeDS.borderMid, RoundedCornerShape(8.dp))
+                        .background(ProfessionalDS.bgSecondary)
+                        .border(1.dp, ProfessionalDS.borderSubtle, RoundedCornerShape(8.dp))
                         .clickable { imagePicker.launch("image/*") }
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Image, null, tint = EdgeDS.accentCyan, modifier = Modifier.size(16.dp))
-                        Text("Choose from Gallery", fontSize = 12.sp, color = EdgeDS.textPrimary, fontWeight = FontWeight.Medium)
+                        Icon(
+                            Icons.Default.PhotoLibrary,
+                            null,
+                            tint = ProfessionalDS.accentPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            "Choose from Gallery",
+                            fontSize = 12.sp,
+                            color = ProfessionalDS.textPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
             }
         }
 
-        Spacer(Modifier.height(4.dp))
-
-        EdgeButton(
-            text = if (selectedUri != null) "All Done!" else "Skip",
+        Spacer(modifier = Modifier.height(8.dp))
+        PrimaryButton(
+            text = if (selectedUri != null) "All Set!" else "Skip",
             icon = if (selectedUri != null) Icons.Default.Check else Icons.Default.SkipNext,
             onClick = onNext
         )
@@ -892,7 +999,173 @@ private fun AvatarStep(
 }
 
 // ─────────────────────────────────────────────────────────
-// Default Launcher Dialog
+// STEP 4 — Legal & Privacy
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun LegalStep(onNext: () -> Unit) {
+    var selectedTab by remember { mutableStateOf(0) }
+
+    StepContainer(
+        title = "Legal Information",
+        subtitle = "Please review our policies before completing setup.",
+        icon = Icons.Default.Description
+    ) {
+        // Tab selector
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(ProfessionalDS.bgSecondary)
+                .border(1.dp, ProfessionalDS.borderSubtle, RoundedCornerShape(8.dp))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            listOf("Privacy Policy", "About", "Open Source") .forEachIndexed { index, label ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(
+                            if (index == selectedTab) ProfessionalDS.accentPrimary
+                            else Color.Transparent
+                        )
+                        .clickable { selectedTab = index }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        label,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (index == selectedTab) Color.White else ProfessionalDS.textSecondary
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Content
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(ProfessionalDS.bgSecondary)
+                .border(1.dp, ProfessionalDS.borderSubtle, RoundedCornerShape(8.dp))
+                .padding(16.dp)
+                .heightIn(max = 300.dp)
+        ) {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                when (selectedTab) {
+                    0 -> item { PrivacyPolicyContent() }
+                    1 -> item { AboutContent() }
+                    2 -> item { OpenSourceContent() }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        PrimaryButton(
+            text = "Complete Setup",
+            icon = Icons.Default.Check,
+            onClick = onNext
+        )
+    }
+}
+
+@Composable
+private fun PrivacyPolicyContent() {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LegalSection(
+            "Data Collection",
+            "Bluebird OS collects minimal data. We only store your preferences, profile information, and usage statistics locally on your device. No data is sent to external servers without your explicit consent."
+        )
+        LegalSection(
+            "Permissions",
+            "When you grant permissions, they are used only for the specific features you enable. For example, storage permission is only used to access your files when needed. You can revoke permissions at any time through Android settings."
+        )
+        LegalSection(
+            "Third-party Services",
+            "We do not share your personal data with third parties. Any integrations are done transparently and only with services you explicitly authorize."
+        )
+        LegalSection(
+            "Updates",
+            "This privacy policy may be updated. We will notify you of significant changes within the app."
+        )
+    }
+}
+
+@Composable
+private fun AboutContent() {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LegalSection(
+            "About Bluebird OS",
+            "Bluebird OS is a modern mobile launcher designed to provide a clean, intuitive, and performant experience. Our mission is to give users full control over their device interface."
+        )
+        LegalSection(
+            "Our Values",
+            "Privacy First: Your data belongs to you.\nMinimal: Clean, uncluttered interface.\nCustomizable: Adapt to your workflow.\nOpen: Transparent about our practices."
+        )
+        LegalSection(
+            "Support",
+            "For issues, feature requests, or feedback, please visit our GitHub repository or contact us through the app settings."
+        )
+        LegalSection(
+            "Credits",
+            "Bluebird OS is maintained by the community. Special thanks to all contributors and users who help make this project better."
+        )
+    }
+}
+
+@Composable
+private fun OpenSourceContent() {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LegalSection(
+            "Open Source License",
+            "Bluebird OS is released under the Apache License 2.0. You are free to use, modify, and distribute this software under the terms of this license."
+        )
+        LegalSection(
+            "GitHub Repository",
+            "The complete source code is available on GitHub. We welcome contributions from the community. Visit our repository to view the code, report issues, or submit pull requests."
+        )
+        LegalSection(
+            "Contributing",
+            "We encourage contributions! Whether it's bug reports, feature requests, or code contributions, your input helps make Bluebird OS better for everyone."
+        )
+        LegalSection(
+            "Dependencies",
+            "Bluebird OS uses several open-source libraries including Jetpack Compose, Material 3, and Coil. We are grateful to these projects and their maintainers."
+        )
+        LegalSection(
+            "License Text",
+            "Licensed under the Apache License, Version 2.0 (the \"License\"); you may not use this file except in compliance with the License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0"
+        )
+    }
+}
+
+@Composable
+private fun LegalSection(title: String, content: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            title,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = ProfessionalDS.textPrimary
+        )
+        Text(
+            content,
+            fontSize = 11.sp,
+            color = ProfessionalDS.textSecondary,
+            lineHeight = 16.sp
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// Default Launcher Dialog (Non-dismissible)
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun DefaultLauncherDialog(
@@ -902,63 +1175,81 @@ private fun DefaultLauncherDialog(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.7f)),
+            .background(Color.Black.copy(alpha = 0.6f)),
         contentAlignment = Alignment.Center
     ) {
         Box(
             modifier = Modifier
                 .widthIn(max = 420.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(EdgeDS.bgCard)
-                .border(1.dp, EdgeDS.borderMid, RoundedCornerShape(18.dp))
-                .padding(28.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(ProfessionalDS.bgCard)
+                .border(1.dp, ProfessionalDS.borderSubtle, RoundedCornerShape(12.dp))
+                .padding(32.dp)
         ) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Icon
                 Box(
                     modifier = Modifier
-                        .size(60.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(EdgeDS.accentGradient()),
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(ProfessionalDS.accentGradient()),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Home, null, tint = Color.White, modifier = Modifier.size(32.dp))
+                    Icon(
+                        Icons.Default.Home,
+                        null,
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp)
+                    )
                 }
 
-                Text(
-                    "Set as Default Launcher?",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = EdgeDS.textPrimary,
-                    textAlign = TextAlign.Center
-                )
-                Text(
-                    "To use Win11 Launcher as your home screen, set it as your default launcher in Android settings.",
-                    fontSize = 13.sp,
-                    color = EdgeDS.textSecond,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 20.sp
-                )
+                // Content
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "Set as Default Launcher?",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ProfessionalDS.textPrimary,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        "To fully experience Bluebird OS, set it as your default home screen. You can change this anytime in Android settings.",
+                        fontSize = 13.sp,
+                        color = ProfessionalDS.textSecondary,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 20.sp
+                    )
+                }
 
-                // Info row
+                // Info box
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(EdgeDS.accentBlue.copy(alpha = 0.1f))
-                        .border(1.dp, EdgeDS.accentBlue.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(ProfessionalDS.accentLight)
+                        .border(1.dp, ProfessionalDS.accentPrimary.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
                         .padding(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Icon(Icons.Default.Info, null, tint = EdgeDS.accentCyan, modifier = Modifier.size(16.dp))
+                    Icon(
+                        Icons.Default.Info,
+                        null,
+                        tint = ProfessionalDS.accentPrimary,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .padding(top = 2.dp)
+                    )
                     Text(
-                        "You'll be taken to Android's Home App settings. Select \"Win11 Launcher\" from the list.",
+                        "You'll be redirected to Android settings where you can select Bluebird OS as your default launcher.",
                         fontSize = 11.sp,
-                        color = EdgeDS.textSecond,
+                        color = ProfessionalDS.textSecondary,
                         lineHeight = 16.sp
                     )
                 }
@@ -966,27 +1257,28 @@ private fun DefaultLauncherDialog(
                 // Buttons
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    EdgeButton(
+                    PrimaryButton(
                         text = "Set as Default",
                         icon = Icons.Default.OpenInNew,
-                        onClick = onSetDefault
+                        onClick = onSetDefault,
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .border(1.dp, EdgeDS.borderMid, RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, ProfessionalDS.borderMid, RoundedCornerShape(8.dp))
                             .clickable(onClick = onSkip)
                             .padding(vertical = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             "Maybe Later",
-                            fontSize = 14.sp,
-                            color = EdgeDS.textSecond,
-                            fontWeight = FontWeight.Medium
+                            fontSize = 13.sp,
+                            color = ProfessionalDS.textSecondary,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
@@ -996,23 +1288,23 @@ private fun DefaultLauncherDialog(
 }
 
 // ─────────────────────────────────────────────────────────
-// Shared: Edge-style primary button
+// Button Components
 // ─────────────────────────────────────────────────────────
 @Composable
-private fun EdgeButton(
+private fun PrimaryButton(
     text: String,
     icon: ImageVector,
     enabled: Boolean = true,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(46.dp)
-            .clip(RoundedCornerShape(10.dp))
+        modifier = modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(8.dp))
             .background(
-                if (enabled) EdgeDS.accentGradient()
-                else Brush.linearGradient(listOf(EdgeDS.bgElevated, EdgeDS.bgElevated))
+                if (enabled) ProfessionalDS.accentGradient()
+                else ProfessionalDS.bgInputField
             )
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -1023,11 +1315,39 @@ private fun EdgeButton(
         ) {
             Text(
                 text,
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = if (enabled) Color.White else EdgeDS.textHint
+                color = if (enabled) Color.White else ProfessionalDS.textDisabled
             )
-            Icon(icon, null, tint = if (enabled) Color.White else EdgeDS.textHint, modifier = Modifier.size(16.dp))
+            Icon(
+                icon,
+                null,
+                tint = if (enabled) Color.White else ProfessionalDS.textDisabled,
+                modifier = Modifier.size(16.dp)
+            )
         }
+    }
+}
+
+@Composable
+private fun SecondaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, ProfessionalDS.borderMid, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = ProfessionalDS.textSecondary
+        )
     }
 }
