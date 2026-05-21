@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.win11launcher"
+    namespace = "com.bluebird"
     compileSdk = 36
 
     defaultConfig {

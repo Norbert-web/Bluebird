@@ -1,5 +1,5 @@
 # Add project specific ProGuard rules here.
--keep class com.win11launcher.** { *; }
+-keep class com.bluebird.** { *; }
 -keepclassmembers class * {
     @androidx.compose.runtime.Composable <methods>;
 }
