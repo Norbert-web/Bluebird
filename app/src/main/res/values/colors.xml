@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <color name="ic_launcher_foreground">#FFFFFF</color>
+    <color name="win11_blue">#0078D4</color>
+    <color name="win11_dark">#202020</color>
+</resources>

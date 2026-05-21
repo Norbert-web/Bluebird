@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Windows 11 logo panes -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,30 L52,30 L52,52 L30,52 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M56,30 L78,30 L78,52 L56,52 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,56 L52,56 L52,78 L30,78 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M56,56 L78,56 L78,78 L56,78 Z" />
+</vector>
