@@ -10,10 +10,8 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -26,7 +24,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -146,40 +143,54 @@ fun Drawable.toBitmap(): Bitmap {
 }
 
 // ─────────────────────────────────────────────────────────
-// Design Tokens
+// Design Tokens — Enterprise Slate / Teal
 // ─────────────────────────────────────────────────────────
 private object DS {
-    // Glass / surface
-    val glassDark   = Color(0xCC1A1A2E)
-    val glassLight  = Color(0xE6F5F5FA)
-    val borderDark  = Color(0x25FFFFFF)
-    val borderLight = Color(0x18000000)
+    // Surfaces — deep slate, no purple or blue tint
+    val glassDark   = Color(0xF51C2128)   // GitHub-dark inspired slate
+    val glassLight  = Color(0xFFF0F2F5)   // cool grey white
 
-    // Accent palette — vibrant indigo-to-cyan gradient
-    val accentStart = Color(0xFF6C63FF)
-    val accentMid   = Color(0xFF48CAE4)
-    val accentEnd   = Color(0xFF00B4D8)
+    // Elevated surface (cards, inputs) — one step lighter than bg
+    val surfaceDark  = Color(0xFF252B32)
+    val surfaceLight = Color(0xFFE8ECF0)
 
-    // Hover states
+    // Borders — structural, slightly visible
+    val borderDark  = Color(0xFF373E47)
+    val borderLight = Color(0xFFCDD5DF)
+
+    // Accent — deep teal / cyan — professional, not vibrant
+    val accentStart = Color(0xFF2A9D8F)   // teal
+    val accentMid   = Color(0xFF2A9D8F)
+    val accentEnd   = Color(0xFF1D7A6E)   // darker teal
+
+    // Hover — minimal
     val hoverDark  = Color(0x14FFFFFF)
-    val hoverLight = Color(0x0A000000)
+    val hoverLight = Color(0x0C000000)
 
-    // Pill badge
-    val badgeRed   = Color(0xFFFF4E6A)
+    // Pressed
+    val pressedDark  = Color(0x22FFFFFF)
+    val pressedLight = Color(0x14000000)
+
+    // Destructive — muted terracotta, not neon
+    val badgeRed   = Color(0xFFCB4335)
+
+    // Section rule — accent left-border color
+    val ruleColor = Color(0xFF2A9D8F)
 
     // Sizing
-    val menuWidthCompact  = 560.dp
-    val menuWidthExpanded = 780.dp
-    val menuHeightCompact = 640.dp
+    val menuWidthCompact   = 560.dp
+    val menuWidthExpanded  = 780.dp
+    val menuHeightCompact  = 640.dp
     val menuHeightExpanded = 820.dp
-    val cornerRadius = 16.dp
-    val sectionCorner = 12.dp
+    val cornerRadius = 4.dp    // nearly square — enterprise sharp
+    val sectionCorner = 3.dp
 
-    // Gradients
-    fun accentBrush() = Brush.linearGradient(
-        colors = listOf(accentStart, accentMid, accentEnd),
-        start = Offset(0f, 0f), end = Offset(500f, 500f)
+    // Stable brush — minimal two-tone
+    val accentBrushValue: Brush = Brush.linearGradient(
+        colors = listOf(accentStart, accentEnd),
+        start = Offset(0f, 0f), end = Offset(160f, 160f)
     )
+    fun accentBrush() = accentBrushValue
 }
 
 // ─────────────────────────────────────────────────────────
@@ -202,15 +213,9 @@ fun StartMenu(
     var isExpanded by remember { mutableStateOf(false) }
     var editMode by remember { mutableStateOf(false) }
 
-    // Animate menu size
-    val menuWidth by animateDpAsState(
-        targetValue = if (isExpanded) DS.menuWidthExpanded else DS.menuWidthCompact,
-        animationSpec = spring(dampingRatio = 0.75f, stiffness = 400f), label = "width"
-    )
-    val menuHeight by animateDpAsState(
-        targetValue = if (isExpanded) DS.menuHeightExpanded else DS.menuHeightCompact,
-        animationSpec = spring(dampingRatio = 0.75f, stiffness = 400f), label = "height"
-    )
+    // No animated size — instant layout on open, no jank
+    val menuWidth = if (isExpanded) DS.menuWidthExpanded else DS.menuWidthCompact
+    val menuHeight = if (isExpanded) DS.menuHeightExpanded else DS.menuHeightCompact
 
     val isDark = uiState.isDarkTheme
     val bgColor = if (isDark) DS.glassDark else DS.glassLight
@@ -222,26 +227,21 @@ fun StartMenu(
         modifier = modifier
             .width(menuWidth)
             .height(menuHeight)
+            .shadow(elevation = 20.dp, shape = RoundedCornerShape(DS.cornerRadius), clip = false)
             .clip(RoundedCornerShape(DS.cornerRadius))
             .background(bgColor)
             .border(1.dp, borderColor, RoundedCornerShape(DS.cornerRadius))
-            .shadow(elevation = 48.dp, shape = RoundedCornerShape(DS.cornerRadius), clip = false)
     ) {
-        // Subtle inner shimmer line at top
+        // Left accent stripe — the single visual signature of this design
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(Color.Transparent, Color.White.copy(alpha = 0.18f), Color.Transparent)
-                    )
-                )
+                .width(3.dp)
+                .fillMaxHeight()
+                .background(DS.accentStart)
         )
+        Column(modifier = Modifier.fillMaxSize().padding(start = 23.dp, end = 20.dp)) {
 
-        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(16.dp))
 
             // ── Top Bar: Search + Expand ──
             Row(
@@ -265,15 +265,18 @@ fun StartMenu(
                     checked = isExpanded,
                     onCheckedChange = { isExpanded = it },
                     modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (isDark) DS.hoverDark else DS.hoverLight)
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(DS.cornerRadius))
+                        .background(
+                            if (isExpanded) DS.accentStart.copy(alpha = 0.15f)
+                            else Color.Transparent
+                        )
                 ) {
                     Icon(
                         imageVector = if (isExpanded) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
                         contentDescription = if (isExpanded) "Collapse" else "Expand",
-                        tint = textPrimary,
-                        modifier = Modifier.size(18.dp)
+                        tint = if (isExpanded) DS.accentStart else textPrimary.copy(alpha = 0.5f),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
@@ -325,9 +328,12 @@ fun StartMenu(
             }
 
             // ── Bottom User Bar ──
-            Spacer(Modifier.height(10.dp))
-            HorizontalDivider(color = if (isDark) Color(0x18FFFFFF) else Color(0x12000000))
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider(
+                color = if (isDark) DS.borderDark else DS.borderLight,
+                thickness = 1.dp
+            )
+            Spacer(Modifier.height(8.dp))
             BottomUserBar(
                 uiState = uiState,
                 viewModel = viewModel,
@@ -350,54 +356,47 @@ private fun PremiumTabRow(
     val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (isDark) Color(0x0DFFFFFF) else Color(0x08000000))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start
     ) {
         listOf(
             StartMenuTab.PINNED to "Pinned",
             StartMenuTab.ALL_APPS to "All Apps"
         ).forEach { (tab, label) ->
             val isActive = activeTab == tab
-            val bgAlpha by animateFloatAsState(if (isActive) 1f else 0f, label = "tabBg")
 
-            Box(
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(
-                        if (isActive)
-                            if (isDark) Color(0xFF2A2A3E) else Color.White
-                        else Color.Transparent
-                    )
                     .clickable { onTabChange(tab) }
-                    .padding(vertical = 7.dp),
-                contentAlignment = Alignment.Center
+                    .padding(end = 24.dp, bottom = 0.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    if (isActive) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .background(DS.accentBrush(), CircleShape)
+                Text(
+                    label.uppercase(),
+                    fontSize = 10.sp,
+                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isActive) DS.accentStart else textPrimary.copy(alpha = 0.38f),
+                    letterSpacing = 1.2.sp
+                )
+                Spacer(Modifier.height(6.dp))
+                // Bottom rule — full width under active tab
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(
+                            if (isActive) DS.accentStart else Color.Transparent,
+                            RoundedCornerShape(1.dp)
                         )
-                    }
-                    Text(
-                        label,
-                        fontSize = 12.sp,
-                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (isActive) textPrimary else textPrimary.copy(alpha = 0.5f)
-                    )
-                }
+                )
             }
         }
     }
+    // Full-width hairline under tab row
+    HorizontalDivider(
+        color = if (isDark) DS.borderDark else DS.borderLight,
+        thickness = 1.dp
+    )
 }
 
 // ─────────────────────────────────────────────────────────
@@ -421,19 +420,32 @@ private fun PinnedView(
 
         // ── Pinned header ──
         item {
+            Spacer(Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "Pinned",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = textPrimary
-                )
+                // Left-rule section label
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(14.dp)
+                            .background(DS.accentStart, RoundedCornerShape(2.dp))
+                    )
+                    Text(
+                        "PINNED",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textPrimary.copy(alpha = 0.55f),
+                        letterSpacing = 1.2.sp
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Edit/Done toggle
                     CompactActionChip(
                         label = if (editMode) "Done" else "Edit",
                         icon = if (editMode) Icons.Default.Check else Icons.Default.Edit,
@@ -487,17 +499,30 @@ private fun PinnedView(
 
         // ── Recommended Section ──
         item {
+            Spacer(Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "Recommended",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = textPrimary
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(14.dp)
+                            .background(DS.accentStart, RoundedCornerShape(2.dp))
+                    )
+                    Text(
+                        "RECOMMENDED",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textPrimary.copy(alpha = 0.55f),
+                        letterSpacing = 1.2.sp
+                    )
+                }
                 CompactActionChip(
                     label = "More",
                     icon = Icons.Default.ChevronRight,
@@ -555,24 +580,25 @@ private fun AllAppsView(
             grouped.forEach { (letter, apps) ->
                 // Letter header
                 item(key = "header_$letter") {
-                    Box(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 6.dp, horizontal = 4.dp)
+                            .padding(top = 10.dp, bottom = 4.dp, start = 4.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(30.dp)
-                                .background(DS.accentBrush(), RoundedCornerShape(8.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                letter.toString(),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
+                        Text(
+                            letter.toString(),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = DS.accentStart,
+                            letterSpacing = 0.5.sp
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.weight(1f),
+                            color = if (isDark) DS.borderDark else DS.borderLight,
+                            thickness = 1.dp
+                        )
                     }
                 }
                 // App rows
@@ -638,21 +664,33 @@ private fun SearchResultsView(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                "Results for \"$query\"",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = textPrimary
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(12.dp)
+                        .background(DS.accentStart, RoundedCornerShape(2.dp))
+                )
+                Text(
+                    "RESULTS FOR \"${query.uppercase()}\"",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textPrimary.copy(alpha = 0.55f),
+                    letterSpacing = 1.2.sp
+                )
+            }
             TextButton(onClick = onClearSearch) {
-                Text("Clear", color = DS.accentStart, fontSize = 12.sp)
+                Text("Clear", color = DS.accentStart, fontSize = 11.sp, letterSpacing = 0.3.sp)
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
 
         if (results.isEmpty()) {
             Box(
@@ -663,14 +701,15 @@ private fun SearchResultsView(
                     Icon(
                         Icons.Default.SearchOff,
                         null,
-                        tint = textPrimary.copy(alpha = 0.2f),
-                        modifier = Modifier.size(48.dp)
+                        tint = textPrimary.copy(alpha = 0.15f),
+                        modifier = Modifier.size(36.dp)
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "No results found",
-                        color = textPrimary.copy(alpha = 0.35f),
-                        fontSize = 13.sp
+                        color = textPrimary.copy(alpha = 0.3f),
+                        fontSize = 12.sp,
+                        letterSpacing = 0.3.sp
                     )
                 }
             }
@@ -699,26 +738,21 @@ fun PremiumSearchBar(
     isDark: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val bgColor = if (isDark) Color(0xFF252535) else Color(0xFFEEEEF5)
-    val borderColor = if (isDark) Color(0x30FFFFFF) else Color(0x20000000)
+    val bgColor = if (isDark) DS.surfaceDark else DS.surfaceLight
+    val borderColor = if (isDark) DS.borderDark else DS.borderLight
     val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
 
-    // Glow effect when focused
     var isFocused by remember { mutableStateOf(false) }
-    val glowAlpha by animateFloatAsState(if (isFocused) 1f else 0f, label = "glow")
 
     Box(
         modifier = modifier
-            .height(40.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .height(36.dp)
+            .clip(RoundedCornerShape(DS.cornerRadius))
             .background(bgColor)
             .border(
                 width = 1.dp,
-                brush = if (isFocused)
-                    Brush.linearGradient(listOf(DS.accentStart, DS.accentEnd))
-                else
-                    Brush.linearGradient(listOf(borderColor, borderColor)),
-                shape = RoundedCornerShape(12.dp)
+                color = if (isFocused) DS.accentStart else borderColor,
+                shape = RoundedCornerShape(DS.cornerRadius)
             )
     ) {
         Row(
@@ -731,8 +765,8 @@ fun PremiumSearchBar(
             Icon(
                 Icons.Default.Search,
                 null,
-                tint = if (isFocused) DS.accentStart else Color(0xFF888899),
-                modifier = Modifier.size(16.dp)
+                tint = if (isFocused) DS.accentStart else textColor.copy(alpha = 0.35f),
+                modifier = Modifier.size(15.dp)
             )
             BasicTextField(
                 value = query,
@@ -746,8 +780,8 @@ fun PremiumSearchBar(
                 decorationBox = { inner ->
                     if (query.isEmpty()) {
                         Text(
-                            "Search apps, files, settings...",
-                            color = Color(0xFF888899),
+                            "Search apps, files, settings…",
+                            color = textColor.copy(alpha = 0.3f),
                             fontSize = 13.sp
                         )
                     }
@@ -758,9 +792,9 @@ fun PremiumSearchBar(
                 Icon(
                     Icons.Default.Close,
                     null,
-                    tint = Color(0xFF888899),
+                    tint = textColor.copy(alpha = 0.4f),
                     modifier = Modifier
-                        .size(14.dp)
+                        .size(13.dp)
                         .clickable { onQueryChange("") }
                 )
             }
@@ -786,12 +820,10 @@ fun AnimatedPinnedIcon(
     val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
     val hoverBg = if (isDark) DS.hoverDark else DS.hoverLight
 
-    // Wobble in edit mode
+    // Simple wobble only when in edit mode — no infinite animation when idle
     val wobbleAngle by animateFloatAsState(
-        targetValue = if (editMode) 3f else 0f,
-        animationSpec = if (editMode) infiniteRepeatable(
-            tween(300), RepeatMode.Reverse
-        ) else tween(200),
+        targetValue = if (editMode) 2f else 0f,
+        animationSpec = if (editMode) infiniteRepeatable(tween(350), RepeatMode.Reverse) else tween(150),
         label = "wobble"
     )
 
@@ -800,8 +832,12 @@ fun AnimatedPinnedIcon(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .width(72.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (pressed) hoverBg else Color.Transparent)
+                .clip(RoundedCornerShape(DS.sectionCorner))
+                .background(
+                    if (pressed)
+                        if (isDark) DS.pressedDark else DS.pressedLight
+                    else Color.Transparent
+                )
                 .rotate(wobbleAngle)
                 .pointerInput(editMode) {
                     detectTapGestures(
@@ -812,41 +848,40 @@ fun AnimatedPinnedIcon(
                 }
                 .padding(vertical = 8.dp, horizontal = 4.dp)
         ) {
-            // Icon container with gradient background tile
+            // Clean icon — no background tile, just the app icon
             Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .shadow(6.dp, RoundedCornerShape(12.dp))
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (isDark) Color(0xFF2A2A40) else Color(0xFFF0F0F8)),
+                modifier = Modifier.size(38.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (app.icon != null) {
+                    val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
                     Image(
-                        bitmap = app.icon!!.toBitmap().asImageBitmap(),
+                        bitmap = bmp,
                         contentDescription = app.name,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(34.dp)
                     )
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
-                            .background(DS.accentBrush()),
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(DS.sectionCorner))
+                            .background(if (isDark) DS.surfaceDark else DS.surfaceLight)
+                            .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Apps, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Default.Apps, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
                     }
                 }
             }
-            Spacer(Modifier.height(5.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
                 app.name,
                 fontSize = 10.sp,
-                color = textColor,
+                color = textColor.copy(alpha = 0.8f),
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.Normal,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -871,10 +906,10 @@ fun AnimatedPinnedIcon(
             onDismissRequest = { showMenu = false },
             modifier = Modifier
                 .background(
-                    if (isDark) Color(0xFF1E1E30) else Color(0xFFF8F8FC),
-                    RoundedCornerShape(10.dp)
+                    if (isDark) DS.surfaceDark else DS.glassLight,
+                    RoundedCornerShape(DS.cornerRadius)
                 )
-                .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(10.dp))
+                .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.cornerRadius))
         ) {
             StyledMenuItem("Open", Icons.Default.OpenInNew, isDark) { showMenu = false; onClick() }
             StyledMenuItem(
@@ -920,8 +955,8 @@ fun AnimatedBuiltInIcon(
     onClick: () -> Unit
 ) {
     val wobble by animateFloatAsState(
-        targetValue = if (editMode) -3f else 0f,
-        animationSpec = if (editMode) infiniteRepeatable(tween(280), RepeatMode.Reverse) else tween(200),
+        targetValue = if (editMode) -2f else 0f,
+        animationSpec = if (editMode) infiniteRepeatable(tween(350), RepeatMode.Reverse) else tween(150),
         label = "wobble2"
     )
     var pressed by remember { mutableStateOf(false) }
@@ -931,8 +966,12 @@ fun AnimatedBuiltInIcon(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .width(72.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (pressed) hoverBg else Color.Transparent)
+            .clip(RoundedCornerShape(DS.sectionCorner))
+            .background(
+                if (pressed)
+                    if (isDark) DS.pressedDark else DS.pressedLight
+                else Color.Transparent
+            )
             .rotate(wobble)
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -942,25 +981,25 @@ fun AnimatedBuiltInIcon(
             }
             .padding(vertical = 8.dp, horizontal = 4.dp)
     ) {
+        // Teal tile — solid accent, no gradient
         Box(
             modifier = Modifier
-                .size(44.dp)
-                .shadow(6.dp, RoundedCornerShape(12.dp))
-                .clip(RoundedCornerShape(12.dp))
-                .background(DS.accentBrush()),
+                .size(38.dp)
+                .clip(RoundedCornerShape(DS.sectionCorner))
+                .background(DS.accentStart),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, name, tint = Color.White, modifier = Modifier.size(22.dp))
+            Icon(icon, name, tint = Color.White, modifier = Modifier.size(18.dp))
         }
-        Spacer(Modifier.height(5.dp))
+        Spacer(Modifier.height(4.dp))
         Text(
             name,
             fontSize = 10.sp,
-            color = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight,
+            color = (if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight).copy(alpha = 0.8f),
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.Normal,
             modifier = Modifier.fillMaxWidth()
         )
     }
@@ -985,8 +1024,12 @@ private fun AllAppsRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(if (pressed) hoverBg else Color.Transparent)
+                .clip(RoundedCornerShape(DS.sectionCorner))
+                .background(
+                    if (pressed)
+                        if (isDark) DS.pressedDark else DS.pressedLight
+                    else Color.Transparent
+                )
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onPress = { pressed = true; tryAwaitRelease(); pressed = false },
@@ -994,27 +1037,24 @@ private fun AllAppsRow(
                         onLongPress = { showMenu = true }
                     )
                 }
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Icon with no background tile
             Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(if (isDark) Color(0xFF2A2A40) else Color(0xFFF0F0F8)),
+                modifier = Modifier.size(30.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (app.icon != null) {
+                    val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
                     Image(
-                        bitmap = app.icon!!.toBitmap().asImageBitmap(),
+                        bitmap = bmp,
                         contentDescription = app.name,
                         modifier = Modifier.size(28.dp)
                     )
                 } else {
-                    Box(modifier = Modifier.fillMaxSize().background(DS.accentBrush())) {
-                        Icon(Icons.Default.Apps, null, tint = Color.White, modifier = Modifier.size(20.dp).align(Alignment.Center))
-                    }
+                    Icon(Icons.Default.Apps, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
                 }
             }
             Column(modifier = Modifier.weight(1f)) {
@@ -1022,33 +1062,29 @@ private fun AllAppsRow(
                     app.name,
                     fontSize = 13.sp,
                     color = textPrimary,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     app.packageName,
                     fontSize = 10.sp,
-                    color = textPrimary.copy(alpha = 0.4f),
+                    color = textPrimary.copy(alpha = 0.35f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Icon(
-                Icons.Default.ChevronRight,
-                null,
-                tint = textPrimary.copy(alpha = 0.2f),
-                modifier = Modifier.size(16.dp)
-            )
         }
 
         DropdownMenu(
             expanded = showMenu,
             onDismissRequest = { showMenu = false },
-            modifier = Modifier.background(
-                if (isDark) Color(0xFF1E1E30) else Color(0xFFF8F8FC),
-                RoundedCornerShape(10.dp)
-            )
+            modifier = Modifier
+                .background(
+                    if (isDark) DS.surfaceDark else DS.glassLight,
+                    RoundedCornerShape(DS.cornerRadius)
+                )
+                .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.cornerRadius))
         ) {
             StyledMenuItem("Open", Icons.Default.OpenInNew, isDark) { showMenu = false; onClick() }
             StyledMenuItem("Pin to Start", Icons.Default.PushPin, isDark) { showMenu = false }
@@ -1068,7 +1104,14 @@ private fun RecommendedSection(
     isExpanded: Boolean
 ) {
     val context = LocalContext.current
-    val recentFiles = remember { getRecentFiles(context) }
+    // Load recent files off the main thread — never block composition
+    var recentFiles by remember { mutableStateOf<List<File>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            recentFiles = getRecentFiles(context)
+        }
+    }
     val recentApps = viewModel.uiState.collectAsState().value.installedApps.take(if (isExpanded) 8 else 5)
     val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
 
@@ -1076,12 +1119,17 @@ private fun RecommendedSection(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(60.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(if (isDark) DS.hoverDark else DS.hoverLight),
+                .height(52.dp)
+                .clip(RoundedCornerShape(DS.sectionCorner))
+                .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner)),
             contentAlignment = Alignment.Center
         ) {
-            Text("No recent items", color = textPrimary.copy(alpha = 0.3f), fontSize = 12.sp)
+            Text(
+                "No recent items",
+                color = textPrimary.copy(alpha = 0.25f),
+                fontSize = 11.sp,
+                letterSpacing = 0.3.sp
+            )
         }
         return
     }
@@ -1122,43 +1170,33 @@ private fun RecentCard(
 ) {
     var pressed by remember { mutableStateOf(false) }
     val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
-    val cardBg = if (isDark) Color(0xFF1E1E30) else Color(0xFFF0F0FA)
+    val cardBg = if (isDark) DS.surfaceDark else DS.surfaceLight
 
     Row(
         modifier = Modifier
-            .width(160.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .width(155.dp)
+            .clip(RoundedCornerShape(DS.sectionCorner))
             .background(cardBg)
-            .border(
-                1.dp,
-                if (isDark) DS.borderDark else DS.borderLight,
-                RoundedCornerShape(10.dp)
-            )
+            .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner))
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = { pressed = true; tryAwaitRelease(); pressed = false },
                     onTap = { onClick() }
                 )
             }
-            .padding(10.dp),
+            .padding(9.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(if (isDark) Color(0xFF2A2A40) else Color(0xFFE4E4F0)),
+            modifier = Modifier.size(28.dp),
             contentAlignment = Alignment.Center
         ) {
             if (iconDrawable != null) {
-                Image(
-                    bitmap = iconDrawable.toBitmap().asImageBitmap(),
-                    contentDescription = title,
-                    modifier = Modifier.size(28.dp)
-                )
+                val bmp = remember(title) { iconDrawable.toBitmap().asImageBitmap() }
+                Image(bitmap = bmp, contentDescription = title, modifier = Modifier.size(26.dp))
             } else if (icon != null) {
-                Icon(icon, null, tint = DS.accentStart, modifier = Modifier.size(20.dp))
+                Icon(icon, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
             }
         }
         Column(modifier = Modifier.weight(1f)) {
@@ -1173,7 +1211,7 @@ private fun RecentCard(
             Text(
                 subtitle,
                 fontSize = 9.sp,
-                color = textPrimary.copy(alpha = 0.45f),
+                color = textPrimary.copy(alpha = 0.38f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -1199,53 +1237,67 @@ private fun QuickActionsStrip(isDark: Boolean) {
     )
 
     Column {
-        Text(
-            "Quick Actions",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = textPrimary.copy(alpha = 0.7f)
-        )
+        // Section header
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(12.dp)
+                    .background(DS.accentStart, RoundedCornerShape(2.dp))
+            )
+            Text(
+                "QUICK ACTIONS",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = textPrimary.copy(alpha = 0.5f),
+                letterSpacing = 1.2.sp
+            )
+        }
         Spacer(Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             actions.forEach { (icon, label) ->
                 var active by remember { mutableStateOf(false) }
-                Box(
+                Row(
                     modifier = Modifier
                         .weight(1f)
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(DS.sectionCorner))
                         .background(
-                            if (active) DS.accentBrush()
-                            else if (isDark) Brush.linearGradient(listOf(Color(0xFF1E1E30), Color(0xFF1E1E30)))
-                            else Brush.linearGradient(listOf(Color(0xFFF0F0FA), Color(0xFFF0F0FA)))
+                            if (active) DS.accentStart
+                            else if (isDark) DS.surfaceDark else DS.surfaceLight
                         )
                         .border(
                             1.dp,
-                            if (active) Color.Transparent else if (isDark) DS.borderDark else DS.borderLight,
-                            RoundedCornerShape(10.dp)
+                            if (active) DS.accentEnd
+                            else if (isDark) DS.borderDark else DS.borderLight,
+                            RoundedCornerShape(DS.sectionCorner)
                         )
-                        .clickable { active = !active },
-                    contentAlignment = Alignment.Center
+                        .clickable { active = !active }
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
                     Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(4.dp)
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
                             icon, label,
-                            tint = if (active) Color.White else textPrimary.copy(alpha = 0.75f),
-                            modifier = Modifier.size(16.dp)
+                            tint = if (active) Color.White else textPrimary.copy(alpha = 0.6f),
+                            modifier = Modifier.size(14.dp)
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
                             label,
                             fontSize = 8.sp,
-                            color = if (active) Color.White else textPrimary.copy(alpha = 0.5f),
+                            color = if (active) Color.White else textPrimary.copy(alpha = 0.45f),
                             maxLines = 1,
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
+                            letterSpacing = 0.sp
                         )
                     }
                 }
@@ -1268,15 +1320,21 @@ private fun CompactActionChip(
 
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (isDark) DS.hoverDark else DS.hoverLight)
+            .clip(RoundedCornerShape(DS.sectionCorner))
+            .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner))
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .padding(horizontal = 9.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Icon(icon, null, tint = textColor.copy(alpha = 0.7f), modifier = Modifier.size(12.dp))
-        Text(label, fontSize = 11.sp, color = textColor.copy(alpha = 0.8f), fontWeight = FontWeight.Medium)
+        Icon(icon, null, tint = DS.accentStart.copy(alpha = 0.8f), modifier = Modifier.size(11.dp))
+        Text(
+            label,
+            fontSize = 10.sp,
+            color = textColor.copy(alpha = 0.7f),
+            fontWeight = FontWeight.Normal,
+            letterSpacing = 0.3.sp
+        )
     }
 }
 
@@ -1300,32 +1358,31 @@ private fun BottomUserBar(
         // User profile pill
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(DS.sectionCorner))
                 .clickable { viewModel.openWindow(LauncherScreen.SETTINGS) }
-                .padding(6.dp),
+                .padding(horizontal = 6.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Box(modifier = Modifier.size(32.dp)) {
+            Box(modifier = Modifier.size(30.dp)) {
                 if (uiState.userProfile.profilePicturePath.isNotEmpty()) {
                     AsyncImage(
                         model = Uri.parse(uiState.userProfile.profilePicturePath),
                         contentDescription = null,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape).border(1.5.dp, DS.accentStart, CircleShape),
+                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)),
                         contentScale = ContentScale.Crop
                     )
                 } else {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(DS.accentBrush(), CircleShape)
-                            .border(1.5.dp, DS.accentStart.copy(alpha = 0.5f), CircleShape),
+                            .background(DS.accentStart, RoundedCornerShape(4.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             uiState.userProfile.userName.firstOrNull()?.uppercase() ?: "U",
                             color = Color.White,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -1333,16 +1390,16 @@ private fun BottomUserBar(
                 // Online indicator dot
                 Box(
                     modifier = Modifier
-                        .size(9.dp)
+                        .size(8.dp)
                         .align(Alignment.BottomEnd)
-                        .background(Color(0xFF4CAF50), CircleShape)
+                        .background(Color(0xFF3FB950), CircleShape)
                         .border(1.5.dp, if (isDark) DS.glassDark else DS.glassLight, CircleShape)
                 )
             }
             Column {
                 Text(
                     uiState.userProfile.userName,
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = textPrimary,
                     maxLines = 1,
@@ -1350,9 +1407,10 @@ private fun BottomUserBar(
                 )
                 Text(
                     "Account settings",
-                    fontSize = 10.sp,
+                    fontSize = 9.sp,
                     color = DS.accentStart,
-                    maxLines = 1
+                    maxLines = 1,
+                    letterSpacing = 0.2.sp
                 )
             }
         }
@@ -1384,13 +1442,13 @@ private fun BottomBarIconBtn(
 
     Box(
         modifier = Modifier
-            .size(36.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(hoverBg)
+            .size(32.dp)
+            .clip(RoundedCornerShape(DS.sectionCorner))
+            .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, label, tint = tint ?: defaultTint, modifier = Modifier.size(18.dp))
+        Icon(icon, label, tint = tint ?: defaultTint.copy(alpha = 0.7f), modifier = Modifier.size(15.dp))
     }
 }
 
@@ -1399,45 +1457,44 @@ private fun BottomBarIconBtn(
 // ─────────────────────────────────────────────────────────
 @Composable
 fun PowerMenu(isDark: Boolean, onAction: (PowerAction) -> Unit, modifier: Modifier = Modifier) {
-    val bgColor = if (isDark) Color(0xFF1A1A2E) else Color(0xFFF5F5FA)
+    val bgColor = if (isDark) DS.surfaceDark else DS.glassLight
     val borderColor = if (isDark) DS.borderDark else DS.borderLight
     val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
 
     Box(
         modifier = modifier
-            .width(210.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .width(200.dp)
+            .clip(RoundedCornerShape(DS.cornerRadius))
             .background(bgColor)
-            .border(1.dp, borderColor, RoundedCornerShape(14.dp))
-            .shadow(32.dp, RoundedCornerShape(14.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(DS.cornerRadius))
+            .shadow(12.dp, RoundedCornerShape(DS.cornerRadius))
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
-            // Header
+            // Header — left-rule style
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 6.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
-                        .background(DS.accentBrush(), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.PowerSettingsNew, null, tint = Color.White, modifier = Modifier.size(14.dp))
-                }
+                        .width(3.dp)
+                        .height(12.dp)
+                        .background(DS.accentStart, RoundedCornerShape(2.dp))
+                )
                 Text(
-                    "Power options",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = textPrimary
+                    "POWER OPTIONS",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textPrimary.copy(alpha = 0.5f),
+                    letterSpacing = 1.2.sp
                 )
             }
             HorizontalDivider(
-                color = if (isDark) Color(0x15FFFFFF) else Color(0x10000000),
-                modifier = Modifier.padding(vertical = 4.dp)
+                color = if (isDark) DS.borderDark else DS.borderLight,
+                modifier = Modifier.padding(bottom = 4.dp)
             )
             powerOptions.forEach { (label, icon, action) ->
                 PremiumPowerMenuItem(label, icon, isDark, action == PowerAction.SHUTDOWN) {
@@ -1459,25 +1516,29 @@ private fun PremiumPowerMenuItem(
     var pressed by remember { mutableStateOf(false) }
     val textColor = if (isDestructive) DS.badgeRed
     else if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
-    val hoverBg = if (isDark) DS.hoverDark else DS.hoverLight
+    val iconTint = if (isDestructive) DS.badgeRed else DS.accentStart
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (pressed) hoverBg else Color.Transparent)
+            .clip(RoundedCornerShape(DS.sectionCorner))
+            .background(
+                if (pressed)
+                    if (isDark) DS.pressedDark else DS.pressedLight
+                else Color.Transparent
+            )
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = { pressed = true; tryAwaitRelease(); pressed = false },
                     onTap = { onClick() }
                 )
             }
-            .padding(horizontal = 10.dp, vertical = 10.dp),
+            .padding(horizontal = 10.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Icon(icon, label, tint = textColor, modifier = Modifier.size(16.dp))
-        Text(label, fontSize = 13.sp, color = textColor, fontWeight = FontWeight.Normal)
+        Icon(icon, label, tint = iconTint, modifier = Modifier.size(14.dp))
+        Text(label, fontSize = 12.sp, color = textColor, fontWeight = FontWeight.Normal)
     }
 }
 

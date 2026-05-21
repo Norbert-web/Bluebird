@@ -2,51 +2,173 @@ package com.bluebird.ui.screens
 
 import android.app.DownloadManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.net.http.SslError
+import android.os.Build
 import android.os.Environment
-import android.webkit.*
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.*
+import android.os.Handler
+import android.os.Looper
+import android.view.ViewGroup
+import android.webkit.ConsoleMessage
+import android.webkit.CookieManager
+import android.webkit.JsResult
+import android.webkit.SslErrorHandler
+import android.webkit.URLUtil
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Downloading
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.FindInPage
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardHide
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.*
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.*
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.*
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
+import java.util.UUID
+
+// ── Main-thread dispatcher for WebView callbacks ──
+private val _mainHandler = Handler(Looper.getMainLooper())
+private fun onMain(block: () -> Unit) {
+    if (Looper.myLooper() == Looper.getMainLooper()) block() else _mainHandler.post(block)
+}
+
+private val WebView.webViewSettings: WebSettings get() = this.settings
 
 // ═══════════════════════════════════════════════════════════════════════
 // DATA MODELS
 // ═══════════════════════════════════════════════════════════════════════
 
+private const val NEWTAB_URL = "bluebird://newtab"
+
 data class BrowserTab(
     val id: String = UUID.randomUUID().toString(),
     var title: String = "New Tab",
-    var url: String = "edge://newtab",
+    var url: String = NEWTAB_URL,
     val backStack: MutableList<String> = mutableListOf(),
     val forwardStack: MutableList<String> = mutableListOf(),
-    var faviconColor: Color = Color(0xFF0078D4),
+    var faviconColor: Color = Color(0xFF1A73E8),
     var isMuted: Boolean = false,
     var isPinned: Boolean = false,
     var isLoading: Boolean = false,
@@ -58,7 +180,7 @@ data class Bookmark(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     val url: String,
-    val faviconColor: Color = Color(0xFF0078D4),
+    val faviconColor: Color = Color(0xFF1A73E8),
     val folder: String = "Bookmarks Bar",
     val addedAt: Long = System.currentTimeMillis()
 )
@@ -67,7 +189,7 @@ data class HistoryEntry(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     val url: String,
-    val faviconColor: Color = Color(0xFF0078D4),
+    val faviconColor: Color = Color(0xFF1A73E8),
     val visitedAt: Long = System.currentTimeMillis()
 )
 
@@ -85,22 +207,22 @@ data class DownloadItem(
 enum class DownloadStatus { DOWNLOADING, COMPLETED, FAILED, PAUSED }
 
 data class BrowserSettings(
-    var useBuiltInKeyboard: Boolean = true,
-    var searchEngine: SearchEngine = SearchEngine.GOOGLE,
-    var darkMode: Boolean = false,
-    var adBlockEnabled: Boolean = true,
-    var trackingProtection: Boolean = true,
-    var javaScriptEnabled: Boolean = true,
-    var saveCookies: Boolean = true,
-    var showBookmarksBar: Boolean = true,
-    var startPage: StartPage = StartPage.NEW_TAB,
-    var fontSize: Int = 100,
-    var defaultZoom: Int = 100,
-    var showImages: Boolean = true,
-    var popupBlocker: Boolean = true,
-    var locationAccess: Boolean = false,
-    var cameraAccess: Boolean = false,
-    var microphoneAccess: Boolean = false
+    val useBuiltInKeyboard: Boolean = true,
+    val searchEngine: SearchEngine = SearchEngine.GOOGLE,
+    val darkMode: Boolean = false,
+    val adBlockEnabled: Boolean = true,
+    val trackingProtection: Boolean = true,
+    val javaScriptEnabled: Boolean = true,
+    val saveCookies: Boolean = true,
+    val showBookmarksBar: Boolean = true,
+    val startPage: StartPage = StartPage.NEW_TAB,
+    val fontSize: Int = 100,
+    val defaultZoom: Int = 100,
+    val showImages: Boolean = true,
+    val popupBlocker: Boolean = true,
+    val locationAccess: Boolean = false,
+    val cameraAccess: Boolean = false,
+    val microphoneAccess: Boolean = false
 )
 
 enum class SearchEngine(val label: String, val url: String) {
@@ -120,20 +242,20 @@ enum class BrowserPanel { NONE, BOOKMARKS, HISTORY, DOWNLOADS, SETTINGS, EXTENSI
 // ═══════════════════════════════════════════════════════════════════════
 
 private val quickLinks = listOf(
-    Triple("Google", "https://www.google.com", Color(0xFFEA4335)),
-    Triple("YouTube", "https://www.youtube.com", Color(0xFFFF0000)),
-    Triple("Microsoft", "https://www.microsoft.com", Color(0xFF0078D4)),
-    Triple("GitHub", "https://github.com", Color(0xFF181717)),
-    Triple("Reddit", "https://www.reddit.com", Color(0xFFFF4500)),
-    Triple("Twitter", "https://twitter.com", Color(0xFF1DA1F2)),
+    Triple("Google",    "https://www.google.com",    Color(0xFFEA4335)),
+    Triple("YouTube",   "https://www.youtube.com",   Color(0xFFFF0000)),
+    Triple("Microsoft", "https://www.microsoft.com", Color(0xFF1A73E8)),
+    Triple("GitHub",    "https://github.com",        Color(0xFF181717)),
+    Triple("Reddit",    "https://www.reddit.com",    Color(0xFFFF4500)),
+    Triple("Twitter",   "https://twitter.com",       Color(0xFF1DA1F2)),
     Triple("Wikipedia", "https://www.wikipedia.org", Color(0xFF636363)),
-    Triple("Amazon", "https://www.amazon.com", Color(0xFFFF9900)),
-    Triple("Netflix", "https://www.netflix.com", Color(0xFFE50914)),
-    Triple("Discord", "https://discord.com", Color(0xFF5865F2)),
+    Triple("Amazon",    "https://www.amazon.com",    Color(0xFFFF9900)),
+    Triple("Netflix",   "https://www.netflix.com",   Color(0xFFE50914)),
+    Triple("Discord",   "https://discord.com",       Color(0xFF5865F2)),
 )
 
 private val sampleNews = listOf(
-    Triple("AI reshapes the future of work and creativity in 2026", "TechCrunch", Color(0xFF0078D4)),
+    Triple("AI reshapes the future of work and creativity in 2026", "TechCrunch", Color(0xFF1A73E8)),
     Triple("Markets surge as quantum computing breakthrough announced", "Bloomberg", Color(0xFF00897B)),
     Triple("Scientists develop new battery lasting 10x longer", "Nature", Color(0xFF7B1FA2)),
     Triple("SpaceX Starship completes first orbital mission", "Space.com", Color(0xFF1565C0)),
@@ -141,21 +263,23 @@ private val sampleNews = listOf(
 )
 
 // ═══════════════════════════════════════════════════════════════════════
-// BUILT-IN KEYBOARD
+// BUILT-IN FLOATING KEYBOARD
+// KEY FIX: All browser text fields use readOnly=true when built-in keyboard
+// is active. readOnly BasicTextField shows a cursor but never triggers the
+// Android IME. The composable keyboard drives all text changes instead.
 // ═══════════════════════════════════════════════════════════════════════
 
-private val keyboardRows = listOf(
+private val kbRowsAlpha = listOf(
     listOf("q","w","e","r","t","y","u","i","o","p"),
     listOf("a","s","d","f","g","h","j","k","l"),
     listOf("⇧","z","x","c","v","b","n","m","⌫"),
-    listOf("123","@","_","-","space",".",".com","↵")
+    listOf("123","@","/","-","space",".","↵")
 )
-
-private val numericRows = listOf(
+private val kbRowsNum = listOf(
     listOf("1","2","3","4","5","6","7","8","9","0"),
-    listOf("!","@","#","$","%","^","&","*","(",")"),
-    listOf("-","_","=","+","[","]","{","}","\\","|"),
-    listOf("ABC","/",":",";","\"","'",",",".","↵")
+    listOf("!","@","#","\$","%","^","&","*","(",")"),
+    listOf("+","=","_","[","]","{","}","\\","|","⌫"),
+    listOf("ABC","<",">",";","\"","'",",",".","↵")
 )
 
 @Composable
@@ -167,128 +291,157 @@ fun FloatingKeyboard(
 ) {
     var isUppercase by remember { mutableStateOf(false) }
     var showNumeric by remember { mutableStateOf(false) }
-    val currentRows = if (showNumeric) numericRows else keyboardRows
+    val rows = if (showNumeric) kbRowsNum else kbRowsAlpha
 
-    val bgColor = if (isDark) Color(0xFF1E1E1E) else Color(0xFFD1D5DB)
-    val keyBg = if (isDark) Color(0xFF3A3A3A) else Color.White
-    val specialKeyBg = if (isDark) Color(0xFF2A2A2A) else Color(0xFFB0B5BC)
-    val textColor = if (isDark) Color.White else Color.Black
-    val accentColor = Color(0xFF0078D4)
+    val accent      = Color(0xFF1A73E8)
+    val keyBg       = if (isDark) Color(0xFF3C3C3C) else Color.White
+    val specialBg   = if (isDark) Color(0xFF252525) else Color(0xFFB8BEC8)
+    val boardBg     = if (isDark) Color(0xFF1C1C1C) else Color(0xFFCDD0D8)
+    val txtColor    = if (isDark) Color.White       else Color(0xFF111111)
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(bgColor)
-            .padding(horizontal = 3.dp, vertical = 3.dp)
+            .background(boardBg)
+            .padding(horizontal = 4.dp, vertical = 3.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            // Suggestion bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(22.dp)
-                    .background(if (isDark) Color(0xFF2C2C2C) else Color(0xFFF5F5F5)),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                listOf(
-                    if (currentText.endsWith("w")) "www" else "",
-                    if (currentText.isNotEmpty()) currentText.replaceFirstChar { it.uppercase() } else "",
-                    ".com"
-                ).filter { it.isNotEmpty() }.forEach { suggestion ->
-                    Text(
-                        text = suggestion,
-                        color = accentColor,
-                        fontSize = 9.sp,
-                        modifier = Modifier
-                            .padding(horizontal = 8.dp)
-                            .clickable { onTextChange(currentText + suggestion) }
-                    )
-                    Box(modifier = Modifier.width(1.dp).height(12.dp).background(Color(0x30888888)))
-                }
-                Spacer(Modifier.weight(1f))
+        // Suggestion / preview bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(20.dp)
+                .background(if (isDark) Color(0xFF282828) else Color(0xFFF0F2F5)),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (currentText.isEmpty()) "Type something…" else currentText,
+                color = if (currentText.isEmpty()) txtColor.copy(0.3f) else accent,
+                fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(start = 8.dp)
+            )
+            listOf(".com", ".org", ".net").forEach { sug ->
                 Box(
                     modifier = Modifier
-                        .size(20.dp)
-                        .clickable { onDismiss() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.KeyboardHide, null, tint = textColor.copy(0.6f), modifier = Modifier.size(12.dp))
-                }
+                        .padding(end = 5.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(accent.copy(0.12f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { onTextChange(currentText + sug) }
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                ) { Text(sug, fontSize = 8.sp, color = accent) }
             }
+            Box(
+                modifier = Modifier.size(20.dp).clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onDismiss() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.KeyboardHide, null,
+                    tint = txtColor.copy(0.5f), modifier = Modifier.size(12.dp))
+            }
+        }
 
-            // Keyboard rows
-            currentRows.forEach { row ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    row.forEach { key ->
-                        val isSpecial = key in listOf("⇧", "⌫", "123", "ABC", "space", "↵", "@", "_", "-", ".", ".com", "/", ":", ";")
-                        val displayKey = when {
-                            key == "space" -> "space"
-                            key == ".com" -> ".com"
-                            !showNumeric && isUppercase && key.length == 1 -> key.uppercase()
-                            else -> key
-                        }
-                        val keyWeight = when (key) {
-                            "space" -> 4f
-                            "⇧", "⌫", "123", "ABC" -> 1.6f
-                            "↵" -> 1.8f
-                            else -> 1f
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .weight(keyWeight)
-                                .height(26.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(
-                                    when (key) {
-                                        "↵" -> accentColor
-                                        "⇧" -> if (isUppercase) accentColor.copy(0.3f) else specialKeyBg
-                                        "space" -> keyBg
-                                        in listOf("⌫", "123", "ABC") -> specialKeyBg
-                                        else -> keyBg
+        // Key rows
+        rows.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                row.forEach { key ->
+                    val wt = when (key) {
+                        "space" -> 3.8f; "⇧","⌫" -> 1.5f
+                        "123","ABC" -> 1.4f; "↵" -> 1.6f; else -> 1f
+                    }
+                    val bg = when (key) {
+                        "↵"                              -> accent
+                        "⇧"                              -> if (isUppercase) accent.copy(0.25f) else specialBg
+                        in listOf("⌫","123","ABC","space") -> specialBg
+                        else                             -> keyBg
+                    }
+                    val label = when {
+                        key == "space"                                           -> "space"
+                        !showNumeric && isUppercase && key.length == 1
+                                && key[0].isLetter()                            -> key.uppercase()
+                        else                                                     -> key
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(wt)
+                            .height(25.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(bg)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                when (key) {
+                                    "⇧"   -> isUppercase = !isUppercase
+                                    "⌫"   -> if (currentText.isNotEmpty()) onTextChange(currentText.dropLast(1))
+                                    "space"-> onTextChange("$currentText ")
+                                    "↵"   -> onDismiss()
+                                    "123" -> { showNumeric = true;  isUppercase = false }
+                                    "ABC" -> showNumeric = false
+                                    else  -> {
+                                        val ch = if (!showNumeric && isUppercase) key.uppercase() else key
+                                        onTextChange(currentText + ch)
+                                        if (isUppercase && !showNumeric) isUppercase = false
                                     }
-                                )
-                                .clickable {
-                                    when (key) {
-                                        "⇧" -> isUppercase = !isUppercase
-                                        "⌫" -> if (currentText.isNotEmpty()) onTextChange(currentText.dropLast(1))
-                                        "space" -> onTextChange(currentText + " ")
-                                        "↵" -> onDismiss()
-                                        "123" -> showNumeric = true
-                                        "ABC" -> showNumeric = false
-                                        ".com" -> onTextChange(currentText + ".com")
-                                        else -> {
-                                            val charToAdd = if (!showNumeric && isUppercase) key.uppercase() else key
-                                            onTextChange(currentText + charToAdd)
-                                            if (isUppercase && !showNumeric) isUppercase = false
-                                        }
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = displayKey,
-                                color = when (key) {
-                                    "↵" -> Color.White
-                                    else -> textColor
-                                },
-                                fontSize = when (key) {
-                                    "space", ".com" -> 8.sp
-                                    else -> 10.sp
-                                },
-                                fontWeight = if (key == "↵") FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(label,
+                            color = if (key == "↵") Color.White else txtColor,
+                            fontSize = if (key == "space") 7.sp else 9.sp,
+                            fontWeight = if (key == "↵") FontWeight.Bold else FontWeight.Normal)
                     }
                 }
             }
         }
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// IME-SUPPRESSING TEXT FIELD
+// readOnly=true when built-in keyboard is active → Android never opens IME.
+// ═══════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun BrowserTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    textColor: Color,
+    modifier: Modifier = Modifier,
+    useBuiltInKeyboard: Boolean,
+    onFocusRequest: () -> Unit,
+    fontSize: TextUnit = 12.sp
+) {
+    val keyboardController = LocalSoftwareKeyboardController.current
+    BasicTextField(
+        value          = value,
+        onValueChange  = onValueChange,
+        readOnly       = useBuiltInKeyboard,   // ← prevents Android IME entirely
+        modifier       = modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null
+        ) {
+            if (useBuiltInKeyboard) keyboardController?.hide()
+            onFocusRequest()
+        },
+        textStyle      = TextStyle(color = textColor, fontSize = fontSize),
+        singleLine     = true,
+        cursorBrush    = SolidColor(Color(0xFF1A73E8)),
+        decorationBox  = { inner ->
+            if (value.isEmpty()) Text(placeholder, color = textColor.copy(0.4f), fontSize = fontSize)
+            inner()
+        }
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -299,16 +452,16 @@ fun FloatingKeyboard(
 @Composable
 fun BrowserScreen(isDark: Boolean) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     // ── Colors ──
-    val edgeBg = if (isDark) Color(0xFF202020) else Color(0xFFF3F3F3)
-    val tabBarBg = if (isDark) Color(0xFF292929) else Color(0xFFE3E3E3)
-    val navBarBg = if (isDark) Color(0xFF272727) else Color(0xFFEFEFEF)
-    val surfaceColor = if (isDark) Color(0xFF2D2D2D) else Color.White
-    val textColor = if (isDark) Color(0xFFE8E8E8) else Color(0xFF202020)
-    val accentBlue = Color(0xFF0078D4)
-    val borderColor = if (isDark) Color(0x20FFFFFF) else Color(0x20000000)
+    val edgeBg      = if (isDark) Color(0xFF1E1E1E) else Color(0xFFF2F2F2)
+    val tabBarBg    = if (isDark) Color(0xFF282828) else Color(0xFFE0E0E0)
+    val navBarBg    = if (isDark) Color(0xFF262626) else Color(0xFFEDEDED)
+    val surfaceColor = if (isDark) Color(0xFF2C2C2C) else Color.White
+    val textColor   = if (isDark) Color(0xFFEAEAEA) else Color(0xFF1A1A1A)
+    val accentBlue  = Color(0xFF1A73E8)
+    val borderColor = if (isDark) Color(0x1AFFFFFF) else Color(0x1A000000)
 
     // ── Settings ──
     var settings by remember { mutableStateOf(BrowserSettings(darkMode = isDark)) }
@@ -328,7 +481,7 @@ fun BrowserScreen(isDark: Boolean) {
     val activeTab = tabs.find { it.id == activeTabId } ?: tabs.firstOrNull() ?: return
 
     // ── Address bar state ──
-    var addressText by remember { mutableStateOf(activeTab.url) }
+    var addressText by remember { mutableStateOf(NEWTAB_URL) }
     var addressBarFocused by remember { mutableStateOf(false) }
     var showAddressSuggestions by remember { mutableStateOf(false) }
 
@@ -350,10 +503,18 @@ fun BrowserScreen(isDark: Boolean) {
 
     // ── Keyboard ──
     var showBuiltInKeyboard by remember { mutableStateOf(false) }
-    var keyboardTarget by remember { mutableStateOf("address") } // "address" | "find" | "newtab"
+    var keyboardTarget by remember { mutableStateOf("address") } // "address" | "find"
 
     // ── Sidebar state ──
     val sidebarCollapsed = true // always slim in landscape
+
+    fun showKeyboard(target: String) {
+        if (settings.useBuiltInKeyboard) {
+            keyboardController?.hide()
+            keyboardTarget = target
+            showBuiltInKeyboard = true
+        }
+    }
 
     // ── Data ──
     val bookmarks = remember { mutableStateListOf<Bookmark>() }
@@ -370,20 +531,20 @@ fun BrowserScreen(isDark: Boolean) {
         addressText = tab.url
         canGoBack = tab.backStack.isNotEmpty()
         canGoForward = tab.forwardStack.isNotEmpty()
-        if (tab.url != "edge://newtab") webView?.loadUrl(tab.url)
+        if (tab.url != NEWTAB_URL && tab.url.isNotBlank()) webView?.loadUrl(tab.url)
     }
 
     // ── Navigation helpers ──
     fun navigate(url: String) {
-        var finalUrl = url.trim()
-        if (!finalUrl.startsWith("http") && !finalUrl.startsWith("edge://")) {
-            finalUrl = if (finalUrl.contains(".") && !finalUrl.contains(" ")) {
-                "https://$finalUrl"
-            } else {
-                "${settings.searchEngine.url}${Uri.encode(finalUrl)}"
-            }
+        val raw = url.trim()
+        val finalUrl = when {
+            raw.isBlank()                                          -> return
+            raw == NEWTAB_URL                                      -> raw
+            raw.startsWith("http://") || raw.startsWith("https://") -> raw
+            raw.contains(".") && !raw.contains(" ")               -> "https://$raw"
+            else -> "${settings.searchEngine.url}${Uri.encode(raw)}"
         }
-        if (activeTab.url != finalUrl) {
+        if (activeTab.url != finalUrl && activeTab.url.isNotBlank()) {
             activeTab.backStack.add(activeTab.url)
             activeTab.forwardStack.clear()
         }
@@ -391,10 +552,14 @@ fun BrowserScreen(isDark: Boolean) {
         addressText = finalUrl
         canGoBack = activeTab.backStack.isNotEmpty()
         canGoForward = false
-        webView?.loadUrl(finalUrl)
         showAddressSuggestions = false
         showBuiltInKeyboard = false
         addressBarFocused = false
+        if (finalUrl == NEWTAB_URL) {
+            isLoading = false
+        } else {
+            webView?.loadUrl(finalUrl)
+        }
     }
 
     fun goBack() {
@@ -419,7 +584,7 @@ fun BrowserScreen(isDark: Boolean) {
         }
     }
 
-    fun addTab(url: String = "edge://newtab") {
+    fun addTab(url: String = NEWTAB_URL) {
         val t = BrowserTab(url = url)
         tabs.add(t)
         activeTabId = t.id
@@ -439,15 +604,11 @@ fun BrowserScreen(isDark: Boolean) {
     fun handleKeyboardInput(text: String) {
         when (keyboardTarget) {
             "address" -> addressText = text
-            "find" -> findQuery = text
+            "find"    -> findQuery   = text
         }
     }
 
-    fun getCurrentKeyboardText(): String = when (keyboardTarget) {
-        "address" -> addressText
-        "find" -> findQuery
-        else -> addressText
-    }
+    fun getCurrentKeyboardText(): String = if (keyboardTarget == "find") findQuery else addressText
 
     // ═══════════════════════════════════════════════════════════════════
     // LAYOUT
@@ -484,18 +645,13 @@ fun BrowserScreen(isDark: Boolean) {
                 addressText = addressText,
                 addressBarFocused = addressBarFocused,
                 isBookmarked = isBookmarked,
+                useBuiltInKb = settings.useBuiltInKeyboard,
                 onBack = { goBack() },
                 onForward = { goForward() },
                 onRefresh = { if (isLoading) webView?.stopLoading() else webView?.reload() },
-                onHome = { navigate("edge://newtab") },
+                onHome = { navigate(NEWTAB_URL) },
                 onAddressChange = { addressText = it; showAddressSuggestions = it.length > 1 },
-                onAddressFocus = {
-                    addressBarFocused = true
-                    if (settings.useBuiltInKeyboard) {
-                        keyboardTarget = "address"
-                        showBuiltInKeyboard = true
-                    }
-                },
+                onAddressFocus = { showKeyboard("address") },
                 onAddressGo = { navigate(addressText) },
                 onBookmarkToggle = {
                     val existing = bookmarks.indexOfFirst { it.url == activeTab.url }
@@ -504,15 +660,13 @@ fun BrowserScreen(isDark: Boolean) {
                 },
                 onMenuOpen = { showMenu = true },
                 onBookmarksPanel = { openPanel = if (openPanel == BrowserPanel.BOOKMARKS) BrowserPanel.NONE else BrowserPanel.BOOKMARKS },
-                onHistoryPanel = { openPanel = if (openPanel == BrowserPanel.HISTORY) BrowserPanel.NONE else BrowserPanel.HISTORY },
+                onHistoryPanel = { openPanel = if (openPanel == BrowserPanel.HISTORY)   BrowserPanel.NONE else BrowserPanel.HISTORY },
                 onDownloadsPanel = { openPanel = if (openPanel == BrowserPanel.DOWNLOADS) BrowserPanel.NONE else BrowserPanel.DOWNLOADS },
-                onSettingsPanel = { openPanel = if (openPanel == BrowserPanel.SETTINGS) BrowserPanel.NONE else BrowserPanel.SETTINGS },
+                onSettingsPanel = { openPanel = if (openPanel == BrowserPanel.SETTINGS)  BrowserPanel.NONE else BrowserPanel.SETTINGS },
                 onFindInPage = {
                     showFindBar = !showFindBar
-                    if (showFindBar && settings.useBuiltInKeyboard) {
-                        keyboardTarget = "find"
-                        showBuiltInKeyboard = true
-                    }
+                    if (showFindBar) showKeyboard("find")
+                    else { showBuiltInKeyboard = false }
                 }
             )
 
@@ -537,12 +691,7 @@ fun BrowserScreen(isDark: Boolean) {
                     query = findQuery,
                     isDark = isDark,
                     onQueryChange = { findQuery = it },
-                    onFocused = {
-                        if (settings.useBuiltInKeyboard) {
-                            keyboardTarget = "find"
-                            showBuiltInKeyboard = true
-                        }
-                    },
+                    onFocused = { showKeyboard("find") },
                     onFindNext = { webView?.findNext(true) },
                     onFindPrev = { webView?.findNext(false) },
                     onClose = { showFindBar = false; findQuery = ""; showBuiltInKeyboard = false }
@@ -588,19 +737,14 @@ fun BrowserScreen(isDark: Boolean) {
                             onCloseTab = { closeTab(it) },
                             onNewTab = { addTab(); showTabOverview = false }
                         )
-                    } else if (activeTab.url == "edge://newtab" || activeTab.url.isBlank()) {
+                    } else if (activeTab.url == NEWTAB_URL || activeTab.url.isBlank()) {
                         EdgeNewTabPage(
                             isDark = isDark,
                             settings = settings,
                             bookmarks = bookmarks,
                             history = history,
                             onLinkClicked = { navigate(it) },
-                            onSearchFocused = {
-                                if (settings.useBuiltInKeyboard) {
-                                    keyboardTarget = "address"
-                                    showBuiltInKeyboard = true
-                                }
-                            }
+                            onSearchFocused = { showKeyboard("address") }
                         )
                     } else {
                         EdgeWebView(
@@ -609,52 +753,55 @@ fun BrowserScreen(isDark: Boolean) {
                             settings = settings,
                             onWebViewCreated = { wv ->
                                 webView = wv
-                                if (activeTab.url != "edge://newtab") wv.loadUrl(activeTab.url)
+                                wv.loadUrl(activeTab.url)
                             },
-                            onPageStarted = { url ->
-                                isLoading = true; loadingProgress = 0f
-                                activeTab.isLoading = true
+                            onPageStarted = {
+                                onMain { isLoading = true; loadingProgress = 0f; activeTab.isLoading = true }
                             },
                             onProgressChanged = { p ->
-                                loadingProgress = p / 100f
-                                activeTab.loadProgress = p / 100f
+                                onMain { loadingProgress = p / 100f; activeTab.loadProgress = p / 100f }
                             },
                             onPageFinished = { url ->
-                                isLoading = false
-                                activeTab.isLoading = false
-                                canGoBack = webView?.canGoBack() == true || activeTab.backStack.isNotEmpty()
-                                canGoForward = webView?.canGoForward() == true || activeTab.forwardStack.isNotEmpty()
-                                if (url != null && url != "about:blank") {
-                                    history.add(0, HistoryEntry(title = activeTab.title, url = url, faviconColor = activeTab.faviconColor))
-                                    if (history.size > 500) history.removeAt(history.lastIndex)
+                                onMain {
+                                    isLoading = false
+                                    activeTab.isLoading = false
+                                    canGoBack    = webView?.canGoBack()    == true || activeTab.backStack.isNotEmpty()
+                                    canGoForward = webView?.canGoForward() == true || activeTab.forwardStack.isNotEmpty()
+                                    if (!url.isNullOrBlank() && url != "about:blank") {
+                                        history.add(0, HistoryEntry(
+                                            title        = activeTab.title.ifBlank { url },
+                                            url          = url,
+                                            faviconColor = activeTab.faviconColor
+                                        ))
+                                        if (history.size > 500) history.removeAt(history.lastIndex)
+                                    }
                                 }
                             },
-                            onTitleChanged = { title -> activeTab.title = title },
+                            onTitleChanged = { title -> onMain { activeTab.title = title } },
                             onUrlChanged = { url ->
-                                if (url != "about:blank") {
-                                    activeTab.url = url
-                                    addressText = url
-                                }
+                                onMain { if (url != "about:blank") { activeTab.url = url; addressText = url } }
                             },
                             onDownloadStart = { url, userAgent, contentDisposition, mimetype, contentLength ->
-                                val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype)
-                                val dlItem = DownloadItem(fileName = fileName, url = url, mimeType = mimetype, fileSize = contentLength)
-                                downloads.add(0, dlItem)
-                                try {
-                                    val req = DownloadManager.Request(Uri.parse(url))
-                                        .setMimeType(mimetype)
-                                        .addRequestHeader("User-Agent", userAgent)
-                                        .setTitle(fileName)
-                                        .setDescription("Downloading...")
-                                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-                                    val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                                    dm.enqueue(req)
-                                    dlItem.status = DownloadStatus.COMPLETED
-                                } catch (e: Exception) {
-                                    dlItem.status = DownloadStatus.FAILED
+                                onMain {
+                                    val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype)
+                                    val dlItem = DownloadItem(fileName = fileName, url = url, mimeType = mimetype, fileSize = contentLength)
+                                    downloads.add(0, dlItem)
+                                    try {
+                                        val req = DownloadManager.Request(Uri.parse(url))
+                                            .setMimeType(mimetype)
+                                            .addRequestHeader("User-Agent", userAgent)
+                                            .setTitle(fileName)
+                                            .setDescription("Downloading via Bluebird Surfer…")
+                                            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                                        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                                        dm.enqueue(req)
+                                        dlItem.status = DownloadStatus.COMPLETED
+                                    } catch (e: Exception) {
+                                        dlItem.status = DownloadStatus.FAILED
+                                    }
+                                    openPanel = BrowserPanel.DOWNLOADS
                                 }
-                                openPanel = BrowserPanel.DOWNLOADS
                             }
                         )
                     }
@@ -701,7 +848,7 @@ fun BrowserScreen(isDark: Boolean) {
                 textColor = textColor,
                 isBookmarked = isBookmarked,
                 onNewTab = { addTab(); showMenu = false },
-                onNewPrivateTab = { addTab("edge://newtab"); showMenu = false },
+                onNewPrivateTab = { addTab(NEWTAB_URL); showMenu = false },
                 onBookmarks = { openPanel = BrowserPanel.BOOKMARKS; showMenu = false },
                 onHistory = { openPanel = BrowserPanel.HISTORY; showMenu = false },
                 onDownloads = { openPanel = BrowserPanel.DOWNLOADS; showMenu = false },
@@ -811,7 +958,7 @@ private fun EdgeTabItem(
     val activeBg = if (isDark) Color(0xFF1E1E1E) else Color(0xFFFAFAFA)
     val bg = if (isActive) activeBg else Color.Transparent
     val textColor = if (isDark) Color(0xFFE0E0E0) else Color(0xFF202020)
-    val accentBlue = Color(0xFF0078D4)
+    val accentBlue = Color(0xFF1A73E8)
 
     Box(
         modifier = Modifier
@@ -820,8 +967,9 @@ private fun EdgeTabItem(
             .background(bg)
             .then(
                 if (isActive) Modifier.drawBehind {
-                    drawRect(accentBlue, topLeft = androidx.compose.ui.geometry.Offset(0f, 0f),
-                        size = androidx.compose.ui.geometry.Size(size.width, 2.dp.toPx()))
+                    drawRect(accentBlue, topLeft = Offset(0f, 0f),
+                        size = Size(size.width, 2.dp.toPx())
+                    )
                 } else Modifier
             )
             .clickable { onSelect() }
@@ -878,6 +1026,7 @@ private fun EdgeNavigationBar(
     addressText: String,
     addressBarFocused: Boolean,
     isBookmarked: Boolean,
+    useBuiltInKb: Boolean,
     onBack: () -> Unit,
     onForward: () -> Unit,
     onRefresh: () -> Unit,
@@ -895,8 +1044,8 @@ private fun EdgeNavigationBar(
 ) {
     val textColor = if (isDark) Color(0xFFE8E8E8) else Color(0xFF202020)
     val iconColor = if (isDark) Color(0xFFAAAAAA) else Color(0xFF555555)
-    val addrBg = if (isDark) Color(0xFF383838) else Color.White
-    val accentBlue = Color(0xFF0078D4)
+    val addrBg    = if (isDark) Color(0xFF383838) else Color.White
+    val accentBlue = Color(0xFF1A73E8)
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -934,28 +1083,29 @@ private fun EdgeNavigationBar(
                         if (addressBarFocused) accentBlue else borderColor,
                         RoundedCornerShape(14.dp)
                     )
-                    .clickable { onAddressFocus() }
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onAddressFocus() }
                     .padding(horizontal = 10.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     // Lock/site icon
                     Icon(
-                        if (addressText.startsWith("https")) Icons.Default.Lock else Icons.Default.LockOpen,
-                        null, tint = if (addressText.startsWith("https")) Color(0xFF107C10) else Color(0xFF888888),
+                        if (addressText.startsWith("https")) Icons.Default.Lock else Icons.Default.Language,
+                        null, tint = if (addressText.startsWith("https")) Color(0xFF1A9A1A) else Color(0xFF888888),
                         modifier = Modifier.size(10.dp)
                     )
-                    BasicTextField(
-                        value = addressText,
-                        onValueChange = onAddressChange,
-                        modifier = Modifier.weight(1f),
-                        textStyle = TextStyle(color = textColor, fontSize = 12.sp),
-                        singleLine = true,
-                        cursorBrush = SolidColor(accentBlue),
-                        decorationBox = { inner ->
-                            if (addressText.isEmpty()) Text("Search or enter address", color = Color(0xFF888888), fontSize = 12.sp)
-                            inner()
-                        }
+                    BrowserTextField(
+                        value              = addressText,
+                        onValueChange      = onAddressChange,
+                        placeholder        = "Search or enter address",
+                        textColor          = textColor,
+                        modifier           = Modifier.weight(1f),
+                        useBuiltInKeyboard = useBuiltInKb,
+                        onFocusRequest     = onAddressFocus,
+                        fontSize           = 12.sp
                     )
                     if (isLoading) {
                         CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.dp, color = accentBlue)
@@ -1075,35 +1225,41 @@ private fun FindInPageBar(
     onFindPrev: () -> Unit,
     onClose: () -> Unit
 ) {
-    val bg = if (isDark) Color(0xFF2D2D2D) else Color(0xFFF0F0F0)
-    val textColor = if (isDark) Color.White else Color.Black
-    val accentBlue = Color(0xFF0078D4)
+    val bg       = if (isDark) Color(0xFF2A2A2A) else Color(0xFFEBEBEB)
+    val txtColor = if (isDark) Color.White       else Color.Black
+    val accentBlue = Color(0xFF1A73E8)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(32.dp)
+            .height(30.dp)
             .background(bg)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Icon(Icons.Default.Search, null, tint = Color(0xFF888888), modifier = Modifier.size(14.dp))
+        Icon(Icons.Default.Search, null, tint = Color(0xFF888888), modifier = Modifier.size(13.dp))
+        // Note: FindBar is always read-only = false here; the parent passes onFocused
+        // which triggers showKeyboard("find") and hides Android IME from there.
         BasicTextField(
-            value = query,
+            value         = query,
             onValueChange = onQueryChange,
-            modifier = Modifier.weight(1f).clickable { onFocused() },
-            textStyle = TextStyle(color = textColor, fontSize = 12.sp),
-            singleLine = true,
-            cursorBrush = SolidColor(accentBlue),
+            modifier      = Modifier.weight(1f).clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onFocused() },
+            readOnly      = true, // prevents Android IME; parent keyboard drives input
+            textStyle     = TextStyle(color = txtColor, fontSize = 11.sp),
+            singleLine    = true,
+            cursorBrush   = SolidColor(accentBlue),
             decorationBox = { inner ->
-                if (query.isEmpty()) Text("Find in page...", color = Color(0xFF888888), fontSize = 12.sp)
+                if (query.isEmpty()) Text("Find in page…", color = Color(0xFF888888), fontSize = 11.sp)
                 inner()
             }
         )
-        NavBtn(Icons.Default.KeyboardArrowUp, tint = Color(0xFF888888), onClick = onFindPrev)
-        NavBtn(Icons.Default.KeyboardArrowDown, tint = Color(0xFF888888), onClick = onFindNext)
-        NavBtn(Icons.Default.Close, tint = Color(0xFF888888), onClick = onClose)
+        NavBtn(Icons.Default.KeyboardArrowUp,   enabled = true, tint = Color(0xFF888888)) { onFindPrev() }
+        NavBtn(Icons.Default.KeyboardArrowDown, enabled = true, tint = Color(0xFF888888)) { onFindNext() }
+        NavBtn(Icons.Default.Close,             enabled = true, tint = Color(0xFF888888)) { onClose() }
     }
 }
 
@@ -1122,7 +1278,7 @@ private fun AddressSuggestionsDropdown(
 ) {
     val bg = if (isDark) Color(0xFF2D2D2D) else Color.White
     val textColor = if (isDark) Color.White else Color.Black
-    val accentBlue = Color(0xFF0078D4)
+    val accentBlue = Color(0xFF1A73E8)
 
     val historyMatches = history.filter { it.url.contains(query, ignoreCase = true) || it.title.contains(query, ignoreCase = true) }.take(4)
     val bookmarkMatches = bookmarks.filter { it.url.contains(query, ignoreCase = true) || it.title.contains(query, ignoreCase = true) }.take(3)
@@ -1224,7 +1380,7 @@ private fun SidePanel(
     onNavigate: (String) -> Unit,
     onClose: () -> Unit
 ) {
-    val accentBlue = Color(0xFF0078D4)
+    val accentBlue = Color(0xFF1A73E8)
     val panelTitle = when (panel) {
         BrowserPanel.BOOKMARKS -> "Bookmarks"
         BrowserPanel.HISTORY -> "History"
@@ -1447,60 +1603,30 @@ private fun SettingsPanel(
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
 
-        item {
-            SettingsSectionHeader("Keyboard", textColor)
-        }
+        item { SettingsSectionHeader("Keyboard", accentBlue) }
         item {
             SettingsToggleRow(
-                title = "Built-in floating keyboard",
-                subtitle = "Tiny keyboard stays visible, avoids Android keyboard covering address bar",
-                checked = settings.useBuiltInKeyboard,
+                title    = "Built-in floating keyboard",
+                subtitle = "Tiny keyboard, suppresses Android keyboard popping up",
+                checked  = settings.useBuiltInKeyboard,
                 textColor = textColor,
                 accentBlue = accentBlue,
                 onToggle = { onChange(settings.copy(useBuiltInKeyboard = it)) }
             )
         }
 
-        item { SettingsSectionHeader("General", textColor) }
-        item {
-            SettingsToggleRow("Show bookmarks bar", null, settings.showBookmarksBar, textColor, accentBlue) {
-                onChange(settings.copy(showBookmarksBar = it))
-            }
-        }
-        item {
-            SettingsToggleRow("JavaScript", null, settings.javaScriptEnabled, textColor, accentBlue) {
-                onChange(settings.copy(javaScriptEnabled = it))
-            }
-        }
-        item {
-            SettingsToggleRow("Show images", null, settings.showImages, textColor, accentBlue) {
-                onChange(settings.copy(showImages = it))
-            }
-        }
-        item {
-            SettingsToggleRow("Save cookies", null, settings.saveCookies, textColor, accentBlue) {
-                onChange(settings.copy(saveCookies = it))
-            }
-        }
+        item { SettingsSectionHeader("General", accentBlue) }
+        item { SettingsToggleRow("Show bookmarks bar", null, settings.showBookmarksBar, textColor, accentBlue) { onChange(settings.copy(showBookmarksBar = it)) } }
+        item { SettingsToggleRow("JavaScript",          null, settings.javaScriptEnabled, textColor, accentBlue) { onChange(settings.copy(javaScriptEnabled = it)) } }
+        item { SettingsToggleRow("Show images",          null, settings.showImages, textColor, accentBlue) { onChange(settings.copy(showImages = it)) } }
+        item { SettingsToggleRow("Save cookies",         null, settings.saveCookies, textColor, accentBlue) { onChange(settings.copy(saveCookies = it)) } }
 
-        item { SettingsSectionHeader("Privacy & Security", textColor) }
-        item {
-            SettingsToggleRow("Ad blocker", "Block intrusive advertisements", settings.adBlockEnabled, textColor, accentBlue) {
-                onChange(settings.copy(adBlockEnabled = it))
-            }
-        }
-        item {
-            SettingsToggleRow("Tracking protection", "Prevent cross-site tracking", settings.trackingProtection, textColor, accentBlue) {
-                onChange(settings.copy(trackingProtection = it))
-            }
-        }
-        item {
-            SettingsToggleRow("Block pop-ups", null, settings.popupBlocker, textColor, accentBlue) {
-                onChange(settings.copy(popupBlocker = it))
-            }
-        }
+        item { SettingsSectionHeader("Privacy & Security", accentBlue) }
+        item { SettingsToggleRow("Ad blocker",           "Block intrusive advertisements", settings.adBlockEnabled, textColor, accentBlue) { onChange(settings.copy(adBlockEnabled = it)) } }
+        item { SettingsToggleRow("Tracking protection",  "Prevent cross-site tracking",   settings.trackingProtection, textColor, accentBlue) { onChange(settings.copy(trackingProtection = it)) } }
+        item { SettingsToggleRow("Block pop-ups",         null, settings.popupBlocker, textColor, accentBlue) { onChange(settings.copy(popupBlocker = it)) } }
 
-        item { SettingsSectionHeader("Search Engine", textColor) }
+        item { SettingsSectionHeader("Search Engine", accentBlue) }
         item {
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
                 SearchEngine.values().forEach { engine ->
@@ -1514,9 +1640,9 @@ private fun SettingsPanel(
                     ) {
                         RadioButton(
                             selected = settings.searchEngine == engine,
-                            onClick = { onChange(settings.copy(searchEngine = engine)) },
+                            onClick  = { onChange(settings.copy(searchEngine = engine)) },
                             modifier = Modifier.size(16.dp),
-                            colors = RadioButtonDefaults.colors(selectedColor = accentBlue)
+                            colors   = RadioButtonDefaults.colors(selectedColor = accentBlue)
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(engine.label, fontSize = 12.sp, color = textColor)
@@ -1525,32 +1651,20 @@ private fun SettingsPanel(
             }
         }
 
-        item { SettingsSectionHeader("Permissions", textColor) }
-        item {
-            SettingsToggleRow("Location access", null, settings.locationAccess, textColor, accentBlue) {
-                onChange(settings.copy(locationAccess = it))
-            }
-        }
-        item {
-            SettingsToggleRow("Camera access", null, settings.cameraAccess, textColor, accentBlue) {
-                onChange(settings.copy(cameraAccess = it))
-            }
-        }
-        item {
-            SettingsToggleRow("Microphone access", null, settings.microphoneAccess, textColor, accentBlue) {
-                onChange(settings.copy(microphoneAccess = it))
-            }
-        }
+        item { SettingsSectionHeader("Permissions", accentBlue) }
+        item { SettingsToggleRow("Location access",   null, settings.locationAccess,   textColor, accentBlue) { onChange(settings.copy(locationAccess = it)) } }
+        item { SettingsToggleRow("Camera access",     null, settings.cameraAccess,     textColor, accentBlue) { onChange(settings.copy(cameraAccess = it)) } }
+        item { SettingsToggleRow("Microphone access", null, settings.microphoneAccess, textColor, accentBlue) { onChange(settings.copy(microphoneAccess = it)) } }
     }
 }
 
 @Composable
-private fun SettingsSectionHeader(title: String, textColor: Color) {
+private fun SettingsSectionHeader(title: String, accentBlue: Color) {
     Text(
         title,
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
-        color = Color(0xFF0078D4),
+        color = accentBlue,
         modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 2.dp)
     )
 }
@@ -1702,7 +1816,7 @@ private fun TabOverviewGrid(
     val bg = if (isDark) Color(0xFF1A1A1A) else Color(0xFFF0F0F0)
     val cardBg = if (isDark) Color(0xFF2D2D2D) else Color.White
     val textColor = if (isDark) Color(0xFFE0E0E0) else Color(0xFF202020)
-    val accentBlue = Color(0xFF0078D4)
+    val accentBlue = Color(0xFF1A73E8)
 
     Box(modifier = Modifier.fillMaxSize().background(bg)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -1797,7 +1911,7 @@ private fun EdgeNewTabPage(
     val bg = if (isDark) Color(0xFF202020) else Color(0xFFF5F5F7)
     val textColor = if (isDark) Color(0xFFE8E8E8) else Color(0xFF202020)
     val surfaceColor = if (isDark) Color(0xFF2D2D2D) else Color.White
-    val accentBlue = Color(0xFF0078D4)
+    val accentBlue = Color(0xFF1A73E8)
 
     val scrollState = rememberScrollState()
 
@@ -1809,21 +1923,23 @@ private fun EdgeNewTabPage(
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Edge logo
+            // Bluebird logo
             Row(verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(
                     modifier = Modifier.size(36.dp)
                         .background(
-                            brush = Brush.linearGradient(listOf(Color(0xFF0078D4), Color(0xFF50E6FF))),
+                            brush = Brush.linearGradient(listOf(Color(0xFF1A73E8), Color(0xFF34A9FF))),
                             shape = CircleShape
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("e", style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White))
+                    Text("B", style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Color.White))
                 }
-                Text("Microsoft Edge", fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                    color = textColor)
+                Column {
+                    Text("Bluebird Surfer", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textColor)
+                    Text("Fast · Private · Yours", fontSize = 8.sp, color = textColor.copy(0.4f))
+                }
             }
 
             Spacer(Modifier.height(16.dp))
@@ -1983,7 +2099,7 @@ private fun EdgeNewTabPage(
                 modifier = Modifier.widthIn(max = 540.dp).fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFF0078D4).copy(if (isDark) 0.15f else 0.08f)
+                    containerColor = Color(0xFF1A73E8).copy(if (isDark) 0.15f else 0.08f)
                 )
             ) {
                 Row(modifier = Modifier.padding(12.dp),
@@ -1991,8 +2107,8 @@ private fun EdgeNewTabPage(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(Icons.Default.WbSunny, null, tint = Color(0xFFFFD700), modifier = Modifier.size(28.dp))
                     Column {
-                        Text("Good to browse!", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = textColor)
-                        Text("Your browsing is protected · Tracking blocked",
+                        Text("Protected browsing active", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = textColor)
+                        Text("Bluebird Surfer · Ad Blocker · Tracking Shield",
                             fontSize = 9.sp, color = textColor.copy(0.6f))
                     }
                 }
@@ -2013,138 +2129,140 @@ private fun EdgeWebView(
     isDark: Boolean,
     settings: BrowserSettings,
     onWebViewCreated: (WebView) -> Unit,
-    onPageStarted: (String?) -> Unit,
+    onPageStarted: () -> Unit,
     onProgressChanged: (Int) -> Unit,
     onPageFinished: (String?) -> Unit,
     onTitleChanged: (String) -> Unit,
     onUrlChanged: (String) -> Unit,
     onDownloadStart: (String, String, String, String, Long) -> Unit
 ) {
-    val context = LocalContext.current
-
     AndroidView(
         factory = { ctx ->
             WebView(ctx).apply {
-                with(this.settings) {
-                    javaScriptEnabled = settings.javaScriptEnabled
-                    domStorageEnabled = true
-                    loadWithOverviewMode = true
-                    useWideViewPort = true
-                    builtInZoomControls = true
-                    displayZoomControls = false
-                    allowFileAccess = true
-                    allowContentAccess = true
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                with(webViewSettings) {
+                    javaScriptEnabled                     = settings.javaScriptEnabled
+                    domStorageEnabled                     = true
+                    loadWithOverviewMode                  = true
+                    useWideViewPort                       = true
+                    builtInZoomControls                   = true
+                    displayZoomControls                   = false
+                    allowFileAccess                       = true
+                    allowContentAccess                    = true
                     setSupportMultipleWindows(false)
-                    javaScriptCanOpenWindowsAutomatically = !settings.popupBlocker
-                    blockNetworkImage = !settings.showImages
-                    loadsImagesAutomatically = settings.showImages
+                    javaScriptCanOpenWindowsAutomatically = false
+                    loadsImagesAutomatically              = settings.showImages
                     setSupportZoom(true)
-                    textZoom = settings.fontSize
-                    mediaPlaybackRequiresUserGesture = true
-                    mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                    userAgentString = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 EdgA/120.0.0.0"
+                    mediaPlaybackRequiresUserGesture      = true
+                    mixedContentMode                      = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                    userAgentString                       =
+                        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
+                                "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36 " +
+                                "BluebirdSurfer/1.0"
                 }
 
-                if (isDark) {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                        this.settings.forceDark = WebSettings.FORCE_DARK_AUTO
-                    }
+                // Safe dark mode — only on API 29+, no deprecated forceDark
+                if (isDark && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    @Suppress("DEPRECATION")
+                    webViewSettings.forceDark = WebSettings.FORCE_DARK_AUTO
                 }
 
                 webViewClient = object : WebViewClient() {
-                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                        onPageStarted(url)
-                        url?.let { onUrlChanged(it) }
+                    override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                        onMain { onPageStarted() }
+                        url?.let { onMain { onUrlChanged(it) } }
                     }
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        onPageFinished(url)
-                        url?.let { onUrlChanged(it) }
-                        title?.let { onTitleChanged(it) }
-                        // Dark mode injection
-                        if (isDark) {
-                            view?.evaluateJavascript("""
-                                (function() {
-                                  var style = document.createElement('style');
-                                  style.type = 'text/css';
-                                  document.head.appendChild(style);
-                                })();
-                            """.trimIndent(), null)
+                    override fun onPageFinished(view: WebView, url: String?) {
+                        onMain {
+                            onPageFinished(url)
+                            url?.let { onUrlChanged(it) }
+                            view.title?.let { onTitleChanged(it) }
                         }
                     }
-                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                        val reqUrl = request?.url?.toString() ?: return false
-                        if (reqUrl.startsWith("http") || reqUrl.startsWith("https")) return false
-                        try {
-                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(reqUrl))
-                            ctx.startActivity(intent)
-                        } catch (e: Exception) { /* ignore */ }
-                        return true
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView, request: WebResourceRequest
+                    ): Boolean {
+                        val u = request.url?.toString() ?: return false
+                        if (u.startsWith("http://") || u.startsWith("https://")) return false
+                        return try {
+                            ctx.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(u))
+                            ); true
+                        } catch (_: Exception) { true }
                     }
-                    override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                        if (request?.isForMainFrame == true) {
-                            view?.loadDataWithBaseURL(null, buildErrorPage(error?.description?.toString() ?: "Unknown error", isDark), "text/html", "UTF-8", null)
+                    override fun onReceivedError(
+                        view: WebView, request: WebResourceRequest, error: WebResourceError
+                    ) {
+                        if (request.isForMainFrame) {
+                            val html = buildErrorPage(error.description?.toString() ?: "Unknown", isDark)
+                            onMain { view.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null) }
                         }
                     }
-                    override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.net.http.SslError?) {
-                        handler?.cancel()
-                    }
+                    override fun onReceivedSslError(
+                        view: WebView, handler: SslErrorHandler, error: SslError
+                    ) { handler.cancel() }
                 }
 
                 webChromeClient = object : WebChromeClient() {
-                    override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                        onProgressChanged(newProgress)
+                    override fun onProgressChanged(view: WebView, newProgress: Int) {
+                        onMain { onProgressChanged(newProgress) }
                     }
-                    override fun onReceivedTitle(view: WebView?, title: String?) {
-                        title?.let { onTitleChanged(it) }
+                    override fun onReceivedTitle(view: WebView, title: String?) {
+                        onMain { title?.let { onTitleChanged(it) } }
                     }
-                    override fun onJsAlert(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
-                        result?.confirm()
-                        return true
+                    override fun onJsAlert(view: WebView, url: String?, message: String?, result: JsResult): Boolean {
+                        result.confirm(); return true
                     }
-                    override fun onConsoleMessage(message: ConsoleMessage?): Boolean = true
+                    override fun onJsConfirm(view: WebView, url: String?, message: String?, result: JsResult): Boolean {
+                        result.confirm(); return true
+                    }
+                    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean = true
                 }
 
-                setDownloadListener { dlUrl, userAgent, contentDisposition, mimetype, contentLength ->
-                    onDownloadStart(dlUrl, userAgent, contentDisposition, mimetype, contentLength)
+                setDownloadListener { dlUrl, ua, cd, mime, len ->
+                    onMain { onDownloadStart(dlUrl, ua, cd, mime, len) }
                 }
 
-                CookieManager.getInstance().apply {
-                    setAcceptCookie(settings.saveCookies)
-                    setAcceptThirdPartyCookies(this@apply as WebView?, false)
-                }
+                // CookieManager must be called on main thread
+                CookieManager.getInstance().setAcceptCookie(settings.saveCookies)
 
                 onWebViewCreated(this)
             }
         },
         update = { wv ->
-            wv.settings.javaScriptEnabled = settings.javaScriptEnabled
-            wv.settings.loadsImagesAutomatically = settings.showImages
+            // Only update safe, idempotent settings here
+            wv.webViewSettings.javaScriptEnabled       = settings.javaScriptEnabled
+            wv.webViewSettings.loadsImagesAutomatically = settings.showImages
         },
         modifier = Modifier.fillMaxSize()
     )
 }
 
 private fun buildErrorPage(error: String, isDark: Boolean): String {
-    val bg = if (isDark) "#1A1A1A" else "#F5F5F5"
-    val text = if (isDark) "#E8E8E8" else "#202020"
+    val bg  = if (isDark) "#1A1A1A" else "#F6F6F6"
+    val fg  = if (isDark) "#E8E8E8" else "#1A1A1A"
     val sub = if (isDark) "#888888" else "#666666"
-    return """
-        <!DOCTYPE html>
-        <html>
-        <head><meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          body { background: $bg; color: $text; font-family: -apple-system, sans-serif;
-                 display: flex; flex-direction: column; align-items: center; justify-content: center;
-                 height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-          .icon { font-size: 48px; margin-bottom: 16px; }
-          h2 { margin: 0 0 8px 0; font-size: 20px; }
-          p { color: $sub; text-align: center; font-size: 13px; max-width: 400px; }
-        </style></head>
-        <body>
-          <div class="icon">⚠️</div>
-          <h2>This page can't be reached</h2>
-          <p>$error</p>
-          <p>Check your internet connection or the URL and try again.</p>
-        </body></html>
-    """.trimIndent()
+    return """<!DOCTYPE html><html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:$bg;color:$fg;font-family:system-ui,sans-serif;
+       display:flex;flex-direction:column;align-items:center;
+       justify-content:center;height:100vh;padding:24px;text-align:center}
+  .icon{font-size:52px;margin-bottom:16px}
+  h2{font-size:20px;font-weight:600;margin-bottom:8px}
+  p{color:$sub;font-size:13px;max-width:380px;line-height:1.6;margin-bottom:20px}
+  button{background:#1A73E8;color:#fff;border:none;border-radius:6px;
+         padding:10px 24px;font-size:13px;cursor:pointer;font-weight:500}
+  button:active{opacity:0.85}
+</style></head><body>
+  <div class="icon">🌐</div>
+  <h2>Page can't be reached</h2>
+  <p>$error</p>
+  <p>Check your internet connection or the address and try again.</p>
+  <button onclick="history.back()">Go back</button>
+</body></html>"""
 }

@@ -952,7 +952,7 @@ private fun AboutSettings(a: ScreenArgs) {
         }
     }
 
-    SettingsGroup("Win11 Launcher", a) {
+    SettingsGroup("Bluebird Launcher", a) {
         listOf("Version" to (pkgInfo?.versionName ?: "1.0"), "Build" to (pkgInfo?.longVersionCode?.toString() ?: "1"), "Package" to a.ctx.packageName).forEachIndexed { i, (label, value) ->
             if (i > 0) Divider(color = a.textColor.copy(alpha = 0.04f), modifier = Modifier.padding(horizontal = 12.dp))
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -961,11 +961,11 @@ private fun AboutSettings(a: ScreenArgs) {
             }
         }
         Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(Icons.Default.Star,      "Rate this launcher",   "Leave a review on the Play Store",    a = a)
+        SNav(Icons.Default.Star,      "Rate this launcher",   "Send feedback to trebronwayne@gmail.com,nlamn.dev@outlook.com/gmail,or WhatsApp +256768859800/ +256790014428(Also my Contact)",    a = a)
         Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(Icons.Default.BugReport, "Report a bug",         "Help us improve by reporting issues", a = a)
+        SNav(Icons.Default.BugReport, "Report a bug",         "Help us improve by reporting issues,you can do it through the above contacts", a = a)
         Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(Icons.Default.Policy,    "Privacy policy",       "Read how your data is handled",       a = a)
+        SNav(Icons.Default.Policy,    "Privacy policy",       "This app colects no data from you and all that is used by it are locally stored",       a = a)
         Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
         SNav(Icons.Default.Gavel,     "Open source licenses", "Third-party library attributions",    a = a)
     }
