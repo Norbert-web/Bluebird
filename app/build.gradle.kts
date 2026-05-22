@@ -48,6 +48,13 @@ android {
         }
     }
 }
+configurations.all {
+    resolutionStrategy {
+        force("androidx.compose.material:material:1.7.8")
+        force("androidx.compose.material:material-ripple:1.7.8")
+    }
+}
+
 
 dependencies {
     implementation(libs.androidx.core.ktx)
@@ -70,8 +77,6 @@ dependencies {
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.remote.creation.core)
     implementation(libs.androidx.room.ktx)
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.foundation.layout)
     debugImplementation(libs.androidx.ui.tooling)
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.0")

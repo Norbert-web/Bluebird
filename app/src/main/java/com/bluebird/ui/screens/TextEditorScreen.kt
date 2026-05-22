@@ -125,7 +125,6 @@ import java.util.UUID
 // ─────────────────────────────────────────────────────────────────
 
 private object Ed {
-    // Dark
     val DBg        = Color(0xFF1E1E1E)
     val DSurface   = Color(0xFF252526)
     val DSurfaceH  = Color(0xFF2D2D2D)
@@ -138,7 +137,6 @@ private object Ed {
     val DTabActive = Color(0xFF1E1E1E)
     val DStatusBar = Color(0xFF007ACC)
 
-    // Light
     val LBg        = Color(0xFFFFFFFF)
     val LSurface   = Color(0xFFF3F3F3)
     val LSurfaceH  = Color(0xFFEBEBEB)
@@ -157,7 +155,6 @@ private object Ed {
     val DangerRed    = Color(0xFFD83B01)
     val SuccessGreen = Color(0xFF107C10)
 
-    // Syntax colours (VS Code Dark+)
     val StringColor  = Color(0xFFCE9178)
     val KeywordColor = Color(0xFF569CD6)
     val CommentColor = Color(0xFF6A9955)
@@ -167,10 +164,6 @@ private object Ed {
     val OpColor      = Color(0xFFD4D4D4)
     val AnnotColor   = Color(0xFF9CDCFE)
 }
-
-// ─────────────────────────────────────────────────────────────────
-// Supported Encodings
-// ─────────────────────────────────────────────────────────────────
 
 private enum class FileEncoding(val label: String, val charset: Charset) {
     UTF8("UTF-8", Charsets.UTF_8),
@@ -182,10 +175,6 @@ private enum class FileEncoding(val label: String, val charset: Charset) {
 private fun charset(name: String): Charset = try {
     Charset.forName(name)
 } catch (_: Exception) { Charsets.UTF_8 }
-
-// ─────────────────────────────────────────────────────────────────
-// Tab Data — one per open file
-// ─────────────────────────────────────────────────────────────────
 
 private data class TabData(
     val id: String = UUID.randomUUID().toString(),
@@ -200,13 +189,7 @@ private data class TabData(
     val redoStack: List<TextFieldValue> = emptyList()
 )
 
-// ─────────────────────────────────────────────────────────────────
-// Editor State (shared across all tabs)
-// ─────────────────────────────────────────────────────────────────
-
 private class EditorState(initialPath: String = "", initialContent: String = "") {
-
-    // ── Tabs ──────────────────────────────────────────────────────
     var tabs by mutableStateOf(
         listOf(
             if (initialPath.isNotEmpty())
@@ -224,7 +207,6 @@ private class EditorState(initialPath: String = "", initialContent: String = "")
 
     val activeTab get() = tabs.getOrElse(activeTabIndex) { TabData() }
 
-    // ── Per-tab helpers ───────────────────────────────────────────
     fun updateTab(block: TabData.() -> TabData) {
         tabs = tabs.toMutableList().also { it[activeTabIndex] = it[activeTabIndex].block() }
     }
@@ -279,7 +261,6 @@ private class EditorState(initialPath: String = "", initialContent: String = "")
         activeTabIndex = (activeTabIndex).coerceAtMost(tabs.lastIndex)
     }
 
-    // ── View settings (shared) ────────────────────────────────────
     var wordWrap      by mutableStateOf(true)
     var showLineNums  by mutableStateOf(true)
     var fontSize      by mutableStateOf(14.sp)
@@ -289,7 +270,6 @@ private class EditorState(initialPath: String = "", initialContent: String = "")
     var isReadOnly    get() = activeTab.isReadOnly
         set(v) = updateTab { copy(isReadOnly = v) }.let {}
 
-    // ── Find / Replace ────────────────────────────────────────────
     var showFindBar   by mutableStateOf(false)
     var findQuery     by mutableStateOf("")
     var replaceQuery  by mutableStateOf("")
@@ -298,7 +278,6 @@ private class EditorState(initialPath: String = "", initialContent: String = "")
     var matchCase     by mutableStateOf(false)
     var currentMatchIndex by mutableStateOf(0)
 
-    // ── Dialogs ───────────────────────────────────────────────────
     var showSaveAsDialog    by mutableStateOf(false)
     var showUnsavedDialog   by mutableStateOf(false)
     var showGoToLineDialog  by mutableStateOf(false)
@@ -306,7 +285,6 @@ private class EditorState(initialPath: String = "", initialContent: String = "")
     var toastMsg            by mutableStateOf<String?>(null)
     var toastIsError        by mutableStateOf(false)
 
-    // ── Computed from active tab ──────────────────────────────────
     val filePath   get() = activeTab.filePath
     val fileName   get() = activeTab.fileName
     val content    get() = activeTab.content
@@ -323,7 +301,6 @@ private class EditorState(initialPath: String = "", initialContent: String = "")
     val cursorCol  get() = content.text.substring(0, content.selection.start.coerceAtMost(content.text.length)).substringAfterLast('\n').length + 1
     val fileExt    get() = fileName.substringAfterLast('.', "txt").lowercase()
 
-    // ── Find helpers ──────────────────────────────────────────────
     fun findMatches(): List<IntRange> {
         if (findQuery.isEmpty()) return emptyList()
         return try {
@@ -360,10 +337,8 @@ private class EditorState(initialPath: String = "", initialContent: String = "")
         } catch (_: Exception) {}
     }
 
-    // ── Encoding ──────────────────────────────────────────────────
     fun setEncoding(enc: FileEncoding) = updateTab { copy(encoding = enc) }
 
-    // ── Go to line ────────────────────────────────────────────────
     fun goToLine(line: Int) {
         val text = content.text
         val lines = text.split('\n')
@@ -375,10 +350,6 @@ private class EditorState(initialPath: String = "", initialContent: String = "")
 
     fun toast(msg: String, error: Boolean = false) { toastMsg = msg; toastIsError = error }
 }
-
-// ─────────────────────────────────────────────────────────────────
-// Syntax Highlighting
-// ─────────────────────────────────────────────────────────────────
 
 private val KOTLIN_KEYWORDS = setOf(
     "fun","val","var","class","object","interface","if","else","when","for","while","do",
@@ -399,7 +370,6 @@ private fun buildSyntaxAnnotatedString(text: String, ext: String, findQuery: Str
         if (ext in setOf("kt", "kts", "java", "js", "ts", "py", "dart", "cpp", "c", "cs", "go", "rs", "swift")) {
             highlightSyntax(text, ext)
         }
-        // Search highlights on top
         if (findQuery.isNotEmpty()) {
             try {
                 val flags = if (matchCase) emptySet() else setOf(RegexOption.IGNORE_CASE)
@@ -413,7 +383,6 @@ private fun buildSyntaxAnnotatedString(text: String, ext: String, findQuery: Str
 }
 
 private fun AnnotatedString.Builder.highlightSyntax(text: String, ext: String) {
-    // Line comments
     val commentPat = when (ext) {
         "py" -> Regex("#[^\n]*")
         else -> Regex("//[^\n]*|/\\*.*?\\*/", setOf(RegexOption.DOT_MATCHES_ALL))
@@ -421,42 +390,28 @@ private fun AnnotatedString.Builder.highlightSyntax(text: String, ext: String) {
     commentPat.findAll(text).forEach {
         addStyle(SpanStyle(color = Ed.CommentColor), it.range.first, it.range.last + 1)
     }
-    // Strings (double and single quoted, skipping escaped)
     Regex(""""([^"\\]|\\.)*"|'([^'\\]|\\.)*'""").findAll(text).forEach {
         addStyle(SpanStyle(color = Ed.StringColor), it.range.first, it.range.last + 1)
     }
-    // Numbers
     Regex("""\b\d+\.?\d*[fFLl]?\b""").findAll(text).forEach {
         addStyle(SpanStyle(color = Ed.NumberColor), it.range.first, it.range.last + 1)
     }
-    // Keywords (Kotlin/Java/general)
     Regex("""\b(${KOTLIN_KEYWORDS.joinToString("|")})\b""").findAll(text).forEach {
         addStyle(SpanStyle(color = Ed.KeywordColor, fontWeight = FontWeight.Medium), it.range.first, it.range.last + 1)
     }
-    // Types
     Regex("""\b(${KOTLIN_TYPES.joinToString("|")})\b""").findAll(text).forEach {
         addStyle(SpanStyle(color = Ed.TypeColor), it.range.first, it.range.last + 1)
     }
-    // Annotations (@Something)
     Regex("""@\w+""").findAll(text).forEach {
         addStyle(SpanStyle(color = Ed.AnnotColor), it.range.first, it.range.last + 1)
     }
-    // Function calls
     Regex("""\b([a-zA-Z_]\w*)\s*(?=\()""").findAll(text).forEach {
         addStyle(SpanStyle(color = Ed.FuncColor), it.range.first, it.range.last + 1)
     }
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Auto-save helper (writes to cache)
-// ─────────────────────────────────────────────────────────────────
-
 private fun autosavePath(cacheDir: File, fileName: String) =
     File(cacheDir, "autosave_${fileName.replace("/", "_")}.tmp")
-
-// ─────────────────────────────────────────────────────────────────
-// State factory
-// ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun rememberEditorState(initialPath: String): EditorState {
@@ -467,10 +422,6 @@ private fun rememberEditorState(initialPath: String): EditorState {
         EditorState(initialPath, content)
     }
 }
-
-// ─────────────────────────────────────────────────────────────────
-// Entry Point
-// ─────────────────────────────────────────────────────────────────
 
 @Composable
 fun TextEditorScreen(
@@ -493,15 +444,12 @@ fun TextEditorScreen(
     val tabBg    = if (isDark) Ed.DTab      else Ed.LTab
     val tabActive = if (isDark) Ed.DTabActive else Ed.LTabActive
 
-    // ── Shared scroll state (syncs gutter + editor) ──────────────
     val sharedScroll = rememberScrollState()
 
-    // ── Toast dismiss ────────────────────────────────────────────
     LaunchedEffect(s.toastMsg) {
         if (s.toastMsg != null) { delay(2500); s.toastMsg = null }
     }
 
-    // ── Auto-save every 30s when modified ────────────────────────
     LaunchedEffect(s.isModified, s.content.text) {
         if (s.isModified) {
             delay(30_000)
@@ -512,7 +460,6 @@ fun TextEditorScreen(
         }
     }
 
-    // ── Offer autosave restore on open ───────────────────────────
     LaunchedEffect(Unit) {
         if (initialPath.isNotEmpty()) {
             val draft = autosavePath(context.cacheDir, File(initialPath).name)
@@ -568,12 +515,9 @@ fun TextEditorScreen(
 
     Box(Modifier.fillMaxSize().background(bg)) {
         Column(Modifier.fillMaxSize()) {
-
-            // ── Multi-tab title bar ──────────────────────────────
             TabBar(s, isDark, surface, tabBg, tabActive, border, tc, tcs, tcm,
                 onSave = ::save, onSaveAs = { s.showSaveAsDialog = true })
 
-            // ── Menu bar ────────────────────────────────────────
             MenuBar(
                 s, isDark, surfH, border, tc, tcs, tcm,
                 onSave = ::save,
@@ -583,7 +527,6 @@ fun TextEditorScreen(
                 context = context
             )
 
-            // ── Find / Replace bar ───────────────────────────────
             AnimatedVisibility(
                 s.showFindBar,
                 enter = slideInVertically { -it } + fadeIn(),
@@ -592,21 +535,16 @@ fun TextEditorScreen(
                 FindReplaceBar(s, isDark, surface, border, tc, tcs, tcm)
             }
 
-            // ── Editor body ──────────────────────────────────────
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 if (s.showLineNums) {
-                    // FIX #1: gutter shares sharedScroll with editor
                     LineNumberGutter(s, lineNum, tcm, border, sharedScroll)
                 }
-                // FIX #1 continued: editor uses same sharedScroll
                 EditorArea(s, isDark, bg, tc, tcs, tcm, sharedScroll)
             }
 
-            // ── Status bar ───────────────────────────────────────
             StatusBar(s, isDark, border, tc, tcs)
         }
 
-        // ── Toast ─────────────────────────────────────────────────
         s.toastMsg?.let { msg ->
             Box(Modifier.fillMaxSize().padding(bottom = 36.dp), contentAlignment = Alignment.BottomCenter) {
                 Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFF323232), shadowElevation = 10.dp) {
@@ -625,7 +563,6 @@ fun TextEditorScreen(
             }
         }
 
-        // ── Save As Dialog ────────────────────────────────────────
         if (s.showSaveAsDialog) {
             SaveAsDialog(
                 currentName = s.fileName,
@@ -641,7 +578,6 @@ fun TextEditorScreen(
             )
         }
 
-        // ── Go-to-line Dialog ─────────────────────────────────────
         if (s.showGoToLineDialog) {
             GoToLineDialog(
                 maxLine = s.lineCount, isDark = isDark, surface = surface, tc = tc, tcs = tcs,
@@ -650,7 +586,6 @@ fun TextEditorScreen(
             )
         }
 
-        // ── Encoding Picker ───────────────────────────────────────
         if (s.showEncodingPicker) {
             EncodingPickerDialog(
                 current = s.encoding, isDark = isDark, surface = surface, tc = tc, tcs = tcs,
@@ -660,10 +595,6 @@ fun TextEditorScreen(
         }
     }
 }
-
-// ─────────────────────────────────────────────────────────────────
-// Tab Bar (multi-tab, FIX #7)
-// ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun TabBar(
@@ -677,7 +608,6 @@ private fun TabBar(
             Modifier.fillMaxWidth().height(38.dp).background(surface).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // App icon
             Box(
                 Modifier.size(22.dp).background(Ed.Accent, RoundedCornerShape(4.dp)),
                 contentAlignment = Alignment.Center
@@ -686,7 +616,6 @@ private fun TabBar(
             }
             Spacer(Modifier.width(6.dp))
 
-            // Tabs
             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                 s.tabs.forEachIndexed { index, tab ->
                     val isActive = index == s.activeTabIndex
@@ -715,7 +644,6 @@ private fun TabBar(
                     }
                     Spacer(Modifier.width(2.dp))
                 }
-                // New tab
                 Box(
                     Modifier.size(28.dp).clip(RoundedCornerShape(4.dp)).clickable { s.newTab() },
                     contentAlignment = Alignment.Center
@@ -728,10 +656,6 @@ private fun TabBar(
         Divider(color = border)
     }
 }
-
-// ─────────────────────────────────────────────────────────────────
-// Menu Bar
-// ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun MenuBar(
@@ -746,9 +670,6 @@ private fun MenuBar(
     var showViewMenu   by remember { mutableStateOf(false) }
     var showFormatMenu by remember { mutableStateOf(false) }
 
-    val menuSurface = if (isDark) Ed.DSurface else Ed.LBg
-    val menuBorder  = if (isDark) Ed.DBorder  else Ed.LBorder
-
     fun closeAll() { showFileMenu = false; showEditMenu = false; showViewMenu = false; showFormatMenu = false }
 
     Row(
@@ -758,32 +679,27 @@ private fun MenuBar(
         // ── File ──
         Box {
             MenuBtn("File", tc, showFileMenu) { showFileMenu = !showFileMenu; showEditMenu = false; showViewMenu = false; showFormatMenu = false }
-            DropdownMenu(expanded = showFileMenu, onDismissRequest = { showFileMenu = false }, containerColor = menuSurface) {
+            DropdownMenu(expanded = showFileMenu, onDismissRequest = { showFileMenu = false }) {
                 DdItem(Icons.Default.Add,        "New",              "Ctrl+N", tc) { s.newTab(); closeAll() }
                 DdItem(Icons.Default.FolderOpen, "Open",             "Ctrl+O", tc) { closeAll() }
-                DdDivider(menuBorder)
+                DdDivider(border)
                 DdItem(Icons.Default.Save,       "Save",             "Ctrl+S", tc, enabled = s.isModified) { onSave(); closeAll() }
                 DdItem(Icons.Default.SaveAs,     "Save As…",         "Ctrl+Shift+S", tc) { onSaveAs(); closeAll() }
-                DdDivider(menuBorder)
+                DdDivider(border)
                 DdItem(Icons.Default.Share,      "Share",            "", tc) { onShare(); closeAll() }
-                DdItem(Icons.Default.ContentCopy,"Copy All",         "", tc) {
-                    // Copy full content to clipboard
-                    val clipboard = androidx.compose.ui.platform.LocalClipboardManager
-                    closeAll()
-                }
+                DdItem(Icons.Default.ContentCopy,"Copy All",         "", tc) { closeAll() }
                 DdItem(Icons.Default.Restore,    "Restore Draft",    "", tc) { onRestoreDraft(); closeAll() }
-                DdDivider(menuBorder)
+                DdDivider(border)
                 DdItem(Icons.Default.Close,      "Close Tab",        "", tc) { s.closeTab(s.activeTabIndex); closeAll() }
             }
         }
         // ── Edit ──
         Box {
             MenuBtn("Edit", tc, showEditMenu) { showEditMenu = !showEditMenu; showFileMenu = false; showViewMenu = false; showFormatMenu = false }
-            DropdownMenu(expanded = showEditMenu, onDismissRequest = { showEditMenu = false }, containerColor = menuSurface) {
-                // FIX #2: Undo/Redo wired up
+            DropdownMenu(expanded = showEditMenu, onDismissRequest = { showEditMenu = false }) {
                 DdItem(Icons.Default.Undo,         "Undo",              "Ctrl+Z", tc, enabled = s.canUndo) { s.undo(); closeAll() }
                 DdItem(Icons.Default.Redo,         "Redo",              "Ctrl+Y", tc, enabled = s.canRedo) { s.redo(); closeAll() }
-                DdDivider(menuBorder)
+                DdDivider(border)
                 DdItem(Icons.Default.ContentCut,   "Cut",               "Ctrl+X", tc) { closeAll() }
                 DdItem(Icons.Default.ContentCopy,  "Copy",              "Ctrl+C", tc) { closeAll() }
                 DdItem(Icons.Default.ContentPaste, "Paste",             "Ctrl+V", tc) { closeAll() }
@@ -791,11 +707,11 @@ private fun MenuBar(
                     s.updateTab { copy(content = content.copy(selection = TextRange(0, content.text.length))) }
                     closeAll()
                 }
-                DdDivider(menuBorder)
+                DdDivider(border)
                 DdItem(Icons.Default.Search,       "Find",              "Ctrl+F", tc) { s.showFindBar = true; s.showReplace = false; closeAll() }
                 DdItem(Icons.Default.FindReplace,  "Replace",           "Ctrl+H", tc) { s.showFindBar = true; s.showReplace = true; closeAll() }
                 DdItem(Icons.Default.VerticalAlignCenter, "Go to Line…","Ctrl+G", tc) { s.showGoToLineDialog = true; closeAll() }
-                DdDivider(menuBorder)
+                DdDivider(border)
                 DdItem(Icons.Default.Schedule,     "Insert Date/Time",  "F5", tc) {
                     val dt = SimpleDateFormat("MM/dd/yyyy hh:mm a", Locale.getDefault()).format(Date())
                     val cur = s.content; val pos = cur.selection.start
@@ -807,14 +723,14 @@ private fun MenuBar(
         // ── Format ──
         Box {
             MenuBtn("Format", tc, showFormatMenu) { showFormatMenu = !showFormatMenu; showFileMenu = false; showEditMenu = false; showViewMenu = false }
-            DropdownMenu(expanded = showFormatMenu, onDismissRequest = { showFormatMenu = false }, containerColor = menuSurface) {
+            DropdownMenu(expanded = showFormatMenu, onDismissRequest = { showFormatMenu = false }) {
                 DdCheckItem("Word Wrap",           s.wordWrap,          tc) { s.wordWrap = !s.wordWrap; closeAll() }
                 DdCheckItem("Syntax Highlighting", s.syntaxHighlight,   tc) { s.syntaxHighlight = !s.syntaxHighlight; closeAll() }
                 DdCheckItem("Read-only Mode",      s.isReadOnly,        tc) { s.isReadOnly = !s.isReadOnly; closeAll() }
-                DdDivider(menuBorder)
+                DdDivider(border)
                 DdItem(Icons.Default.TextDecrease, "Decrease Font",     "Ctrl+-", tc) { if (s.fontSize.value > 8f) s.fontSize = (s.fontSize.value - 1).sp; closeAll() }
                 DdItem(Icons.Default.TextIncrease, "Increase Font",     "Ctrl++", tc) { if (s.fontSize.value < 36f) s.fontSize = (s.fontSize.value + 1).sp; closeAll() }
-                DdDivider(menuBorder)
+                DdDivider(border)
                 DdItem(Icons.Default.Code,         "Monospace Font",    "", tc) { s.fontFamily = FontFamily.Monospace; closeAll() }
                 DdItem(Icons.Default.Subject,      "Sans-Serif Font",   "", tc) { s.fontFamily = FontFamily.SansSerif; closeAll() }
                 DdItem(Icons.Default.Notes,        "Serif Font",        "", tc) { s.fontFamily = FontFamily.Serif; closeAll() }
@@ -823,20 +739,19 @@ private fun MenuBar(
         // ── View ──
         Box {
             MenuBtn("View", tc, showViewMenu) { showViewMenu = !showViewMenu; showFileMenu = false; showEditMenu = false; showFormatMenu = false }
-            DropdownMenu(expanded = showViewMenu, onDismissRequest = { showViewMenu = false }, containerColor = menuSurface) {
+            DropdownMenu(expanded = showViewMenu, onDismissRequest = { showViewMenu = false }) {
                 DdCheckItem("Line Numbers",    s.showLineNums, tc) { s.showLineNums = !s.showLineNums; closeAll() }
-                DdDivider(menuBorder)
+                DdDivider(border)
                 DdItem(Icons.Default.ZoomIn,     "Zoom In",    "Ctrl++", tc) { s.zoom = (s.zoom + 0.1f).coerceAtMost(3f); closeAll() }
                 DdItem(Icons.Default.ZoomOut,    "Zoom Out",   "Ctrl+-", tc) { s.zoom = (s.zoom - 0.1f).coerceAtLeast(0.5f); closeAll() }
                 DdItem(Icons.Default.ZoomOutMap, "Reset Zoom", "Ctrl+0", tc) { s.zoom = 1f; closeAll() }
-                DdDivider(menuBorder)
+                DdDivider(border)
                 DdItem(Icons.Default.Code,       "Encoding…",  "", tc) { s.showEncodingPicker = true; closeAll() }
             }
         }
 
         Spacer(Modifier.weight(1f))
 
-        // Quick toolbar
         EdToolBtn(Icons.Default.Search,             "Find",         tc) { s.showFindBar = !s.showFindBar }
         EdToolBtn(Icons.Default.WrapText,           "Word Wrap",    if (s.wordWrap) Ed.Accent else tc) { s.wordWrap = !s.wordWrap }
         EdToolBtn(Icons.Default.FormatListNumbered, "Line Numbers", if (s.showLineNums) Ed.Accent else tc) { s.showLineNums = !s.showLineNums }
@@ -885,10 +800,6 @@ private fun DdCheckItem(label: String, checked: Boolean, tc: Color, onClick: () 
 @Composable
 private fun DdDivider(color: Color) = Divider(Modifier.padding(vertical = 3.dp), color = color)
 
-// ─────────────────────────────────────────────────────────────────
-// Find / Replace Bar  (FIX #3: prev/next actually work; FIX regex)
-// ─────────────────────────────────────────────────────────────────
-
 @Composable
 private fun FindReplaceBar(
     s: EditorState, isDark: Boolean,
@@ -903,7 +814,6 @@ private fun FindReplaceBar(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             FindField("Find", s.findQuery, inputBg, if (isInvalidRegex) Ed.DangerRed else border, tc, tcm) { s.findQuery = it; s.currentMatchIndex = 0 }
 
-            // Match count
             Text(
                 when {
                     isInvalidRegex               -> "Invalid regex"
@@ -915,11 +825,9 @@ private fun FindReplaceBar(
                 fontSize = 11.sp
             )
 
-            // FIX #3: prev/next navigate between matches
             EdToolBtn(Icons.Default.KeyboardArrowUp,   "Previous", tc, enabled = matchCount > 0) { s.jumpToMatch(-1) }
             EdToolBtn(Icons.Default.KeyboardArrowDown, "Next",     tc, enabled = matchCount > 0) { s.jumpToMatch(+1) }
 
-            // Regex toggle (FIX #11)
             Box(
                 Modifier.height(26.dp).clip(RoundedCornerShape(4.dp))
                     .background(if (s.useRegex) Ed.Accent.copy(0.2f) else Color.Transparent)
@@ -929,7 +837,6 @@ private fun FindReplaceBar(
                 contentAlignment = Alignment.Center
             ) { Text(".*", color = if (s.useRegex) Ed.Accent else tcm, fontSize = 11.sp, fontFamily = FontFamily.Monospace) }
 
-            // Case toggle
             Box(
                 Modifier.height(26.dp).clip(RoundedCornerShape(4.dp))
                     .background(if (s.matchCase) Ed.Accent.copy(0.2f) else Color.Transparent)
@@ -995,19 +902,15 @@ private fun FindField(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Line Number Gutter  (FIX #1: shared scroll)
-// ─────────────────────────────────────────────────────────────────
-
 @Composable
 private fun LineNumberGutter(
     s: EditorState, lineNumBg: Color, tcm: Color, border: Color,
-    scrollState: ScrollState   // ← shared with EditorArea
+    scrollState: ScrollState
 ) {
     Column(
         Modifier
             .width(52.dp).fillMaxHeight().background(lineNumBg)
-            .verticalScroll(scrollState)   // same ScrollState
+            .verticalScroll(scrollState)
             .padding(top = 12.dp, bottom = 12.dp, end = 8.dp),
         horizontalAlignment = Alignment.End
     ) {
@@ -1022,22 +925,18 @@ private fun LineNumberGutter(
                 fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                 modifier = Modifier
                     .padding(vertical = 0.5.dp)
-                    .clickable { s.goToLine(lineNo) }   // FIX #9 bonus: tap line num → jump
+                    .clickable { s.goToLine(lineNo) }
             )
         }
     }
     Box(Modifier.fillMaxHeight().width(1.dp).background(border))
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Editor Area  (FIX #1: shared scroll; #4: scrollbar; #6: syntax)
-// ─────────────────────────────────────────────────────────────────
-
 @Composable
 private fun EditorArea(
     s: EditorState, isDark: Boolean,
     bg: Color, tc: Color, tcs: Color, tcm: Color,
-    scrollState: ScrollState   // ← shared with LineNumberGutter
+    scrollState: ScrollState
 ) {
     val focusRequester = remember { FocusRequester() }
 
@@ -1046,7 +945,6 @@ private fun EditorArea(
         try { focusRequester.requestFocus() } catch (_: Exception) {}
     }
 
-    // FIX #6: Syntax highlighting wired into visualTransformation
     val highlightedText = remember(s.content.text, s.fileExt, s.findQuery, s.matchCase, s.useRegex, s.syntaxHighlight) {
         if (s.syntaxHighlight) {
             buildSyntaxAnnotatedString(s.content.text, s.fileExt, s.findQuery, s.matchCase, s.useRegex)
@@ -1072,7 +970,7 @@ private fun EditorArea(
     ) {
         BasicTextField(
             value = s.content,
-            onValueChange = { if (!s.activeTab.isReadOnly) s.updateContent(it) },  // FIX #10: respect read-only
+            onValueChange = { if (!s.activeTab.isReadOnly) s.updateContent(it) },
             textStyle = TextStyle(
                 color = tc,
                 fontSize = (s.fontSize.value * s.zoom).sp,
@@ -1084,13 +982,11 @@ private fun EditorArea(
             modifier = Modifier
                 .fillMaxSize()
                 .focusRequester(focusRequester)
-                .verticalScroll(scrollState)   // FIX #1: shared scroll
+                .verticalScroll(scrollState)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
                 .then(if (!s.wordWrap) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
         ) { innerTextField ->
-            // Overlay annotated string (syntax + search highlights) on top
             Box {
-                // Render highlighted text as background layer
                 Text(
                     text = highlightedText,
                     style = TextStyle(
@@ -1099,12 +995,10 @@ private fun EditorArea(
                         lineHeight = (s.fontSize.value * s.zoom * 1.6f).sp
                     )
                 )
-                // Transparent actual input field on top (carries cursor + selection)
                 innerTextField()
             }
         }
 
-        // FIX #4: Corrected scrollbar math
         if (scrollState.maxValue > 0) {
             val thumbHeightFrac = 0.08f
             val scrollFrac = scrollState.value.toFloat() / scrollState.maxValue
@@ -1127,10 +1021,6 @@ private fun EditorArea(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Status Bar  (FIX #13: encoding clickable)
-// ─────────────────────────────────────────────────────────────────
-
 @Composable
 private fun StatusBar(s: EditorState, isDark: Boolean, border: Color, tc: Color, tcs: Color) {
     val bg = if (isDark) Ed.DStatusBar else Ed.LStatusBar
@@ -1141,7 +1031,6 @@ private fun StatusBar(s: EditorState, isDark: Boolean, border: Color, tc: Color,
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // FIX #13: encoding chip is clickable → opens picker
             StatusChip(
                 s.encoding.label, Color.White,
                 clickable = true, onClick = { s.showEncodingPicker = true }
@@ -1168,10 +1057,6 @@ private fun StatusChip(label: String, color: Color, clickable: Boolean = false, 
         modifier = if (clickable) Modifier.clickable(onClick = onClick) else Modifier
     )
 }
-
-// ─────────────────────────────────────────────────────────────────
-// Save As Dialog
-// ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun SaveAsDialog(
@@ -1215,10 +1100,6 @@ private fun SaveAsDialog(
         }
     )
 }
-
-// ─────────────────────────────────────────────────────────────────
-// Go-to-Line Dialog  (Feature #9)
-// ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun GoToLineDialog(
@@ -1265,10 +1146,6 @@ private fun GoToLineDialog(
         }
     )
 }
-
-// ─────────────────────────────────────────────────────────────────
-// Encoding Picker Dialog  (Feature #13)
-// ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun EncodingPickerDialog(
@@ -1323,10 +1200,6 @@ private fun EncodingPickerDialog(
         }
     )
 }
-
-// ─────────────────────────────────────────────────────────────────
-// Shared icon button
-// ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun EdToolBtn(

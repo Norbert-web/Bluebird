@@ -45,6 +45,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
+
 // ─────────────────────────────────────────────────────────────────
 // Design Tokens — Windows 11 Photos aesthetic
 // ─────────────────────────────────────────────────────────────────
@@ -579,7 +580,7 @@ private fun GridView(
                 // Sort
                 Box {
                     PIconBtn(Icons.Default.Sort, "Sort", tc) { state.showSortMenu = true }
-                    DropdownMenu(expanded = state.showSortMenu, onDismissRequest = { state.showSortMenu = false }, containerColor = surface) {
+                    DropdownMenu(expanded = state.showSortMenu, onDismissRequest = { state.showSortMenu = false }) {
                         listOf(PhotoSort.DATE_NEW to "Newest first", PhotoSort.DATE_OLD to "Oldest first", PhotoSort.NAME to "By name", PhotoSort.SIZE to "By size").forEach { (sort, label) ->
                             DropdownMenuItem(
                                 text = { Text(label, color = if (state.sortMode == sort) Ph.Accent else tc, fontSize = 13.sp) },
@@ -1010,5 +1011,3 @@ private fun sharePhotos(ctx: android.content.Context, files: List<File>) {
         }, "Share photos").apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
     } catch (_: Exception) {}
 }
-
-
