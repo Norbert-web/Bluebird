@@ -47,7 +47,7 @@ import com.bluebird.LauncherViewModel
 import com.bluebird.ui.theme.Win11Colors
 
 // ─────────────────────────────────────────────
-// Search filter categories (like Win11)
+// Search filter categories (like the one for Windows 11)
 // ─────────────────────────────────────────────
 private enum class SearchFilter(val label: String, val icon: ImageVector) {
     All("All", Icons.Default.Apps),

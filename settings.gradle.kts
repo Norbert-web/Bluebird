@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Win11Launcher"
+rootProject.name = "Bluebird"
 include(":app")

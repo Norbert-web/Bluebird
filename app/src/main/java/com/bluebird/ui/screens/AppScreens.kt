@@ -1783,7 +1783,7 @@ private fun NetworkTab(isDark: Boolean, netHistory: List<Float>, text: Color, su
     }
 }
 
-// Keep helper for old references
+// Kept helper for old references
 fun formatResult(value: Double): String =
     if (value == value.toLong().toDouble()) value.toLong().toString()
     else "%.10f".format(value).trimEnd('0').trimEnd('.')

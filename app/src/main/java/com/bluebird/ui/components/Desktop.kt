@@ -10,6 +10,7 @@ import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Environment
 import android.os.FileObserver
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -20,6 +21,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -41,6 +44,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+//import androidx.compose.ui.text.LocalTextStyle
+// I need to review something here,LAMN NOBERT
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -63,7 +69,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 // ─────────────────────────────────────────────────────────────────
-// Wallpaper Gradients
+// Wallpaper Gradients  (used in APPARENT mode)
 // ─────────────────────────────────────────────────────────────────
 val wallpaperGradients = listOf(
     listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)),
@@ -105,24 +111,20 @@ enum class DesktopSortMode { NAME, DATE_MODIFIED, TYPE, SIZE }
 
 data class InlineRenameState(
     val targetId: String,
-    val currentName: String
+    val initialName: String        // FIX: immutable initial — never updated by keystrokes
 )
 
 data class AppInfoItem(
     val label: String,
     val packageName: String,
-    val iconBitmap: Bitmap          // Pre-resolved Bitmap — avoids repeated cast at render time
+    val iconBitmap: Bitmap
 )
 
 // ─────────────────────────────────────────────────────────────────
-// FIX: Universal drawable → Bitmap converter.
-// Handles BitmapDrawable, AdaptiveIconDrawable (API 26+), and any
-// other Drawable subclass by drawing onto a fresh Canvas.
+// Universal Drawable → Bitmap converter
 // ─────────────────────────────────────────────────────────────────
 fun drawableToBitmap(drawable: Drawable): Bitmap {
-    if (drawable is BitmapDrawable && drawable.bitmap != null) {
-        return drawable.bitmap
-    }
+    if (drawable is BitmapDrawable && drawable.bitmap != null) return drawable.bitmap
     val w = drawable.intrinsicWidth.coerceAtLeast(1)
     val h = drawable.intrinsicHeight.coerceAtLeast(1)
     val bm = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -179,8 +181,7 @@ private fun uniqueName(dir: File, baseName: String, ext: String = ""): String {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Grid Metrics & Placement
-// Column-first: fills top→bottom before moving right, like Windows 11.
+// Grid Metrics
 // ─────────────────────────────────────────────────────────────────
 private fun iconSizeDp(size: DesktopIconSize): Float = when (size) {
     DesktopIconSize.SMALL  -> 36f
@@ -200,31 +201,94 @@ private fun cellHeightDp(size: DesktopIconSize): Float = when (size) {
     DesktopIconSize.LARGE  -> 110f
 }
 
+// ─────────────────────────────────────────────────────────────────
+// FIX: autoGridPos — clamps to screen bounds so icons never overflow.
+// Column-first layout (top→bottom then right), stops at maxCols.
+// ─────────────────────────────────────────────────────────────────
 private fun autoGridPos(
     idx: Int,
     rows: Int,
+    maxCols: Int,
     cellWidthPx: Float,
     cellHeightPx: Float,
     startPaddingPx: Float = 0f,
     topPaddingPx: Float = 0f
 ): Offset {
     val safeRows = maxOf(1, rows)
-    val col = idx / safeRows
-    val row = idx % safeRows
+    val safeMaxCols = maxOf(1, maxCols)
+    // Wrap within grid capacity — extra icons land on last col rather than going off-screen
+    val totalSlots = safeRows * safeMaxCols
+    val safeIdx = idx.coerceIn(0, totalSlots - 1)
+    val col = (safeIdx / safeRows).coerceAtMost(safeMaxCols - 1)
+    val row = safeIdx % safeRows
     return Offset(col * cellWidthPx + startPaddingPx, row * cellHeightPx + topPaddingPx)
 }
 
+// ─────────────────────────────────────────────────────────────────
+// FIX: snapToGrid — respects bounds and avoids occupying a position
+// already taken by another icon. Searches outward for a free cell.
+// ─────────────────────────────────────────────────────────────────
 private fun snapToGrid(
     pos: Offset,
     cellWidthPx: Float,
     cellHeightPx: Float,
     startPaddingPx: Float,
-    topPaddingPx: Float
+    topPaddingPx: Float,
+    screenWidthPx: Float,
+    screenHeightPx: Float,
+    occupiedPositions: Set<Pair<Int, Int>> = emptySet()
 ): Offset {
-    val col = ((pos.x - startPaddingPx) / cellWidthPx).roundToInt().coerceAtLeast(0)
-    val row = ((pos.y - topPaddingPx) / cellHeightPx).roundToInt().coerceAtLeast(0)
-    return Offset(col * cellWidthPx + startPaddingPx, row * cellHeightPx + topPaddingPx)
+    val maxCols = ((screenWidthPx - startPaddingPx) / cellWidthPx).toInt().coerceAtLeast(1)
+    val maxRows = ((screenHeightPx - topPaddingPx) / cellHeightPx).toInt().coerceAtLeast(1)
+
+    val preferredCol = ((pos.x - startPaddingPx) / cellWidthPx).roundToInt()
+        .coerceIn(0, maxCols - 1)
+    val preferredRow = ((pos.y - topPaddingPx) / cellHeightPx).roundToInt()
+        .coerceIn(0, maxRows - 1)
+
+    if (Pair(preferredCol, preferredRow) !in occupiedPositions) {
+        return Offset(
+            preferredCol * cellWidthPx + startPaddingPx,
+            preferredRow * cellHeightPx + topPaddingPx
+        )
+    }
+
+    // Search for nearest free cell in a spiral-like scan
+    for (radius in 1..(maxCols + maxRows)) {
+        for (dc in -radius..radius) {
+            for (dr in -radius..radius) {
+                if (abs(dc) != radius && abs(dr) != radius) continue
+                val c = (preferredCol + dc).coerceIn(0, maxCols - 1)
+                val r = (preferredRow + dr).coerceIn(0, maxRows - 1)
+                if (Pair(c, r) !in occupiedPositions) {
+                    return Offset(c * cellWidthPx + startPaddingPx, r * cellHeightPx + topPaddingPx)
+                }
+            }
+        }
+    }
+    // Absolute fallback: preferred position even if occupied
+    return Offset(preferredCol * cellWidthPx + startPaddingPx, preferredRow * cellHeightPx + topPaddingPx)
 }
+
+// Convert pixel position → grid cell (col, row)
+private fun posToCell(
+    pos: Offset,
+    cellWidthPx: Float,
+    cellHeightPx: Float,
+    startPaddingPx: Float,
+    topPaddingPx: Float,
+    maxCols: Int,
+    maxRows: Int
+): Pair<Int, Int> {
+    val col = ((pos.x - startPaddingPx) / cellWidthPx).roundToInt().coerceIn(0, maxCols - 1)
+    val row = ((pos.y - topPaddingPx) / cellHeightPx).roundToInt().coerceIn(0, maxRows - 1)
+    return Pair(col, row)
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Wallpaper crossfade helper
+// ─────────────────────────────────────────────────────────────────
+private const val WALLPAPER_CYCLE_MS = 5 * 60 * 1000L   // 5 minutes
 
 // ─────────────────────────────────────────────────────────────────
 // Main Desktop Component
@@ -242,19 +306,64 @@ fun Desktop(
     val screenW  = config.screenWidthDp
     val screenH  = config.screenHeightDp
 
+    val screenWPxTotal = with(density) { screenW.dp.toPx() }
+    val screenHPxTotal = with(density) { screenH.dp.toPx() }
+
     val desktopDir = remember { File(Environment.getExternalStorageDirectory(), "Desktop") }
 
-    // ── Core state ──
+    // ── Persistence ───────────────────────────────────────────────
+    val prefs = remember { DesktopPreferences(context) }
+
+    // ── Core state (FIX: initialised from prefs, not just remember{}) ──
     var items               by remember { mutableStateOf(listOf<DesktopFileInfo>()) }
     var selectedIds         by remember { mutableStateOf(setOf<String>()) }
-    var iconSize            by remember { mutableStateOf(DesktopIconSize.MEDIUM) }
-    var sortMode            by remember { mutableStateOf(DesktopSortMode.NAME) }
-    var sortAscending       by remember { mutableStateOf(true) }
-    var autoArrange         by remember { mutableStateOf(true) }
-    var showIconsOnDesktop  by remember { mutableStateOf(true) }
+    var iconSize            by remember { mutableStateOf(prefs.iconSize) }
+    var sortMode            by remember { mutableStateOf(prefs.sortMode) }
+    var sortAscending       by remember { mutableStateOf(prefs.sortAscending) }
+    var autoArrange         by remember { mutableStateOf(prefs.autoArrange) }
+    var showIconsOnDesktop  by remember { mutableStateOf(prefs.showIconsOnDesktop) }
 
-    val customPositions     = remember { mutableStateMapOf<String, Offset>() }
+    // FIX: customPositions loaded from prefs on first composition
+    val customPositions = remember {
+        mutableStateMapOf<String, Offset>().also { map ->
+            map.putAll(prefs.loadCustomPositions())
+        }
+    }
     var draggedId           by remember { mutableStateOf<String?>(null) }
+
+    // ── Wallpaper state (FIX: persisted mode + indices + cycle) ──
+    var wallpaperMode         by remember { mutableStateOf(prefs.wallpaperMode) }
+    var gradientIndex         by remember { mutableStateOf(prefs.wallpaperGradientIndex) }
+    var defaultImageIndex     by remember { mutableStateOf(prefs.wallpaperImageIndex) }
+    var customWallpaperUri    by remember { mutableStateOf(prefs.customWallpaperUri) }
+
+    // Override from WallpaperState if a custom URI was just set externally
+    LaunchedEffect(wallpaper.homeWallpaperUri) {
+        if (wallpaper.homeWallpaperUri.isNotEmpty() && wallpaper.homeWallpaperUri != customWallpaperUri) {
+            customWallpaperUri = wallpaper.homeWallpaperUri
+            wallpaperMode = DesktopWallpaperMode.CUSTOM
+            prefs.customWallpaperUri = wallpaper.homeWallpaperUri
+            prefs.wallpaperMode = DesktopWallpaperMode.CUSTOM
+        }
+    }
+
+    // Auto-cycle wallpaper when no custom wallpaper is set
+    LaunchedEffect(wallpaperMode) {
+        while (true) {
+            delay(WALLPAPER_CYCLE_MS)
+            when (wallpaperMode) {
+                DesktopWallpaperMode.APPARENT -> {
+                    gradientIndex = (gradientIndex + 1) % wallpaperGradients.size
+                    prefs.wallpaperGradientIndex = gradientIndex
+                }
+                DesktopWallpaperMode.DEFAULT -> {
+                    defaultImageIndex = (defaultImageIndex + 1) % DEFAULT_WALLPAPERS.size
+                    prefs.wallpaperImageIndex = defaultImageIndex
+                }
+                DesktopWallpaperMode.CUSTOM -> break  // no cycling for custom
+            }
+        }
+    }
 
     // ── Clipboard ──
     var clipboardFiles      by remember { mutableStateOf(listOf<Pair<File, Boolean>>()) }
@@ -265,7 +374,9 @@ fun Desktop(
     var iconCtxTarget       by remember { mutableStateOf<DesktopFileInfo?>(null) }
     var iconCtxOffset       by remember { mutableStateOf(Offset.Zero) }
 
-    // ── Inline rename ──
+    // ── FIX: InlineRenameState.initialName is now truly immutable ──
+    // The live text lives entirely inside DesktopIcon's local state.
+    // The parent only holds the rename trigger (targetId + initialName).
     var inlineRename        by remember { mutableStateOf<InlineRenameState?>(null) }
     var pendingRenameId     by remember { mutableStateOf<String?>(null) }
 
@@ -274,14 +385,12 @@ fun Desktop(
     var propsTarget         by remember { mutableStateOf<DesktopFileInfo?>(null) }
     var showShortcutDialog  by remember { mutableStateOf(false) }
     var showAppPickerDialog by remember { mutableStateOf(false) }
+    var showWallpaperPanel  by remember { mutableStateOf(false) }
 
     // ── Lasso selection ──
     var selStart            by remember { mutableStateOf(Offset.Zero) }
     var selEnd              by remember { mutableStateOf(Offset.Zero) }
     var isSelecting         by remember { mutableStateOf(false) }
-
-    // FIX: track whether a drag is really happening on the background
-    // so lasso doesn't fire when the user long-presses an icon area.
     var lassoActive         by remember { mutableStateOf(false) }
 
     val isDark = viewModel.uiState.collectAsState().value.isDarkTheme
@@ -296,16 +405,21 @@ fun Desktop(
         ((screenH - gridPadTop * 2) / cellHeightDp(iconSize)).toInt().coerceAtLeast(1)
     }
 
+    // FIX: maxCols derived from screen width so auto-layout never goes off-screen
     val cellWPx   = with(density) { cellWDp.dp.toPx() }
     val cellHPx   = with(density) { cellHDp.dp.toPx() }
     val padLeftPx = with(density) { gridPadLeft.dp.toPx() }
     val padTopPx  = with(density) { gridPadTop.dp.toPx() }
 
-    // ── FIX: debounce refresh to prevent double-fire on rename MOVED_FROM+MOVED_TO ──
+    val maxCols = remember(screenW, iconSize) {
+        ((screenWPxTotal - padLeftPx) / cellWPx).toInt().coerceAtLeast(1)
+    }
+    val maxRows = remember(screenH, iconSize) { rows }
+
+    // ── Debounced refresh ──
     var refreshPending by remember { mutableStateOf(false) }
 
-    // ── File loader — runs on IO thread ──
-    // FIX: uses drawableToBitmap() so AdaptiveIconDrawable icons show correctly.
+    // ── File loader ──
     fun loadItem(file: File): DesktopFileInfo? = try {
         val ext  = file.extension.lowercase()
         val type = when {
@@ -319,12 +433,9 @@ fun Desktop(
                 val pkg   = lines.find { it.startsWith("package=") }?.removePrefix("package=")?.trim() ?: ""
                 val label = lines.find { it.startsWith("label=") }?.removePrefix("label=")?.trim()
                     ?: file.nameWithoutExtension
-                // FIX: resolve app icon through drawableToBitmap — covers AdaptiveIconDrawable
                 val iconBmp: Bitmap? = if (pkg.isNotBlank()) {
-                    try {
-                        val drawable = context.packageManager.getApplicationIcon(pkg)
-                        drawableToBitmap(drawable)
-                    } catch (_: Exception) { null }
+                    try { drawableToBitmap(context.packageManager.getApplicationIcon(pkg)) }
+                    catch (_: Exception) { null }
                 } else null
                 return DesktopFileInfo(
                     id = file.absolutePath, file = file, name = label,
@@ -353,9 +464,9 @@ fun Desktop(
                 .mapNotNull { loadItem(it) }
             withContext(Dispatchers.Main) {
                 items = loaded
-                // Remove stale custom positions for items that no longer exist
                 customPositions.keys.retainAll(loaded.map { it.id }.toSet())
-                // Auto-activate rename for newly created items
+                // FIX: save positions after stale entries are pruned
+                prefs.saveCustomPositions(customPositions)
                 val pendId = pendingRenameId
                 if (pendId != null) {
                     val newItem = loaded.find { it.id == pendId }
@@ -370,15 +481,10 @@ fun Desktop(
         }
     }
 
-    // FIX: debounced refresh — FileObserver fires MOVED_FROM + MOVED_TO on rename,
-    // which caused two rapid refreshes and a flicker. Now we coalesce them.
     fun scheduleRefresh() {
         if (refreshPending) return
         refreshPending = true
-        scope.launch {
-            delay(120)
-            refreshDesktop()
-        }
+        scope.launch { delay(120); refreshDesktop() }
     }
 
     DisposableEffect(desktopDir.absolutePath) {
@@ -403,7 +509,6 @@ fun Desktop(
         if (sortAscending) s else s.reversed()
     }
 
-    // Pre-compute index map to avoid O(n) indexOf() inside the render loop
     val indexMap = remember(sortedItems) {
         sortedItems.mapIndexed { idx, item -> item.id to idx }.toMap()
     }
@@ -423,16 +528,17 @@ fun Desktop(
         }
     }
 
-    // FIX: commitRename now appends extension only for non-.desktop files,
-    // and guards against blank/unchanged names without crashing.
+    // ─────────────────────────────────────────────────────────────
+    // FIX: commitRename — reads the live text from the rename state.
+    // inlineRename.initialName is only the seed; the DesktopIcon
+    // calls this with the final user-typed value directly.
+    // ─────────────────────────────────────────────────────────────
     fun commitRename(rename: InlineRenameState, newRawName: String) {
-        inlineRename = null  // clear immediately to prevent double-commit
+        inlineRename = null
         val target = items.find { it.id == rename.targetId } ?: return
         val base = newRawName.trim()
         if (base.isBlank()) return
 
-        // For app shortcuts, the name is the display label stored inside the file —
-        // rewrite the label line rather than renaming the file itself.
         if (target.type == DesktopItemType.APP_SHORTCUT) {
             try {
                 val lines = target.file.readLines().toMutableList()
@@ -445,16 +551,14 @@ fun Desktop(
             return
         }
 
-        // For real files: preserve extension automatically
         val ext = if (target.file.name.contains("."))
             ".${target.file.name.substringAfterLast(".")}" else ""
         val finalName = if (ext.isNotEmpty() && !base.endsWith(ext, ignoreCase = true))
             "$base$ext" else base
 
-        if (finalName == target.file.name) return  // nothing to do
-
+        if (finalName == target.file.name) return
         val dest = File(target.file.parent ?: return, finalName)
-        if (dest.exists()) return  // don't clobber existing file silently
+        if (dest.exists()) return
         target.file.renameTo(dest)
         scheduleRefresh()
     }
@@ -464,38 +568,70 @@ fun Desktop(
     // ─────────────────────────────────────────────────────────────
     Box(modifier = modifier.fillMaxSize()) {
 
-        // ── Wallpaper ──
-        if (wallpaper.homeWallpaperUri.isNotEmpty()) {
-            AsyncImage(
-                model = Uri.parse(wallpaper.homeWallpaperUri),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-        } else {
-            val gradient = wallpaperGradients[wallpaper.homeWallpaperIndex % wallpaperGradients.size]
-            Box(
-                Modifier.fillMaxSize().background(
-                    Brush.linearGradient(gradient, start = Offset(0f, 0f), end = Offset(2500f, 1500f))
-                )
-            )
+        // ── Wallpaper (FIX: mode-aware with crossfade transition) ──
+        Crossfade(
+            targetState = Triple(wallpaperMode, gradientIndex, defaultImageIndex),
+            animationSpec = tween(800),
+            label = "wallpaper_crossfade"
+        ) { (mode, gIdx, dIdx) ->
+            when (mode) {
+                DesktopWallpaperMode.CUSTOM -> {
+                    if (customWallpaperUri.isNotEmpty()) {
+                        AsyncImage(
+                            model = Uri.parse(customWallpaperUri),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        // Fallback to APPARENT if URI is empty
+                        val gradient = wallpaperGradients[gIdx % wallpaperGradients.size]
+                        Box(
+                            Modifier.fillMaxSize().background(
+                                Brush.linearGradient(gradient, start = Offset(0f, 0f), end = Offset(2500f, 1500f))
+                            )
+                        )
+                    }
+                }
+                DesktopWallpaperMode.DEFAULT -> {
+                    val resId = DEFAULT_WALLPAPERS.getOrNull(dIdx % DEFAULT_WALLPAPERS.size) ?: 0
+                    if (resId != 0) {
+                        Image(
+                            painter = painterResource(resId),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        // Placeholder until real drawables are added
+                        Box(Modifier.fillMaxSize().background(Color(0xFF1A1A2E)))
+                    }
+                }
+                DesktopWallpaperMode.APPARENT -> {
+                    val gradient = wallpaperGradients[gIdx % wallpaperGradients.size]
+                    Box(
+                        Modifier.fillMaxSize().background(
+                            Brush.linearGradient(gradient, start = Offset(0f, 0f), end = Offset(2500f, 1500f))
+                        )
+                    )
+                }
+            }
         }
 
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.02f)))
 
-        // ── Background gesture layer (tap to deselect / long-press for desktop ctx / lasso) ──
-        // FIX: lasso only activates when draggedId is null, so it can't conflict
-        // with an icon drag that's already in progress.
+        // ── Background gesture layer ──
         Box(
             Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onTap = { offset ->
-                            // FIX: commit rename on outside tap before deselecting
                             val currentRename = inlineRename
                             if (currentRename != null) {
-                                commitRename(currentRename, currentRename.currentName)
+                                // The live text is held in DesktopIcon; tapping outside
+                                // with no typed text means keep the initial name
+                                commitRename(currentRename, currentRename.initialName)
                             } else {
                                 selectedIds = emptySet()
                             }
@@ -503,7 +639,6 @@ fun Desktop(
                             iconCtxTarget  = null
                         },
                         onLongPress = { off ->
-                            // Only open desktop context menu if not dragging an icon
                             if (draggedId == null) {
                                 desktopCtxOffset = off
                                 showDesktopCtx   = true
@@ -515,7 +650,6 @@ fun Desktop(
                 .pointerInput(Unit) {
                     detectDragGesturesAfterLongPress(
                         onDragStart = { off ->
-                            // FIX: only start lasso if no icon is being dragged
                             if (draggedId == null) {
                                 lassoActive = true
                                 isSelecting = true
@@ -524,10 +658,7 @@ fun Desktop(
                             }
                         },
                         onDrag = { ch, amt ->
-                            if (lassoActive) {
-                                ch.consume()
-                                selEnd += amt
-                            }
+                            if (lassoActive) { ch.consume(); selEnd += amt }
                         },
                         onDragEnd = {
                             if (lassoActive) {
@@ -537,11 +668,10 @@ fun Desktop(
                                     minOf(selStart.x, selEnd.x), minOf(selStart.y, selEnd.y),
                                     maxOf(selStart.x, selEnd.x), maxOf(selStart.y, selEnd.y)
                                 )
-                                // FIX: use pre-computed indexMap instead of indexOf()
                                 selectedIds = sortedItems.filter { item ->
                                     val idx = indexMap[item.id] ?: return@filter false
                                     val pos = customPositions[item.id]
-                                        ?: autoGridPos(idx, rows, cellWPx, cellHPx, padLeftPx, padTopPx)
+                                        ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
                                     Rect(pos.x, pos.y, pos.x + cellWPx, pos.y + cellHPx).overlaps(rect)
                                 }.map { it.id }.toSet()
                             }
@@ -554,30 +684,42 @@ fun Desktop(
         // ── Icons layer ──
         if (showIconsOnDesktop) {
             Box(Modifier.fillMaxSize()) {
-                sortedItems.forEachIndexed { idx, item ->
-                    val basePos = autoGridPos(idx, rows, cellWPx, cellHPx, padLeftPx, padTopPx)
 
-                    // FIX: pos is remembered by item.id + layout params; reset cleanly when autoArrange flips
-                    var pos by remember(item.id, rows, iconSize, autoArrange) {
+                // FIX: pre-compute the set of occupied grid cells for overlap detection
+                val occupiedCells = remember(sortedItems, customPositions, autoArrange, rows, maxCols) {
+                    buildSet {
+                        sortedItems.forEachIndexed { idx, item ->
+                            val pos = if (autoArrange) {
+                                autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
+                            } else {
+                                customPositions[item.id]
+                                    ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
+                            }
+                            add(posToCell(pos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                        }
+                    }
+                }
+
+                sortedItems.forEachIndexed { idx, item ->
+                    val basePos = autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
+
+                    var pos by remember(item.id, rows, maxCols, iconSize, autoArrange) {
                         mutableStateOf(
                             if (autoArrange) basePos else customPositions[item.id] ?: basePos
                         )
                     }
 
-                    LaunchedEffect(autoArrange, idx, rows, iconSize) {
+                    LaunchedEffect(autoArrange, idx, rows, maxCols, iconSize) {
                         if (autoArrange) pos = basePos
                     }
 
                     val isDragged = draggedId == item.id
                     val dragScale by animateFloatAsState(
-                        targetValue    = if (isDragged) 1.08f else 1f,
-                        animationSpec  = spring(stiffness = Spring.StiffnessMediumLow),
-                        label          = "icon_drag_scale"
+                        targetValue   = if (isDragged) 1.08f else 1f,
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        label         = "icon_drag_scale"
                     )
 
-                    // FIX: separate drag-threshold logic — long-press with no movement
-                    // triggers context menu; actual movement triggers drag mode.
-                    // This replaces the old onLongPress on DesktopIcon for drag.
                     var dragMoved by remember { mutableStateOf(false) }
 
                     Box(
@@ -588,23 +730,20 @@ fun Desktop(
                             .pointerInput(item.id, autoArrange) {
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = {
-                                        // Commit any open rename first
                                         val r = inlineRename
-                                        if (r != null) commitRename(r, r.currentName)
+                                        if (r != null) commitRename(r, r.initialName)
                                         draggedId = item.id
                                         dragMoved = false
                                     },
                                     onDrag = { ch, amt ->
                                         ch.consume()
-                                        // Only count as a real drag after passing a 10px threshold
-                                        if (!dragMoved &&
-                                            (abs(amt.x) > 10f || abs(amt.y) > 10f)
-                                        ) {
+                                        if (!dragMoved && (abs(amt.x) > 10f || abs(amt.y) > 10f)) {
                                             dragMoved = true
                                         }
                                         if (dragMoved) {
-                                            val maxX = with(density) { (screenW.dp - cellWDp.dp).toPx() }
-                                            val maxY = with(density) { (screenH.dp - cellHDp.dp).toPx() }
+                                            // FIX: clamp to full screen size, not just screenW/H - cell size
+                                            val maxX = screenWPxTotal - cellWPx
+                                            val maxY = screenHPxTotal - cellHPx
                                             pos = Offset(
                                                 (pos.x + amt.x).coerceIn(padLeftPx, maxX),
                                                 (pos.y + amt.y).coerceIn(padTopPx, maxY)
@@ -614,28 +753,34 @@ fun Desktop(
                                     onDragEnd = {
                                         draggedId = null
                                         if (!dragMoved) {
-                                            // FIX: no real drag → treat as long-press → show context menu
                                             selectedIds    = setOf(item.id)
                                             iconCtxTarget  = item
-                                            iconCtxOffset  = Offset(
-                                                pos.x + cellWPx / 2,
-                                                pos.y + cellHPx / 2
-                                            )
+                                            iconCtxOffset  = Offset(pos.x + cellWPx / 2, pos.y + cellHPx / 2)
                                             showDesktopCtx = false
                                         } else {
-                                            // Real drag ended — snap to grid and save position
-                                            val maxX = with(density) { (screenW.dp - cellWDp.dp).toPx() }
-                                            val maxY = with(density) { (screenH.dp - cellHDp.dp).toPx() }
-                                            val snapped = snapToGrid(pos, cellWPx, cellHPx, padLeftPx, padTopPx)
-                                            val finalPos = Offset(
-                                                snapped.x.coerceIn(padLeftPx, maxX),
-                                                snapped.y.coerceIn(padTopPx, maxY)
-                                            )
+                                            val maxX = screenWPxTotal - cellWPx
+                                            val maxY = screenHPxTotal - cellHPx
                                             if (autoArrange) {
-                                                pos = basePos   // bounce back if auto-arrange is on
+                                                pos = basePos
                                             } else {
+                                                // FIX: exclude current icon from occupied set so it can
+                                                // snap to its own old cell without being displaced
+                                                val otherCells = occupiedCells - posToCell(
+                                                    customPositions[item.id] ?: basePos,
+                                                    cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows
+                                                )
+                                                val snapped = snapToGrid(
+                                                    pos, cellWPx, cellHPx, padLeftPx, padTopPx,
+                                                    screenWPxTotal, screenHPxTotal, otherCells
+                                                )
+                                                val finalPos = Offset(
+                                                    snapped.x.coerceIn(padLeftPx, maxX),
+                                                    snapped.y.coerceIn(padTopPx, maxY)
+                                                )
                                                 pos = finalPos
                                                 customPositions[item.id] = finalPos
+                                                // FIX: persist immediately on every drop
+                                                prefs.saveCustomPositions(customPositions)
                                             }
                                         }
                                         dragMoved = false
@@ -648,24 +793,24 @@ fun Desktop(
                                 )
                             }
                     ) {
+                        // FIX: pass a lambda that provides the current typed text,
+                        // so commitRename can read the true final value
+                        var liveRenameText by remember { mutableStateOf("") }
+
                         DesktopIcon(
                             item              = item,
                             isSelected        = item.id in selectedIds,
                             iconSize          = iconSize,
                             inlineRenaming    = inlineRename?.targetId == item.id,
-                            inlineRenameText  = if (inlineRename?.targetId == item.id)
-                                inlineRename!!.currentName else "",
-                            onInlineRenameChange  = { newVal ->
-                                inlineRename = inlineRename?.copy(currentName = newVal)
-                            },
+                            initialRenameText = inlineRename?.initialName ?: item.name,
+                            onLiveTextChange  = { liveRenameText = it },
                             onInlineRenameConfirm = {
-                                inlineRename?.let { r -> commitRename(r, r.currentName) }
+                                inlineRename?.let { r -> commitRename(r, liveRenameText) }
                             },
                             onTap = {
-                                // FIX: commit rename on tap of a different icon
                                 val r = inlineRename
                                 if (r != null && r.targetId != item.id) {
-                                    commitRename(r, r.currentName)
+                                    commitRename(r, liveRenameText)
                                 }
                                 selectedIds    = if (item.id in selectedIds)
                                     selectedIds - item.id else setOf(item.id)
@@ -673,8 +818,6 @@ fun Desktop(
                                 iconCtxTarget  = null
                             },
                             onDoubleTap = { openItem(item) }
-                            // Long press is now handled by detectDragGesturesAfterLongPress above
-                            // with the dragMoved threshold check (no movement = context menu)
                         )
                     }
                 }
@@ -686,17 +829,9 @@ fun Desktop(
                             minOf(selStart.x, selEnd.x), minOf(selStart.y, selEnd.y),
                             maxOf(selStart.x, selEnd.x), maxOf(selStart.y, selEnd.y)
                         )
-                        drawRect(
-                            color    = Color(0xFF0078D4).copy(alpha = 0.12f),
-                            topLeft  = r.topLeft,
-                            size     = Size(r.width, r.height)
-                        )
-                        drawRect(
-                            color    = Color(0xFF0078D4).copy(alpha = 0.50f),
-                            topLeft  = r.topLeft,
-                            size     = Size(r.width, r.height),
-                            style    = Stroke(width = 1.2f.dp.toPx())
-                        )
+                        drawRect(Color(0xFF0078D4).copy(alpha = 0.12f), r.topLeft, Size(r.width, r.height))
+                        drawRect(Color(0xFF0078D4).copy(alpha = 0.50f), r.topLeft, Size(r.width, r.height),
+                            style = Stroke(width = 1.2f.dp.toPx()))
                     }
                 }
             }
@@ -705,37 +840,38 @@ fun Desktop(
         // ── Desktop context menu ──
         if (showDesktopCtx) {
             Win11DesktopContextMenu(
-                offset            = desktopCtxOffset,
-                isDark            = isDark,
-                screenWidthDp     = screenW,
-                screenHeightDp    = screenH,
-                viewMode          = iconSize,
-                onViewChange      = { iconSize = it; showDesktopCtx = false },
-                sortMode          = sortMode,
-                sortAscending     = sortAscending,
-                onSortChange      = { m, a -> sortMode = m; sortAscending = a; showDesktopCtx = false },
-                autoArrange       = autoArrange,
-                onAutoArrangeToggle = {
-                    autoArrange = it
-                    if (it) customPositions.clear()
+                offset              = desktopCtxOffset,
+                isDark              = isDark,
+                screenWidthDp       = screenW,
+                screenHeightDp      = screenH,
+                viewMode            = iconSize,
+                onViewChange        = { iconSize = it; prefs.iconSize = it; showDesktopCtx = false },
+                sortMode            = sortMode,
+                sortAscending       = sortAscending,
+                onSortChange        = { m, a ->
+                    sortMode = m; sortAscending = a
+                    prefs.sortMode = m; prefs.sortAscending = a
                     showDesktopCtx = false
                 },
-                showIcons         = showIconsOnDesktop,
-                onShowIconsToggle = { showIconsOnDesktop = it; showDesktopCtx = false },
-                onRefresh         = { refreshDesktop(); showDesktopCtx = false },
-                onPaste           = {
+                autoArrange         = autoArrange,
+                onAutoArrangeToggle = {
+                    autoArrange = it; prefs.autoArrange = it
+                    if (it) { customPositions.clear(); prefs.clearCustomPositions() }
+                    showDesktopCtx = false
+                },
+                showIcons           = showIconsOnDesktop,
+                onShowIconsToggle   = { showIconsOnDesktop = it; prefs.showIconsOnDesktop = it; showDesktopCtx = false },
+                onRefresh           = { refreshDesktop(); showDesktopCtx = false },
+                onPaste             = {
                     clipboardFiles.forEach { (f, cut) ->
                         val dest = File(desktopDir, uniqueName(desktopDir, f.nameWithoutExtension, f.extension))
-                        try {
-                            if (cut) f.renameTo(dest) else f.copyTo(dest, overwrite = false)
-                        } catch (_: Exception) {}
+                        try { if (cut) f.renameTo(dest) else f.copyTo(dest, overwrite = false) } catch (_: Exception) {}
                     }
                     if (clipboardFiles.any { it.second }) clipboardFiles = emptyList()
-                    scheduleRefresh()
-                    showDesktopCtx = false
+                    scheduleRefresh(); showDesktopCtx = false
                 },
-                hasPaste          = clipboardFiles.isNotEmpty(),
-                onNewFolder       = {
+                hasPaste            = clipboardFiles.isNotEmpty(),
+                onNewFolder         = {
                     val name   = uniqueName(desktopDir, "New folder")
                     val newDir = File(desktopDir, name)
                     newDir.mkdirs()
@@ -743,7 +879,7 @@ fun Desktop(
                     showDesktopCtx  = false
                     scheduleRefresh()
                 },
-                onNewTextFile     = {
+                onNewTextFile       = {
                     val name    = uniqueName(desktopDir, "New Text Document", "txt")
                     val newFile = File(desktopDir, name)
                     try { newFile.createNewFile() } catch (_: Exception) {}
@@ -751,25 +887,25 @@ fun Desktop(
                     showDesktopCtx  = false
                     scheduleRefresh()
                 },
-                onNewShortcut     = { showShortcutDialog  = true; showDesktopCtx = false },
-                onAddAppShortcut  = { showAppPickerDialog = true; showDesktopCtx = false },
-                onPersonalize     = { viewModel.openWallpaperPicker(WallpaperTarget.HOME); showDesktopCtx = false },
-                onDisplaySettings = { viewModel.openWindow(LauncherScreen.SETTINGS); showDesktopCtx = false },
-                onDismiss         = { showDesktopCtx = false }
+                onNewShortcut       = { showShortcutDialog  = true; showDesktopCtx = false },
+                onAddAppShortcut    = { showAppPickerDialog = true; showDesktopCtx = false },
+                onPersonalize       = { showWallpaperPanel  = true; showDesktopCtx = false },
+                onDisplaySettings   = { viewModel.openWindow(LauncherScreen.SETTINGS); showDesktopCtx = false },
+                onDismiss           = { showDesktopCtx = false }
             )
         }
 
         // ── Icon context menu ──
         iconCtxTarget?.let { target ->
             Win11IconContextMenu(
-                item              = target,
-                isDark            = isDark,
-                offset            = iconCtxOffset,
-                screenWidthDp     = screenW,
-                screenHeightDp    = screenH,
-                onDismiss         = { iconCtxTarget = null },
-                onOpen            = { openItem(target); iconCtxTarget = null },
-                onOpenWith        = {
+                item               = target,
+                isDark             = isDark,
+                offset             = iconCtxOffset,
+                screenWidthDp      = screenW,
+                screenHeightDp     = screenH,
+                onDismiss          = { iconCtxTarget = null },
+                onOpen             = { openItem(target); iconCtxTarget = null },
+                onOpenWith         = {
                     try {
                         val uri = androidx.core.content.FileProvider.getUriForFile(
                             context, "${context.packageName}.fileprovider", target.file
@@ -810,7 +946,7 @@ fun Desktop(
                     scheduleRefresh()
                 },
                 onRename = {
-                    inlineRename  = InlineRenameState(targetId = target.id, currentName = target.name)
+                    inlineRename  = InlineRenameState(targetId = target.id, initialName = target.name)
                     selectedIds   = setOf(target.id)
                     iconCtxTarget = null
                 },
@@ -831,6 +967,20 @@ fun Desktop(
                     } catch (_: Exception) {}
                     iconCtxTarget = null
                 },
+                onSetAsWallpaper = if (target.type == DesktopItemType.IMAGE_FILE) ({
+                    val uri = try {
+                        androidx.core.content.FileProvider.getUriForFile(
+                            context, "${context.packageName}.fileprovider", target.file
+                        ).toString()
+                    } catch (_: Exception) { "" }
+                    if (uri.isNotEmpty()) {
+                        customWallpaperUri = uri
+                        wallpaperMode = DesktopWallpaperMode.CUSTOM
+                        prefs.customWallpaperUri = uri
+                        prefs.wallpaperMode = DesktopWallpaperMode.CUSTOM
+                    }
+                    iconCtxTarget = null
+                }) else null,
                 onCreateShortcut = {
                     val f = File(desktopDir, uniqueName(desktopDir, target.file.nameWithoutExtension, "desktop"))
                     f.writeText("type=file\npath=${target.file.absolutePath}\nlabel=${target.file.nameWithoutExtension}\n")
@@ -856,7 +1006,7 @@ fun Desktop(
 
         if (showAppPickerDialog) {
             AppPickerDialog(
-                isDark      = isDark,
+                isDark       = isDark,
                 onAppSelected = { pkg, label ->
                     val f = File(desktopDir, uniqueName(desktopDir, label, "desktop"))
                     f.writeText("type=app\npackage=$pkg\nlabel=$label\n")
@@ -870,11 +1020,44 @@ fun Desktop(
         if (showPropsDialog && propsTarget != null) {
             PropertiesDialog(item = propsTarget!!, isDark = isDark, onDismiss = { showPropsDialog = false })
         }
+
+        // ── Wallpaper / Personalise Panel ──
+        if (showWallpaperPanel) {
+            WallpaperPersonalisePanel(
+                isDark             = isDark,
+                currentMode        = wallpaperMode,
+                currentGradientIdx = gradientIndex,
+                currentImageIdx    = defaultImageIndex,
+                onModeChange       = { mode ->
+                    wallpaperMode = mode
+                    prefs.wallpaperMode = mode
+                    // Clear custom URI if switching away from custom
+                    if (mode != DesktopWallpaperMode.CUSTOM) {
+                        customWallpaperUri = ""
+                        prefs.customWallpaperUri = ""
+                    }
+                },
+                onGradientChange   = { idx ->
+                    gradientIndex = idx
+                    prefs.wallpaperGradientIndex = idx
+                },
+                onImageChange      = { idx ->
+                    defaultImageIndex = idx
+                    prefs.wallpaperImageIndex = idx
+                },
+                onPickCustom       = { viewModel.openWallpaperPicker(WallpaperTarget.HOME) },
+                onDismiss          = { showWallpaperPanel = false }
+            )
+        }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────
 // DesktopIcon
+// FIX: rename text state lives entirely inside this composable.
+// initialRenameText is only read once when renaming begins (keyed
+// on item.id). onLiveTextChange reports every keystroke up to the
+// parent so commitRename can read the final value.
 // ─────────────────────────────────────────────────────────────────
 @Composable
 private fun DesktopIcon(
@@ -882,19 +1065,34 @@ private fun DesktopIcon(
     isSelected: Boolean,
     iconSize: DesktopIconSize,
     inlineRenaming: Boolean,
-    inlineRenameText: String,
-    onInlineRenameChange: (String) -> Unit,
+    initialRenameText: String,
+    onLiveTextChange: (String) -> Unit,
     onInlineRenameConfirm: () -> Unit,
     onTap: () -> Unit,
     onDoubleTap: () -> Unit
-    // Long-press is handled by the parent Box's detectDragGesturesAfterLongPress
 ) {
-    val iconDp  = iconSizeDp(iconSize).dp
-    val cellW   = cellWidthDp(iconSize).dp
-    val cellH   = cellHeightDp(iconSize).dp
+    val iconDp = iconSizeDp(iconSize).dp
+    val cellW  = cellWidthDp(iconSize).dp
+    val cellH  = cellHeightDp(iconSize).dp
     val focusRequester = remember { FocusRequester() }
 
-    // FIX: auto-focus the rename field after a brief layout delay
+    // FIX: KEY is item.id only — never changes on keystroke.
+    // stripping extension for display (Windows UX convention)
+    val rawInitial = remember(item.id) {
+        val n = initialRenameText
+        if (n.contains(".")) n.substringBeforeLast(".") else n
+    }
+
+    // FIX: local TextFieldValue — recompositions from parent never reset this
+    var textValue by remember(item.id) {
+        mutableStateOf(
+            TextFieldValue(
+                text      = rawInitial,
+                selection = TextRange(0, rawInitial.length)   // pre-select all
+            )
+        )
+    }
+
     LaunchedEffect(inlineRenaming) {
         if (inlineRenaming) {
             delay(80)
@@ -917,7 +1115,6 @@ private fun DesktopIcon(
                 detectTapGestures(
                     onTap       = { onTap() },
                     onDoubleTap = { onDoubleTap() }
-                    // onLongPress removed — handled by parent drag gesture detector
                 )
             },
         contentAlignment = Alignment.TopCenter
@@ -926,10 +1123,7 @@ private fun DesktopIcon(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(
-                    color = Color.White.copy(alpha = selectAlpha),
-                    shape = RoundedCornerShape(5.dp)
-                )
+                .background(Color.White.copy(alpha = selectAlpha), RoundedCornerShape(5.dp))
                 .border(
                     width = 1.dp,
                     color = if (isSelected) Color.White.copy(alpha = 0.30f) else Color.Transparent,
@@ -944,32 +1138,27 @@ private fun DesktopIcon(
                 .padding(horizontal = 2.dp, vertical = 6.dp)
         ) {
             Box(
-                Modifier
-                    .size(iconDp)
-                    .padding(2.dp),
+                Modifier.size(iconDp).padding(2.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // FIX: APP_SHORTCUT now always renders if iconBitmap is set (covers AdaptiveIcon).
-                // IMAGE_FILE thumbnails also always render when available.
                 when {
                     item.iconBitmap != null -> {
                         Image(
-                            bitmap       = item.iconBitmap.asImageBitmap(),
+                            bitmap             = item.iconBitmap.asImageBitmap(),
                             contentDescription = null,
-                            modifier     = if (item.type == DesktopItemType.IMAGE_FILE)
+                            modifier           = if (item.type == DesktopItemType.IMAGE_FILE)
                                 Modifier.fillMaxSize().clip(RoundedCornerShape(3.dp))
-                            else
-                                Modifier.fillMaxSize(),
-                            contentScale = if (item.type == DesktopItemType.IMAGE_FILE)
+                            else Modifier.fillMaxSize(),
+                            contentScale       = if (item.type == DesktopItemType.IMAGE_FILE)
                                 ContentScale.Crop else ContentScale.Fit
                         )
                     }
                     else -> {
                         Icon(
-                            imageVector  = getFileIcon(item.file),
+                            imageVector        = getFileIcon(item.file),
                             contentDescription = null,
-                            tint         = getFileIconColor(item.file),
-                            modifier     = Modifier.fillMaxSize()
+                            tint               = getFileIconColor(item.file),
+                            modifier           = Modifier.fillMaxSize()
                         )
                     }
                 }
@@ -984,26 +1173,18 @@ private fun DesktopIcon(
                             .border(0.5.dp, Color.Gray.copy(alpha = 0.4f), RoundedCornerShape(2.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector  = Icons.Default.Reply,
-                            contentDescription = null,
-                            tint         = Color.Black,
-                            modifier     = Modifier.size(10.dp).graphicsLayer(scaleX = -1f)
-                        )
+                        Icon(Icons.Default.Reply, null,
+                            tint     = Color.Black,
+                            modifier = Modifier.size(10.dp).graphicsLayer(scaleX = -1f))
                     }
                 }
 
-                // Audio / Video type badge
+                // Audio/Video badge
                 if (item.type == DesktopItemType.MUSIC_FILE || item.type == DesktopItemType.VIDEO_FILE) {
-                    val badgeColor = if (item.type == DesktopItemType.MUSIC_FILE)
-                        Color(0xFFFF8C00) else Color(0xFF8764B8)
-                    val badgeIcon  = if (item.type == DesktopItemType.MUSIC_FILE)
-                        Icons.Default.MusicNote else Icons.Default.PlayArrow
+                    val badgeColor = if (item.type == DesktopItemType.MUSIC_FILE) Color(0xFFFF8C00) else Color(0xFF8764B8)
+                    val badgeIcon  = if (item.type == DesktopItemType.MUSIC_FILE) Icons.Default.MusicNote else Icons.Default.PlayArrow
                     Box(
-                        Modifier
-                            .size(13.dp)
-                            .align(Alignment.BottomEnd)
-                            .background(Color(0xFF1C1C1C), CircleShape),
+                        Modifier.size(13.dp).align(Alignment.BottomEnd).background(Color(0xFF1C1C1C), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(badgeIcon, null, tint = badgeColor, modifier = Modifier.size(9.dp))
@@ -1015,33 +1196,18 @@ private fun DesktopIcon(
 
             // ── Inline rename field ──
             if (inlineRenaming) {
-                // FIX: initialise text from the name without extension to match Windows UX
-                val rawInitial = remember(inlineRenameText) {
-                    if (inlineRenameText.contains("."))
-                        inlineRenameText.substringBeforeLast(".")
-                    else inlineRenameText
-                }
-                var textValue by remember(rawInitial) {
-                    mutableStateOf(
-                        TextFieldValue(
-                            text      = rawInitial,
-                            selection = TextRange(0, rawInitial.length)
-                        )
-                    )
-                }
-
-                // FIX: wrapped in Surface for elevation so it's always visible on any wallpaper
                 Surface(
-                    shape          = RoundedCornerShape(3.dp),
-                    color          = Color(0xFF0F0F0F).copy(alpha = 0.93f),
+                    shape           = RoundedCornerShape(3.dp),
+                    color           = Color(0xFF0F0F0F).copy(alpha = 0.93f),
                     shadowElevation = 4.dp,
-                    border         = BorderStroke(1.5.dp, Color(0xFF0078D4))
+                    border          = BorderStroke(1.5.dp, Color(0xFF0078D4))
                 ) {
                     BasicTextField(
                         value         = textValue,
                         onValueChange = { tv ->
+                            // FIX: only update local state — do NOT propagate back as initialRenameText
                             textValue = tv
-                            onInlineRenameChange(tv.text)
+                            onLiveTextChange(tv.text)
                         },
                         singleLine    = false,
                         maxLines      = 3,
@@ -1051,13 +1217,8 @@ private fun DesktopIcon(
                             textAlign  = TextAlign.Center,
                             lineHeight  = 14.sp
                         ),
-                        // FIX: Done action on keyboard saves the rename
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                            imeAction = ImeAction.Done
-                        ),
-                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                            onDone = { onInlineRenameConfirm() }
-                        ),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { onInlineRenameConfirm() }),
                         modifier      = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 4.dp, vertical = 3.dp)
@@ -1065,18 +1226,17 @@ private fun DesktopIcon(
                     )
                 }
             } else {
-                // ── Normal label with shadow so it's readable on any wallpaper ──
                 Text(
-                    text        = item.name,
-                    color       = Color.White,
-                    fontSize    = 11.5.sp,
+                    text       = item.name,
+                    color      = Color.White,
+                    fontSize   = 11.5.sp,
                     lineHeight  = 14.sp,
-                    textAlign   = TextAlign.Center,
-                    maxLines    = 2,
-                    overflow    = TextOverflow.Ellipsis,
-                    fontWeight  = FontWeight.Normal,
-                    modifier    = Modifier.fillMaxWidth(),
-                    style       = LocalTextStyle.current.copy(
+                    textAlign  = TextAlign.Center,
+                    maxLines   = 2,
+                    overflow   = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.Normal,
+                    modifier   = Modifier.fillMaxWidth(),
+                    style      = LocalTextStyle.current.copy(
                         shadow = Shadow(
                             color      = Color.Black.copy(alpha = 0.90f),
                             offset     = Offset(0.8f, 1.2f),
@@ -1090,7 +1250,219 @@ private fun DesktopIcon(
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Win11 Desktop Context Menu
+// Wallpaper / Personalise Panel
+// Lets the user switch between APPARENT (gradients), DEFAULT (images),
+// and pick which gradient/image is active.
+// ─────────────────────────────────────────────────────────────────
+@Composable
+fun WallpaperPersonalisePanel(
+    isDark: Boolean,
+    currentMode: DesktopWallpaperMode,
+    currentGradientIdx: Int,
+    currentImageIdx: Int,
+    onModeChange: (DesktopWallpaperMode) -> Unit,
+    onGradientChange: (Int) -> Unit,
+    onImageChange: (Int) -> Unit,
+    onPickCustom: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val bg  = if (isDark) Color(0xFF1E1E1E) else Color.White
+    val tc  = if (isDark) Color.White else Color(0xFF1A1A1A)
+    val tcm = if (isDark) Color(0xFF909090) else Color(0xFF666666)
+    val acc = Color(0xFF0078D4)
+
+    val gradientNames = listOf(
+        "Ocean Depth", "Midnight Blue", "Carbon", "Sunset Tricolor", "Forest Lime"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor   = bg,
+        shape            = RoundedCornerShape(12.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.Palette, null, tint = acc, modifier = Modifier.size(20.dp))
+                Text("Personalise Desktop", color = tc, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+
+                // ── Mode selector ──
+                Text("Wallpaper type", color = tcm, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        DesktopWallpaperMode.APPARENT to "Apparent",
+                        DesktopWallpaperMode.DEFAULT  to "Default",
+                        DesktopWallpaperMode.CUSTOM   to "Custom"
+                    ).forEach { (mode, label) ->
+                        val selected = currentMode == mode
+                        Surface(
+                            modifier      = Modifier.weight(1f),
+                            shape         = RoundedCornerShape(6.dp),
+                            color         = if (selected) acc else (if (isDark) Color(0xFF2C2C2C) else Color(0xFFEEEEEE)),
+                            border        = if (selected) null else BorderStroke(1.dp, if (isDark) Color(0xFF3A3A3A) else Color(0xFFCCCCCC))
+                        ) {
+                            Box(
+                                Modifier
+                                    .clickable { onModeChange(mode) }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    label,
+                                    color      = if (selected) Color.White else tc,
+                                    fontSize   = 12.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                    textAlign  = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ── Apparent gradient picker ──
+                AnimatedVisibility(currentMode == DesktopWallpaperMode.APPARENT) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Colour scheme", color = tcm, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            wallpaperGradients.forEachIndexed { idx, gradient ->
+                                val isActive = idx == currentGradientIdx
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(
+                                            if (isActive) acc.copy(alpha = 0.12f)
+                                            else Color.Transparent
+                                        )
+                                        .clickable { onGradientChange(idx) }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    // Gradient preview swatch
+                                    Box(
+                                        Modifier
+                                            .size(36.dp, 22.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(
+                                                Brush.linearGradient(
+                                                    gradient,
+                                                    start = Offset(0f, 0f),
+                                                    end   = Offset(200f, 100f)
+                                                )
+                                            )
+                                    )
+                                    Text(
+                                        gradientNames.getOrElse(idx) { "Preset ${idx + 1}" },
+                                        color    = tc,
+                                        fontSize = 12.5.sp,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (isActive) {
+                                        Icon(Icons.Default.Check, null, tint = acc, modifier = Modifier.size(14.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Default image picker ──
+                AnimatedVisibility(currentMode == DesktopWallpaperMode.DEFAULT) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Wallpaper image", color = tcm, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        if (DEFAULT_WALLPAPERS.all { it == 0 }) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(80.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isDark) Color(0xFF2A2A2A) else Color(0xFFEEEEEE)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "Add 5 wallpapers to res/drawable\nas desktop_wp_1.png … desktop_wp_5.png",
+                                    color     = tcm,
+                                    fontSize  = 11.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        } else {
+                            Row(
+                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                DEFAULT_WALLPAPERS.forEachIndexed { idx, resId ->
+                                    val isActive = idx == currentImageIdx
+                                    Box(
+                                        Modifier
+                                            .size(72.dp, 48.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .border(
+                                                width = if (isActive) 2.dp else 0.dp,
+                                                color = if (isActive) acc else Color.Transparent,
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .clickable { onImageChange(idx) }
+                                    ) {
+                                        if (resId != 0) {
+                                            Image(
+                                                painter      = painterResource(resId),
+                                                contentDescription = null,
+                                                modifier     = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Box(Modifier.fillMaxSize().background(Color(0xFF1A1A2E)))
+                                        }
+                                        if (isActive) {
+                                            Box(
+                                                Modifier.fillMaxSize().background(acc.copy(alpha = 0.25f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Custom wallpaper ──
+                AnimatedVisibility(currentMode == DesktopWallpaperMode.CUSTOM) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Pick an image from your device", color = tcm, fontSize = 11.sp)
+                        Button(
+                            onClick  = { onPickCustom(); onDismiss() },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape    = RoundedCornerShape(6.dp),
+                            colors   = ButtonDefaults.buttonColors(containerColor = acc)
+                        ) {
+                            Icon(Icons.Default.Image, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Browse Gallery…", fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss, colors = ButtonDefaults.buttonColors(containerColor = acc)) {
+                Text("Done", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Win11 style Desktop Context Menu
 // ─────────────────────────────────────────────────────────────────
 @Composable
 fun Win11DesktopContextMenu(
@@ -1173,9 +1545,10 @@ fun Win11DesktopContextMenu(
                     }
                 }
 
-                W11CtxRow(Icons.Default.Refresh, "Refresh", tc, tcDim) { onRefresh() }
+                W11CtxRow(Icons.Default.Refresh,      "Refresh",          tc, tcDim) { onRefresh() }
                 W11CtxDivider(divColor)
-                W11CtxRow(Icons.Default.ContentPaste, "Paste", if (hasPaste) tc else tcDim, tcDim, enabled = hasPaste) { onPaste() }
+                W11CtxRow(Icons.Default.ContentPaste, "Paste",
+                    if (hasPaste) tc else tcDim, tcDim, enabled = hasPaste) { onPaste() }
                 W11CtxDivider(divColor)
 
                 W11CtxRow(Icons.Default.Add, "New", tc, tcDim, hasArrow = true) {
@@ -1183,11 +1556,11 @@ fun Win11DesktopContextMenu(
                 }
                 AnimatedVisibility(openSub == "new", enter = expandVertically(), exit = shrinkVertically()) {
                     Column(Modifier.background(hoverBg.copy(0.04f))) {
-                        W11SubRowIcon(Icons.Default.Folder,      "Folder",                    Color(0xFFFFC107), tc) { onNewFolder();       onDismiss() }
-                        W11SubRowIcon(Icons.Default.Link,        "Shortcut link",             Color(0xFF0078D4), tc) { onNewShortcut();      onDismiss() }
-                        W11SubRowIcon(Icons.Default.Apps,        "Add Installed App Shortcut",Color(0xFF107C10), tc) { onAddAppShortcut();   onDismiss() }
+                        W11SubRowIcon(Icons.Default.Folder,      "Folder",                     Color(0xFFFFC107), tc) { onNewFolder();       onDismiss() }
+                        W11SubRowIcon(Icons.Default.Link,        "Shortcut link",              Color(0xFF0078D4), tc) { onNewShortcut();      onDismiss() }
+                        W11SubRowIcon(Icons.Default.Apps,        "Add Installed App Shortcut", Color(0xFF107C10), tc) { onAddAppShortcut();   onDismiss() }
                         W11CtxDivider(divColor)
-                        W11SubRowIcon(Icons.Default.Description, "Text Document",             Color(0xFF0078D4), tc) { onNewTextFile();      onDismiss() }
+                        W11SubRowIcon(Icons.Default.Description, "Text Document",              Color(0xFF0078D4), tc) { onNewTextFile();      onDismiss() }
                     }
                 }
 
@@ -1200,7 +1573,8 @@ fun Win11DesktopContextMenu(
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Win11 Icon Context Menu
+// Win11 style Icon Context Menu
+// FIX: added optional onSetAsWallpaper for image files
 // ─────────────────────────────────────────────────────────────────
 @Composable
 fun Win11IconContextMenu(
@@ -1218,12 +1592,13 @@ fun Win11IconContextMenu(
     onDelete: () -> Unit,
     onRename: () -> Unit,
     onShare: () -> Unit,
+    onSetAsWallpaper: (() -> Unit)? = null,
     onCreateShortcut: () -> Unit,
     onProperties: () -> Unit
 ) {
     val density  = LocalDensity.current
     val menuW    = 220
-    val estH     = 360
+    val estH     = if (onSetAsWallpaper != null) 400 else 360
     val bg       = if (isDark) Color(0xFA1E1E1E) else Color(0xFCEFF4F9)
     val tc       = if (isDark) Color(0xFFF5F5F5) else Color(0xFF1A1A1A)
     val tcDim    = if (isDark) Color(0xFF999999) else Color(0xFF666666)
@@ -1252,17 +1627,15 @@ fun Win11IconContextMenu(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment     = Alignment.CenterVertically
                 ) {
-                    W11QuickAction(Icons.Default.ContentCut,            "Cut",    tc)     { onCut();    onDismiss() }
-                    W11QuickAction(Icons.Default.ContentCopy,           "Copy",   tc)     { onCopy();   onDismiss() }
-                    W11QuickAction(Icons.Default.DriveFileRenameOutline,"Rename", tc)     { onRename(); onDismiss() }
-                    W11QuickAction(Icons.Default.Share,                 "Share",  tc)     { onShare();  onDismiss() }
-                    W11QuickAction(Icons.Default.Delete,                "Delete", danger) { onDelete(); onDismiss() }
+                    W11QuickAction(Icons.Default.ContentCut,             "Cut",    tc)     { onCut();    onDismiss() }
+                    W11QuickAction(Icons.Default.ContentCopy,            "Copy",   tc)     { onCopy();   onDismiss() }
+                    W11QuickAction(Icons.Default.DriveFileRenameOutline, "Rename", tc)     { onRename(); onDismiss() }
+                    W11QuickAction(Icons.Default.Share,                  "Share",  tc)     { onShare();  onDismiss() }
+                    W11QuickAction(Icons.Default.Delete,                 "Delete", danger) { onDelete(); onDismiss() }
                 }
 
                 W11CtxDivider(divColor)
-
                 W11CtxRow(Icons.Default.OpenInNew, "Open", tc, tcDim, isBold = true) { onOpen(); onDismiss() }
-
                 W11CtxRow(Icons.Default.OpenWith, "Open with", tc, tcDim, hasArrow = true) {
                     openSub = if (openSub == "openwith") null else "openwith"
                 }
@@ -1276,11 +1649,17 @@ fun Win11IconContextMenu(
                     W11CtxRow(Icons.Outlined.FolderOpen, "Open file location", tc, tcDim) { onOpenFileLocation(); onDismiss() }
                 }
 
+                // "Set as wallpaper" — only for image files
+                if (onSetAsWallpaper != null) {
+                    W11CtxDivider(divColor)
+                    W11CtxRow(Icons.Default.Wallpaper, "Set as wallpaper", tc, tcDim) { onSetAsWallpaper(); onDismiss() }
+                }
+
                 W11CtxDivider(divColor)
-                W11CtxRow(Icons.Default.Link,        "Create shortcut", tc,     tcDim) { onCreateShortcut(); onDismiss() }
-                W11CtxRow(Icons.Default.Delete,      "Delete",          danger, tcDim) { onDelete();         onDismiss() }
+                W11CtxRow(Icons.Default.Link,   "Create shortcut", tc,     tcDim) { onCreateShortcut(); onDismiss() }
+                W11CtxRow(Icons.Default.Delete, "Delete",          danger, tcDim) { onDelete();         onDismiss() }
                 W11CtxDivider(divColor)
-                W11CtxRow(Icons.Default.Info,        "Properties",      tc,     tcDim) { onProperties();     onDismiss() }
+                W11CtxRow(Icons.Default.Info,   "Properties",      tc,     tcDim) { onProperties();     onDismiss() }
             }
         }
     }
@@ -1318,14 +1697,9 @@ private fun W11CtxRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Icon(icon, null, tint = tc.copy(0.8f), modifier = Modifier.size(15.dp))
-        Text(
-            label,
-            color      = tc,
-            fontSize   = 12.5.sp,
+        Text(label, color = tc, fontSize = 12.5.sp,
             fontWeight = if (isBold) FontWeight.SemiBold else FontWeight.Normal,
-            modifier   = Modifier.weight(1f),
-            maxLines   = 1
-        )
+            modifier = Modifier.weight(1f), maxLines = 1)
         if (hasArrow) Icon(Icons.Default.ChevronRight, null, tint = tcDim, modifier = Modifier.size(14.dp))
     }
 }
@@ -1450,15 +1824,13 @@ fun SmartNewItemDialog(
                 modifier      = Modifier.fillMaxWidth()
             )
         },
-        confirmButton    = {
+        confirmButton = {
             Button(onClick = { if (name.isNotBlank()) onConfirm(name.trim()) }) { Text("Create") }
         },
-        dismissButton    = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
 
-// FIX: ShortcutDialog now uses AppPickerDialog internally so the user
-// can pick from installed apps rather than typing a raw package name.
 @Composable
 fun ShortcutDialog(onConfirm: (String, String) -> Unit, onDismiss: () -> Unit) {
     var showPicker by remember { mutableStateOf(false) }
@@ -1466,16 +1838,12 @@ fun ShortcutDialog(onConfirm: (String, String) -> Unit, onDismiss: () -> Unit) {
     var label      by remember { mutableStateOf("") }
 
     if (showPicker) {
-        // Reuse AppPickerDialog — when the user picks an app it fills pkg + label
-        // and closes the picker, returning to this dialog for confirmation.
-        // For simplicity we confirm directly here.
         AppPickerDialog(
             isDark = true,
             onAppSelected = { p, l ->
-                pkg         = p
-                label       = l
-                showPicker  = false
-                // Confirm immediately since the user explicitly chose an app
+                pkg        = p
+                label      = l
+                showPicker = false
                 onConfirm(p, l)
             },
             onDismiss = { showPicker = false }
@@ -1489,43 +1857,29 @@ fun ShortcutDialog(onConfirm: (String, String) -> Unit, onDismiss: () -> Unit) {
         title            = { Text("Create Shortcut", fontWeight = FontWeight.Medium, fontSize = 15.sp) },
         text             = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value         = label,
-                    onValueChange = { label = it },
-                    label         = { Text("Display Name") },
-                    singleLine    = true,
-                    modifier      = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value         = pkg,
-                    onValueChange = { pkg = it },
-                    label         = { Text("Package Name (e.g. com.example.app)") },
-                    singleLine    = true,
-                    modifier      = Modifier.fillMaxWidth()
-                )
-                TextButton(
-                    onClick  = { showPicker = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                OutlinedTextField(value = label, onValueChange = { label = it },
+                    label = { Text("Display Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = pkg, onValueChange = { pkg = it },
+                    label = { Text("Package Name (e.g. com.example.app)") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth())
+                TextButton(onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.Apps, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Browse installed apps…")
                 }
             }
         },
-        confirmButton    = {
-            Button(onClick = {
-                if (pkg.isNotBlank() && label.isNotBlank()) onConfirm(pkg.trim(), label.trim())
-            }) { Text("Create") }
+        confirmButton = {
+            Button(onClick = { if (pkg.isNotBlank() && label.isNotBlank()) onConfirm(pkg.trim(), label.trim()) }) {
+                Text("Create")
+            }
         },
-        dismissButton    = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
 
 // ─────────────────────────────────────────────────────────────────
 // App Picker Dialog
-// FIX: Uses drawableToBitmap() so all app icons render regardless
-// of their Drawable type (BitmapDrawable, AdaptiveIconDrawable, etc.)
 // ─────────────────────────────────────────────────────────────────
 @Composable
 fun AppPickerDialog(
@@ -1533,10 +1887,10 @@ fun AppPickerDialog(
     onAppSelected: (packageName: String, label: String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val context      = LocalContext.current
-    var appsList     by remember { mutableStateOf(listOf<AppInfoItem>()) }
-    var searchQuery  by remember { mutableStateOf("") }
-    var isLoading    by remember { mutableStateOf(true) }
+    val context     = LocalContext.current
+    var appsList    by remember { mutableStateOf(listOf<AppInfoItem>()) }
+    var searchQuery by remember { mutableStateOf("") }
+    var isLoading   by remember { mutableStateOf(true) }
 
     val bg = if (isDark) Color(0xFF202020) else Color.White
     val tc = if (isDark) Color.White else Color.Black
@@ -1546,22 +1900,13 @@ fun AppPickerDialog(
             val pm = context.packageManager
             val resolved = pm.getInstalledApplications(PackageManager.GET_META_DATA)
                 .mapNotNull { app ->
-                    val intent = pm.getLaunchIntentForPackage(app.packageName) ?: return@mapNotNull null
-                    // FIX: drawableToBitmap handles every Drawable type
+                    pm.getLaunchIntentForPackage(app.packageName) ?: return@mapNotNull null
                     val bitmap = try { drawableToBitmap(app.loadIcon(pm)) } catch (_: Exception) { null }
                         ?: return@mapNotNull null
-                    AppInfoItem(
-                        label       = app.loadLabel(pm).toString(),
-                        packageName = app.packageName,
-                        iconBitmap  = bitmap
-                    )
+                    AppInfoItem(label = app.loadLabel(pm).toString(), packageName = app.packageName, iconBitmap = bitmap)
                 }
                 .sortedBy { it.label.lowercase() }
-
-            withContext(Dispatchers.Main) {
-                appsList  = resolved
-                isLoading = false
-            }
+            withContext(Dispatchers.Main) { appsList = resolved; isLoading = false }
         }
     }
 
@@ -1569,21 +1914,18 @@ fun AppPickerDialog(
         onDismissRequest = onDismiss,
         containerColor   = bg,
         shape            = RoundedCornerShape(10.dp),
-        title            = {
+        title = {
             Text("Add App Shortcut", color = tc, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
         },
-        text             = {
+        text = {
             Column(modifier = Modifier.fillMaxWidth().height(360.dp)) {
                 OutlinedTextField(
-                    value         = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder   = { Text("Search apps…") },
-                    singleLine    = true,
-                    leadingIcon   = { Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp)) },
-                    modifier      = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    shape         = RoundedCornerShape(6.dp)
+                    value = searchQuery, onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search apps…") }, singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp)) },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    shape = RoundedCornerShape(6.dp)
                 )
-
                 if (isLoading) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = Color(0xFF0078D4))
@@ -1604,21 +1946,17 @@ fun AppPickerDialog(
                         LazyColumn(modifier = Modifier.weight(1f)) {
                             items(filtered, key = { it.packageName }) { app ->
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth()
                                         .clickable { onAppSelected(app.packageName, app.label) }
                                         .padding(vertical = 7.dp, horizontal = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // FIX: iconBitmap is always non-null (resolved above)
-                                    Image(
-                                        bitmap       = app.iconBitmap.asImageBitmap(),
-                                        contentDescription = app.label,
-                                        modifier     = Modifier.size(36.dp)
-                                    )
+                                    Image(bitmap = app.iconBitmap.asImageBitmap(),
+                                        contentDescription = app.label, modifier = Modifier.size(36.dp))
                                     Spacer(Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(app.label, color = tc, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                                        Text(app.label, color = tc, fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium, maxLines = 1)
                                         Text(app.packageName, color = tc.copy(alpha = 0.5f), fontSize = 11.sp,
                                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
@@ -1629,10 +1967,8 @@ fun AppPickerDialog(
                 }
             }
         },
-        confirmButton    = {},
-        dismissButton    = {
-            TextButton(onClick = onDismiss) { Text("Close", color = Color(0xFF0078D4)) }
-        }
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close", color = Color(0xFF0078D4)) } }
     )
 }
 
@@ -1650,8 +1986,7 @@ fun PropertiesDialog(item: DesktopFileInfo, isDark: Boolean, onDismiss: () -> Un
         withContext(Dispatchers.IO) {
             fileSize = if (item.file.isDirectory)
                 item.file.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-            else
-                item.file.length()
+            else item.file.length()
         }
     }
 
@@ -1659,19 +1994,13 @@ fun PropertiesDialog(item: DesktopFileInfo, isDark: Boolean, onDismiss: () -> Un
         onDismissRequest = onDismiss,
         containerColor   = bg,
         shape            = RoundedCornerShape(8.dp),
-        title            = {
-            Row(
-                verticalAlignment     = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(getFileIcon(item.file), null,
-                    tint     = getFileIconColor(item.file),
-                    modifier = Modifier.size(22.dp)
-                )
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(getFileIcon(item.file), null, tint = getFileIconColor(item.file), modifier = Modifier.size(22.dp))
                 Text("Properties", color = tc, fontWeight = FontWeight.Medium, fontSize = 14.sp)
             }
         },
-        text             = {
+        text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(
                     "Name"     to item.name,
@@ -1679,21 +2008,17 @@ fun PropertiesDialog(item: DesktopFileInfo, isDark: Boolean, onDismiss: () -> Un
                     else item.file.extension.uppercase().ifBlank { "File" },
                     "Size"     to formatFileSize(fileSize),
                     "Location" to (item.file.parent ?: "/"),
-                    "Modified" to SimpleDateFormat(
-                        "yyyy-MM-dd  HH:mm:ss", Locale.getDefault()
-                    ).format(Date(item.file.lastModified()))
+                    "Modified" to SimpleDateFormat("yyyy-MM-dd  HH:mm:ss", Locale.getDefault())
+                        .format(Date(item.file.lastModified()))
                 ).forEach { (k, v) ->
                     Row(Modifier.fillMaxWidth()) {
                         Text(k, color = tcm, fontSize = 11.5.sp, modifier = Modifier.width(72.dp))
                         Text(v, color = tc,  fontSize = 11.5.sp,
-                            modifier = Modifier.weight(1f), maxLines = 3,
-                            overflow = TextOverflow.Ellipsis)
+                            modifier = Modifier.weight(1f), maxLines = 3, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
         },
-        confirmButton    = {
-            Button(onClick = onDismiss) { Text("OK") }
-        }
+        confirmButton = { Button(onClick = onDismiss) { Text("OK") } }
     )
 }

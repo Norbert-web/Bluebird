@@ -80,7 +80,7 @@ object DesktopModeHelper {
 }
 
 /**
- * THE KEY COMPOSABLE — wrap your entire app content in this.
+ * THE KEY COMPOSABLE — wrap entire app content in this.
  *
  * Overrides LocalDensity so every dp measurement in Compose uses the
  * desktop density instead of the window's native density.
