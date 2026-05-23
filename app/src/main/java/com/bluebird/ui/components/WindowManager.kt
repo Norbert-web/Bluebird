@@ -68,6 +68,7 @@ import com.bluebird.LauncherScreen
 import com.bluebird.LauncherViewModel
 import com.bluebird.WindowIconKey
 import com.bluebird.WindowState
+import com.bluebird.editor.ui.screens.PremiumTextEditorScreen
 import com.bluebird.ui.screens.CalculatorScreen
 import com.bluebird.ui.screens.CalendarScreen
 import com.bluebird.ui.screens.FileExplorerScreen
@@ -79,7 +80,6 @@ import com.bluebird.ui.screens.PhotosScreen
 import com.bluebird.ui.screens.RecycleBinScreen
 import com.bluebird.ui.screens.SettingsScreen
 import com.bluebird.ui.screens.TaskManagerScreen
-import com.bluebird.ui.screens.TextEditorScreen
 import com.bluebird.ui.theme.Win11Colors
 import com.win11launcher.ui.screens.BrowserScreen
 
@@ -574,7 +574,7 @@ fun WindowContent(
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             val extras = windowState.extras
             when (windowState.screen) {
-                LauncherScreen.TextEditorScreen -> TextEditorScreen(isDark)
+                LauncherScreen.TextEditorScreen -> PremiumTextEditorScreen (isDark)
                 LauncherScreen.SETTINGS      -> SettingsScreen(isDark, viewModel)
                 LauncherScreen.FILE_EXPLORER -> FileExplorerScreen(isDark, viewModel)
                 LauncherScreen.BROWSER       -> BrowserScreen(isDark)
