@@ -44,12 +44,24 @@ class DesktopPreferences(context: Context) {
         set(v) = prefs.edit().putBoolean("show_icons", v).apply()
 
     // ── Wallpaper ──────────────────────────────────────────────────
+    // FIX: default changed from APPARENT to DEFAULT so the bundled wallpaper
+    // images show on a fresh install instead of the gradient.
     var wallpaperMode: DesktopWallpaperMode
         get() = DesktopWallpaperMode.valueOf(
-            prefs.getString("wallpaper_mode", DesktopWallpaperMode.APPARENT.name)
-                ?: DesktopWallpaperMode.APPARENT.name
+            prefs.getString("wallpaper_mode", DesktopWallpaperMode.DEFAULT.name)
+                ?: DesktopWallpaperMode.DEFAULT.name
         )
-        set(v) = prefs.edit().putString("wallpaper_mode", v.name).apply()
+        set(v) {
+            prefs.edit().putString("wallpaper_mode", v.name).apply()
+            wallpaperModeEverSet = true   // mark that the user has explicitly chosen
+        }
+
+    // True once the user has picked any wallpaper mode at least once.
+    // Desktop.kt reads this to decide whether to override APPARENT → DEFAULT
+    // on a device that was installed before this fix (stale prefs).
+    var wallpaperModeEverSet: Boolean
+        get() = prefs.getBoolean("wallpaper_mode_ever_set", false)
+        set(v) = prefs.edit().putBoolean("wallpaper_mode_ever_set", v).apply()
 
     var wallpaperGradientIndex: Int
         get() = prefs.getInt("wallpaper_gradient_index", 0)

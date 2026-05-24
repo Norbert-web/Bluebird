@@ -202,8 +202,9 @@ private fun cellHeightDp(size: DesktopIconSize): Float = when (size) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// FIX: autoGridPos — clamps to screen bounds so icons never overflow.
-// Column-first layout (top→bottom then right), stops at maxCols.
+// autoGridPos — Windows 11 style.
+// Scans column-first (top→bottom, left→right) for the next free cell.
+// Returns null when the grid is completely full (no placement allowed).
 // ─────────────────────────────────────────────────────────────────
 private fun autoGridPos(
     idx: Int,
@@ -212,16 +213,24 @@ private fun autoGridPos(
     cellWidthPx: Float,
     cellHeightPx: Float,
     startPaddingPx: Float = 0f,
-    topPaddingPx: Float = 0f
-): Offset {
+    topPaddingPx: Float = 0f,
+    occupiedCells: Set<Pair<Int, Int>> = emptySet()
+): Offset? {
     val safeRows = maxOf(1, rows)
-    val safeMaxCols = maxOf(1, maxCols)
-    // Wrap within grid capacity — extra icons land on last col rather than going off-screen
-    val totalSlots = safeRows * safeMaxCols
-    val safeIdx = idx.coerceIn(0, totalSlots - 1)
-    val col = (safeIdx / safeRows).coerceAtMost(safeMaxCols - 1)
-    val row = safeIdx % safeRows
-    return Offset(col * cellWidthPx + startPaddingPx, row * cellHeightPx + topPaddingPx)
+    val safeCols = maxOf(1, maxCols)
+    // Scan column-first for the (idx+1)-th free cell
+    var free = 0
+    for (col in 0 until safeCols) {
+        for (row in 0 until safeRows) {
+            if (Pair(col, row) !in occupiedCells) {
+                if (free == idx) {
+                    return Offset(col * cellWidthPx + startPaddingPx, row * cellHeightPx + topPaddingPx)
+                }
+                free++
+            }
+        }
+    }
+    return null  // grid is full — caller must not place this icon
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -237,7 +246,7 @@ private fun snapToGrid(
     screenWidthPx: Float,
     screenHeightPx: Float,
     occupiedPositions: Set<Pair<Int, Int>> = emptySet()
-): Offset {
+): Offset? {
     val maxCols = ((screenWidthPx - startPaddingPx) / cellWidthPx).toInt().coerceAtLeast(1)
     val maxRows = ((screenHeightPx - topPaddingPx) / cellHeightPx).toInt().coerceAtLeast(1)
 
@@ -266,8 +275,8 @@ private fun snapToGrid(
             }
         }
     }
-    // Absolute fallback: preferred position even if occupied
-    return Offset(preferredCol * cellWidthPx + startPaddingPx, preferredRow * cellHeightPx + topPaddingPx)
+    // Grid is full — return null so caller can snap back to original position
+    return null
 }
 
 // Convert pixel position → grid cell (col, row)
@@ -299,292 +308,333 @@ fun Desktop(
     viewModel: LauncherViewModel,
     modifier: Modifier = Modifier
 ) {
-    val context  = LocalContext.current
-    val scope    = rememberCoroutineScope()
-    val density  = LocalDensity.current
-    val config   = LocalConfiguration.current
-    val screenW  = config.screenWidthDp
-    val screenH  = config.screenHeightDp
+    // FIX: Use BoxWithConstraints so screenWPxTotal/screenHPxTotal are the
+    // *actual* layout pixel dimensions.  LocalConfiguration.screenWidthDp is
+    // already in dp units, so doing `.dp.toPx()` on it was a double-conversion
+    // that produced a value far too small whenever a high smallest-width is
+    // forced in the activity (desktop mode).  constraints.maxWidth/maxHeight
+    // are always correct regardless of forced density.
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val screenWPxTotal = constraints.maxWidth.toFloat()
+        val screenHPxTotal = constraints.maxHeight.toFloat()
 
-    val screenWPxTotal = with(density) { screenW.dp.toPx() }
-    val screenHPxTotal = with(density) { screenH.dp.toPx() }
+        val context  = LocalContext.current
+        val scope    = rememberCoroutineScope()
+        val density  = LocalDensity.current
+        val config   = LocalConfiguration.current
+        val screenW  = config.screenWidthDp
+        val screenH  = config.screenHeightDp
 
-    val desktopDir = remember { File(Environment.getExternalStorageDirectory(), "Desktop") }
+        val desktopDir = remember { File(Environment.getExternalStorageDirectory(), "Desktop") }
 
-    // ── Persistence ───────────────────────────────────────────────
-    val prefs = remember { DesktopPreferences(context) }
+        // ── Persistence ───────────────────────────────────────────────
+        val prefs = remember { DesktopPreferences(context) }
 
-    // ── Core state (FIX: initialised from prefs, not just remember{}) ──
-    var items               by remember { mutableStateOf(listOf<DesktopFileInfo>()) }
-    var selectedIds         by remember { mutableStateOf(setOf<String>()) }
-    var iconSize            by remember { mutableStateOf(prefs.iconSize) }
-    var sortMode            by remember { mutableStateOf(prefs.sortMode) }
-    var sortAscending       by remember { mutableStateOf(prefs.sortAscending) }
-    var autoArrange         by remember { mutableStateOf(prefs.autoArrange) }
-    var showIconsOnDesktop  by remember { mutableStateOf(prefs.showIconsOnDesktop) }
+        // ── Core state (FIX: initialised from prefs, not just remember{}) ──
+        var items               by remember { mutableStateOf(listOf<DesktopFileInfo>()) }
+        var selectedIds         by remember { mutableStateOf(setOf<String>()) }
+        var iconSize            by remember { mutableStateOf(prefs.iconSize) }
+        var sortMode            by remember { mutableStateOf(prefs.sortMode) }
+        var sortAscending       by remember { mutableStateOf(prefs.sortAscending) }
+        var autoArrange         by remember { mutableStateOf(prefs.autoArrange) }
+        var showIconsOnDesktop  by remember { mutableStateOf(prefs.showIconsOnDesktop) }
 
-    // FIX: customPositions loaded from prefs on first composition
-    val customPositions = remember {
-        mutableStateMapOf<String, Offset>().also { map ->
-            map.putAll(prefs.loadCustomPositions())
-        }
-    }
-    var draggedId           by remember { mutableStateOf<String?>(null) }
-
-    // ── Wallpaper state (FIX: persisted mode + indices + cycle) ──
-    var wallpaperMode         by remember { mutableStateOf(prefs.wallpaperMode) }
-    var gradientIndex         by remember { mutableStateOf(prefs.wallpaperGradientIndex) }
-    var defaultImageIndex     by remember { mutableStateOf(prefs.wallpaperImageIndex) }
-    var customWallpaperUri    by remember { mutableStateOf(prefs.customWallpaperUri) }
-
-    // Override from WallpaperState if a custom URI was just set externally
-    LaunchedEffect(wallpaper.homeWallpaperUri) {
-        if (wallpaper.homeWallpaperUri.isNotEmpty() && wallpaper.homeWallpaperUri != customWallpaperUri) {
-            customWallpaperUri = wallpaper.homeWallpaperUri
-            wallpaperMode = DesktopWallpaperMode.CUSTOM
-            prefs.customWallpaperUri = wallpaper.homeWallpaperUri
-            prefs.wallpaperMode = DesktopWallpaperMode.CUSTOM
-        }
-    }
-
-    // Auto-cycle wallpaper when no custom wallpaper is set
-    LaunchedEffect(wallpaperMode) {
-        while (true) {
-            delay(WALLPAPER_CYCLE_MS)
-            when (wallpaperMode) {
-                DesktopWallpaperMode.APPARENT -> {
-                    gradientIndex = (gradientIndex + 1) % wallpaperGradients.size
-                    prefs.wallpaperGradientIndex = gradientIndex
-                }
-                DesktopWallpaperMode.DEFAULT -> {
-                    defaultImageIndex = (defaultImageIndex + 1) % DEFAULT_WALLPAPERS.size
-                    prefs.wallpaperImageIndex = defaultImageIndex
-                }
-                DesktopWallpaperMode.CUSTOM -> break  // no cycling for custom
+        // FIX: customPositions loaded from prefs on first composition
+        val customPositions = remember {
+            mutableStateMapOf<String, Offset>().also { map ->
+                map.putAll(prefs.loadCustomPositions())
             }
         }
-    }
+        var draggedId           by remember { mutableStateOf<String?>(null) }
 
-    // ── Clipboard ──
-    var clipboardFiles      by remember { mutableStateOf(listOf<Pair<File, Boolean>>()) }
-
-    // ── Context menus ──
-    var showDesktopCtx      by remember { mutableStateOf(false) }
-    var desktopCtxOffset    by remember { mutableStateOf(Offset.Zero) }
-    var iconCtxTarget       by remember { mutableStateOf<DesktopFileInfo?>(null) }
-    var iconCtxOffset       by remember { mutableStateOf(Offset.Zero) }
-
-    // ── FIX: InlineRenameState.initialName is now truly immutable ──
-    // The live text lives entirely inside DesktopIcon's local state.
-    // The parent only holds the rename trigger (targetId + initialName).
-    var inlineRename        by remember { mutableStateOf<InlineRenameState?>(null) }
-    var pendingRenameId     by remember { mutableStateOf<String?>(null) }
-
-    // ── Dialogs ──
-    var showPropsDialog     by remember { mutableStateOf(false) }
-    var propsTarget         by remember { mutableStateOf<DesktopFileInfo?>(null) }
-    var showShortcutDialog  by remember { mutableStateOf(false) }
-    var showAppPickerDialog by remember { mutableStateOf(false) }
-    var showWallpaperPanel  by remember { mutableStateOf(false) }
-
-    // ── Lasso selection ──
-    var selStart            by remember { mutableStateOf(Offset.Zero) }
-    var selEnd              by remember { mutableStateOf(Offset.Zero) }
-    var isSelecting         by remember { mutableStateOf(false) }
-    var lassoActive         by remember { mutableStateOf(false) }
-
-    val isDark = viewModel.uiState.collectAsState().value.isDarkTheme
-
-    // ── Grid metrics ──
-    val cellWDp     = cellWidthDp(iconSize)
-    val cellHDp     = cellHeightDp(iconSize)
-    val gridPadLeft = 10f
-    val gridPadTop  = 10f
-
-    val rows = remember(screenH, iconSize) {
-        ((screenH - gridPadTop * 2) / cellHeightDp(iconSize)).toInt().coerceAtLeast(1)
-    }
-
-    // FIX: maxCols derived from screen width so auto-layout never goes off-screen
-    val cellWPx   = with(density) { cellWDp.dp.toPx() }
-    val cellHPx   = with(density) { cellHDp.dp.toPx() }
-    val padLeftPx = with(density) { gridPadLeft.dp.toPx() }
-    val padTopPx  = with(density) { gridPadTop.dp.toPx() }
-
-    val maxCols = remember(screenW, iconSize) {
-        ((screenWPxTotal - padLeftPx) / cellWPx).toInt().coerceAtLeast(1)
-    }
-    val maxRows = remember(screenH, iconSize) { rows }
-
-    // ── Debounced refresh ──
-    var refreshPending by remember { mutableStateOf(false) }
-
-    // ── File loader ──
-    fun loadItem(file: File): DesktopFileInfo? = try {
-        val ext  = file.extension.lowercase()
-        val type = when {
-            file.isDirectory  -> DesktopItemType.FOLDER
-            ext in MUSIC_EXTS -> DesktopItemType.MUSIC_FILE
-            ext in VIDEO_EXTS -> DesktopItemType.VIDEO_FILE
-            ext in IMAGE_EXTS -> DesktopItemType.IMAGE_FILE
-            ext in TEXT_EXTS  -> DesktopItemType.TEXT_FILE
-            ext == "desktop"  -> {
-                val lines = file.readLines()
-                val pkg   = lines.find { it.startsWith("package=") }?.removePrefix("package=")?.trim() ?: ""
-                val label = lines.find { it.startsWith("label=") }?.removePrefix("label=")?.trim()
-                    ?: file.nameWithoutExtension
-                val iconBmp: Bitmap? = if (pkg.isNotBlank()) {
-                    try { drawableToBitmap(context.packageManager.getApplicationIcon(pkg)) }
-                    catch (_: Exception) { null }
-                } else null
-                return DesktopFileInfo(
-                    id = file.absolutePath, file = file, name = label,
-                    type = DesktopItemType.APP_SHORTCUT, packageName = pkg,
-                    iconBitmap = iconBmp
-                )
-            }
-            else -> DesktopItemType.OTHER_FILE
+        // ── Wallpaper state (FIX: persisted mode + indices + cycle) ──
+        // FIX: On a fresh install prefs.wallpaperMode returns APPARENT (the old
+        // enum default).  We want DEFAULT (the bundled wallpaper images) to show
+        // first instead, so we remap APPARENT → DEFAULT only on the very first
+        // launch (i.e. when no mode has ever been explicitly saved by the user).
+        var wallpaperMode         by remember {
+            mutableStateOf(
+                if (prefs.wallpaperMode == DesktopWallpaperMode.APPARENT && !prefs.wallpaperModeEverSet)
+                    DesktopWallpaperMode.DEFAULT
+                else
+                    prefs.wallpaperMode
+            )
         }
-        val thumb = if (type == DesktopItemType.IMAGE_FILE) {
-            try {
-                BitmapFactory.decodeFile(
-                    file.absolutePath,
-                    BitmapFactory.Options().apply { inSampleSize = 4 }
-                )
-            } catch (_: Exception) { null }
-        } else null
-        DesktopFileInfo(id = file.absolutePath, file = file, name = file.name, type = type, iconBitmap = thumb)
-    } catch (_: Exception) { null }
+        var gradientIndex         by remember { mutableStateOf(prefs.wallpaperGradientIndex) }
+        var defaultImageIndex     by remember { mutableStateOf(prefs.wallpaperImageIndex) }
+        var customWallpaperUri    by remember { mutableStateOf(prefs.customWallpaperUri) }
 
-    fun refreshDesktop() {
-        scope.launch(Dispatchers.IO) {
-            desktopDir.mkdirs()
-            val loaded = (desktopDir.listFiles()?.toList() ?: emptyList())
-                .sortedBy { it.name.lowercase() }
-                .mapNotNull { loadItem(it) }
-            withContext(Dispatchers.Main) {
-                items = loaded
-                customPositions.keys.retainAll(loaded.map { it.id }.toSet())
-                // FIX: save positions after stale entries are pruned
-                prefs.saveCustomPositions(customPositions)
-                val pendId = pendingRenameId
-                if (pendId != null) {
-                    val newItem = loaded.find { it.id == pendId }
-                    if (newItem != null) {
-                        inlineRename = InlineRenameState(newItem.id, newItem.name)
-                        selectedIds  = setOf(newItem.id)
-                        pendingRenameId = null
+        // Override from WallpaperState if a custom URI was just set externally
+        LaunchedEffect(wallpaper.homeWallpaperUri) {
+            if (wallpaper.homeWallpaperUri.isNotEmpty() && wallpaper.homeWallpaperUri != customWallpaperUri) {
+                customWallpaperUri = wallpaper.homeWallpaperUri
+                wallpaperMode = DesktopWallpaperMode.CUSTOM
+                prefs.customWallpaperUri = wallpaper.homeWallpaperUri
+                prefs.wallpaperMode = DesktopWallpaperMode.CUSTOM
+            }
+        }
+
+        // Auto-cycle wallpaper when no custom wallpaper is set
+        LaunchedEffect(wallpaperMode) {
+            while (true) {
+                delay(WALLPAPER_CYCLE_MS)
+                when (wallpaperMode) {
+                    DesktopWallpaperMode.APPARENT -> {
+                        gradientIndex = (gradientIndex + 1) % wallpaperGradients.size
+                        prefs.wallpaperGradientIndex = gradientIndex
                     }
+                    DesktopWallpaperMode.DEFAULT -> {
+                        defaultImageIndex = (defaultImageIndex + 1) % DEFAULT_WALLPAPERS.size
+                        prefs.wallpaperImageIndex = defaultImageIndex
+                    }
+                    DesktopWallpaperMode.CUSTOM -> break  // no cycling for custom
                 }
-                refreshPending = false
             }
         }
-    }
 
-    fun scheduleRefresh() {
-        if (refreshPending) return
-        refreshPending = true
-        scope.launch { delay(120); refreshDesktop() }
-    }
+        // ── Clipboard ──
+        var clipboardFiles      by remember { mutableStateOf(listOf<Pair<File, Boolean>>()) }
 
-    DisposableEffect(desktopDir.absolutePath) {
-        refreshDesktop()
-        val observer = object : FileObserver(
-            desktopDir.absolutePath,
-            CREATE or DELETE or MOVED_FROM or MOVED_TO or CLOSE_WRITE
-        ) {
-            override fun onEvent(event: Int, path: String?) { scheduleRefresh() }
+        // ── Context menus ──
+        var showDesktopCtx      by remember { mutableStateOf(false) }
+        var desktopCtxOffset    by remember { mutableStateOf(Offset.Zero) }
+        var iconCtxTarget       by remember { mutableStateOf<DesktopFileInfo?>(null) }
+        var iconCtxOffset       by remember { mutableStateOf(Offset.Zero) }
+
+        // ── FIX: InlineRenameState.initialName is now truly immutable ──
+        // The live text lives entirely inside DesktopIcon's local state.
+        // The parent only holds the rename trigger (targetId + initialName).
+        var inlineRename        by remember { mutableStateOf<InlineRenameState?>(null) }
+        var pendingRenameId     by remember { mutableStateOf<String?>(null) }
+
+        // ── Dialogs ──
+        var showPropsDialog     by remember { mutableStateOf(false) }
+        var propsTarget         by remember { mutableStateOf<DesktopFileInfo?>(null) }
+        var showShortcutDialog  by remember { mutableStateOf(false) }
+        var showAppPickerDialog by remember { mutableStateOf(false) }
+        var showWallpaperPanel  by remember { mutableStateOf(false) }
+
+        // ── Lasso selection ──
+        var selStart            by remember { mutableStateOf(Offset.Zero) }
+        var selEnd              by remember { mutableStateOf(Offset.Zero) }
+        var isSelecting         by remember { mutableStateOf(false) }
+        var lassoActive         by remember { mutableStateOf(false) }
+
+        val isDark = viewModel.uiState.collectAsState().value.isDarkTheme
+
+        // ── Grid metrics ──
+        val cellWDp     = cellWidthDp(iconSize)
+        val cellHDp     = cellHeightDp(iconSize)
+        val gridPadLeft = 10f
+        val gridPadTop  = 10f
+
+        val rows = remember(screenH, iconSize) {
+            ((screenH - gridPadTop * 2) / cellHeightDp(iconSize)).toInt().coerceAtLeast(1)
         }
-        observer.startWatching()
-        onDispose { observer.stopWatching() }
-    }
 
-    val sortedItems = remember(items, sortMode, sortAscending) {
-        val s = when (sortMode) {
-            DesktopSortMode.NAME          -> items.sortedBy { it.name.lowercase() }
-            DesktopSortMode.DATE_MODIFIED -> items.sortedBy { it.file.lastModified() }
-            DesktopSortMode.TYPE          -> items.sortedBy { it.file.extension }
-            DesktopSortMode.SIZE          -> items.sortedBy { it.file.length() }
+        // FIX: maxCols derived from screen width so auto-layout never goes off-screen
+        val cellWPx   = with(density) { cellWDp.dp.toPx() }
+        val cellHPx   = with(density) { cellHDp.dp.toPx() }
+        val padLeftPx = with(density) { gridPadLeft.dp.toPx() }
+        val padTopPx  = with(density) { gridPadTop.dp.toPx() }
+
+        val maxCols = remember(screenW, iconSize) {
+            ((screenWPxTotal - padLeftPx) / cellWPx).toInt().coerceAtLeast(1)
         }
-        if (sortAscending) s else s.reversed()
-    }
+        val maxRows = remember(screenH, iconSize) { rows }
 
-    val indexMap = remember(sortedItems) {
-        sortedItems.mapIndexed { idx, item -> item.id to idx }.toMap()
-    }
+        // ── Debounced refresh ──
+        var refreshPending by remember { mutableStateOf(false) }
 
-    fun openItem(item: DesktopFileInfo) {
-        when {
-            item.type == DesktopItemType.FOLDER ->
-                viewModel.openWindow(LauncherScreen.FILE_EXPLORER)
-            item.type == DesktopItemType.APP_SHORTCUT ->
-                item.packageName?.let { pkg ->
-                    try {
-                        val intent = context.packageManager.getLaunchIntentForPackage(pkg)
-                        if (intent != null) context.startActivity(intent)
-                    } catch (_: Exception) {}
+        // ── File loader ──
+        fun loadItem(file: File): DesktopFileInfo? = try {
+            val ext  = file.extension.lowercase()
+            val type = when {
+                file.isDirectory  -> DesktopItemType.FOLDER
+                ext in MUSIC_EXTS -> DesktopItemType.MUSIC_FILE
+                ext in VIDEO_EXTS -> DesktopItemType.VIDEO_FILE
+                ext in IMAGE_EXTS -> DesktopItemType.IMAGE_FILE
+                ext in TEXT_EXTS  -> DesktopItemType.TEXT_FILE
+                ext == "desktop"  -> {
+                    val lines = file.readLines()
+                    val pkg   = lines.find { it.startsWith("package=") }?.removePrefix("package=")?.trim() ?: ""
+                    val label = lines.find { it.startsWith("label=") }?.removePrefix("label=")?.trim()
+                        ?: file.nameWithoutExtension
+                    val iconBmp: Bitmap? = if (pkg.isNotBlank()) {
+                        try { drawableToBitmap(context.packageManager.getApplicationIcon(pkg)) }
+                        catch (_: Exception) { null }
+                    } else null
+                    return DesktopFileInfo(
+                        id = file.absolutePath, file = file, name = label,
+                        type = DesktopItemType.APP_SHORTCUT, packageName = pkg,
+                        iconBitmap = iconBmp
+                    )
                 }
-            else -> viewModel.openFileWithSystem(context, item.file.absolutePath)
+                else -> DesktopItemType.OTHER_FILE
+            }
+            val thumb = if (type == DesktopItemType.IMAGE_FILE) {
+                try {
+                    BitmapFactory.decodeFile(
+                        file.absolutePath,
+                        BitmapFactory.Options().apply { inSampleSize = 4 }
+                    )
+                } catch (_: Exception) { null }
+            } else null
+            DesktopFileInfo(id = file.absolutePath, file = file, name = file.name, type = type, iconBitmap = thumb)
+        } catch (_: Exception) { null }
+
+        fun refreshDesktop() {
+            scope.launch(Dispatchers.IO) {
+                desktopDir.mkdirs()
+                val loaded = (desktopDir.listFiles()?.toList() ?: emptyList())
+                    .sortedBy { it.name.lowercase() }
+                    .mapNotNull { loadItem(it) }
+                withContext(Dispatchers.Main) {
+                    items = loaded
+                    customPositions.keys.retainAll(loaded.map { it.id }.toSet())
+                    // FIX: save positions after stale entries are pruned
+                    prefs.saveCustomPositions(customPositions)
+                    val pendId = pendingRenameId
+                    if (pendId != null) {
+                        val newItem = loaded.find { it.id == pendId }
+                        if (newItem != null) {
+                            inlineRename = InlineRenameState(newItem.id, newItem.name)
+                            selectedIds  = setOf(newItem.id)
+                            pendingRenameId = null
+                        }
+                    }
+                    refreshPending = false
+                }
+            }
         }
-    }
 
-    // ─────────────────────────────────────────────────────────────
-    // FIX: commitRename — reads the live text from the rename state.
-    // inlineRename.initialName is only the seed; the DesktopIcon
-    // calls this with the final user-typed value directly.
-    // ─────────────────────────────────────────────────────────────
-    fun commitRename(rename: InlineRenameState, newRawName: String) {
-        inlineRename = null
-        val target = items.find { it.id == rename.targetId } ?: return
-        val base = newRawName.trim()
-        if (base.isBlank()) return
-
-        if (target.type == DesktopItemType.APP_SHORTCUT) {
-            try {
-                val lines = target.file.readLines().toMutableList()
-                val labelIdx = lines.indexOfFirst { it.startsWith("label=") }
-                if (labelIdx >= 0) lines[labelIdx] = "label=$base"
-                else lines.add("label=$base")
-                target.file.writeText(lines.joinToString("\n") + "\n")
-                scheduleRefresh()
-            } catch (_: Exception) {}
-            return
+        fun scheduleRefresh() {
+            if (refreshPending) return
+            refreshPending = true
+            scope.launch { delay(120); refreshDesktop() }
         }
 
-        val ext = if (target.file.name.contains("."))
-            ".${target.file.name.substringAfterLast(".")}" else ""
-        val finalName = if (ext.isNotEmpty() && !base.endsWith(ext, ignoreCase = true))
-            "$base$ext" else base
+        DisposableEffect(desktopDir.absolutePath) {
+            refreshDesktop()
+            val observer = object : FileObserver(
+                desktopDir.absolutePath,
+                CREATE or DELETE or MOVED_FROM or MOVED_TO or CLOSE_WRITE
+            ) {
+                override fun onEvent(event: Int, path: String?) { scheduleRefresh() }
+            }
+            observer.startWatching()
+            onDispose { observer.stopWatching() }
+        }
 
-        if (finalName == target.file.name) return
-        val dest = File(target.file.parent ?: return, finalName)
-        if (dest.exists()) return
-        target.file.renameTo(dest)
-        scheduleRefresh()
-    }
+        val sortedItems = remember(items, sortMode, sortAscending) {
+            val s = when (sortMode) {
+                DesktopSortMode.NAME          -> items.sortedBy { it.name.lowercase() }
+                DesktopSortMode.DATE_MODIFIED -> items.sortedBy { it.file.lastModified() }
+                DesktopSortMode.TYPE          -> items.sortedBy { it.file.extension }
+                DesktopSortMode.SIZE          -> items.sortedBy { it.file.length() }
+            }
+            if (sortAscending) s else s.reversed()
+        }
 
-    // ─────────────────────────────────────────────────────────────
-    // View hierarchy
-    // ─────────────────────────────────────────────────────────────
-    Box(modifier = modifier.fillMaxSize()) {
+        val indexMap = remember(sortedItems) {
+            sortedItems.mapIndexed { idx, item -> item.id to idx }.toMap()
+        }
 
-        // ── Wallpaper (FIX: mode-aware with crossfade transition) ──
-        Crossfade(
-            targetState = Triple(wallpaperMode, gradientIndex, defaultImageIndex),
-            animationSpec = tween(800),
-            label = "wallpaper_crossfade"
-        ) { (mode, gIdx, dIdx) ->
-            when (mode) {
-                DesktopWallpaperMode.CUSTOM -> {
-                    if (customWallpaperUri.isNotEmpty()) {
-                        AsyncImage(
-                            model = Uri.parse(customWallpaperUri),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        // Fallback to APPARENT if URI is empty
+        fun openItem(item: DesktopFileInfo) {
+            when {
+                item.type == DesktopItemType.FOLDER ->
+                    viewModel.openWindow(LauncherScreen.FILE_EXPLORER)
+                item.type == DesktopItemType.APP_SHORTCUT ->
+                    item.packageName?.let { pkg ->
+                        try {
+                            val intent = context.packageManager.getLaunchIntentForPackage(pkg)
+                            if (intent != null) context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    }
+                else -> viewModel.openFileWithSystem(context, item.file.absolutePath)
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // FIX: commitRename — reads the live text from the rename state.
+        // inlineRename.initialName is only the seed; the DesktopIcon
+        // calls this with the final user-typed value directly.
+        // ─────────────────────────────────────────────────────────────
+        fun commitRename(rename: InlineRenameState, newRawName: String) {
+            inlineRename = null
+            val target = items.find { it.id == rename.targetId } ?: return
+            val base = newRawName.trim()
+            if (base.isBlank()) return
+
+            if (target.type == DesktopItemType.APP_SHORTCUT) {
+                try {
+                    val lines = target.file.readLines().toMutableList()
+                    val labelIdx = lines.indexOfFirst { it.startsWith("label=") }
+                    if (labelIdx >= 0) lines[labelIdx] = "label=$base"
+                    else lines.add("label=$base")
+                    target.file.writeText(lines.joinToString("\n") + "\n")
+                    scheduleRefresh()
+                } catch (_: Exception) {}
+                return
+            }
+
+            val ext = if (target.file.name.contains("."))
+                ".${target.file.name.substringAfterLast(".")}" else ""
+            val finalName = if (ext.isNotEmpty() && !base.endsWith(ext, ignoreCase = true))
+                "$base$ext" else base
+
+            if (finalName == target.file.name) return
+            val dest = File(target.file.parent ?: return, finalName)
+            if (dest.exists()) return
+            target.file.renameTo(dest)
+            scheduleRefresh()
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // View hierarchy
+        // ─────────────────────────────────────────────────────────────
+        Box(modifier = modifier.fillMaxSize()) {
+
+            // ── Wallpaper (FIX: mode-aware with crossfade transition) ──
+            Crossfade(
+                targetState = Triple(wallpaperMode, gradientIndex, defaultImageIndex),
+                animationSpec = tween(800),
+                label = "wallpaper_crossfade"
+            ) { (mode, gIdx, dIdx) ->
+                when (mode) {
+                    DesktopWallpaperMode.CUSTOM -> {
+                        if (customWallpaperUri.isNotEmpty()) {
+                            AsyncImage(
+                                model = Uri.parse(customWallpaperUri),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            // Fallback to APPARENT if URI is empty
+                            val gradient = wallpaperGradients[gIdx % wallpaperGradients.size]
+                            Box(
+                                Modifier.fillMaxSize().background(
+                                    Brush.linearGradient(gradient, start = Offset(0f, 0f), end = Offset(2500f, 1500f))
+                                )
+                            )
+                        }
+                    }
+                    DesktopWallpaperMode.DEFAULT -> {
+                        val resId = DEFAULT_WALLPAPERS.getOrNull(dIdx % DEFAULT_WALLPAPERS.size) ?: 0
+                        if (resId != 0) {
+                            Image(
+                                painter = painterResource(resId),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            // Placeholder until real drawables are added
+                            Box(Modifier.fillMaxSize().background(Color(0xFF1A1A2E)))
+                        }
+                    }
+                    DesktopWallpaperMode.APPARENT -> {
                         val gradient = wallpaperGradients[gIdx % wallpaperGradients.size]
                         Box(
                             Modifier.fillMaxSize().background(
@@ -593,464 +643,475 @@ fun Desktop(
                         )
                     }
                 }
-                DesktopWallpaperMode.DEFAULT -> {
-                    val resId = DEFAULT_WALLPAPERS.getOrNull(dIdx % DEFAULT_WALLPAPERS.size) ?: 0
-                    if (resId != 0) {
-                        Image(
-                            painter = painterResource(resId),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        // Placeholder until real drawables are added
-                        Box(Modifier.fillMaxSize().background(Color(0xFF1A1A2E)))
-                    }
-                }
-                DesktopWallpaperMode.APPARENT -> {
-                    val gradient = wallpaperGradients[gIdx % wallpaperGradients.size]
-                    Box(
-                        Modifier.fillMaxSize().background(
-                            Brush.linearGradient(gradient, start = Offset(0f, 0f), end = Offset(2500f, 1500f))
-                        )
-                    )
-                }
             }
-        }
 
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.02f)))
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.02f)))
 
-        // ── Background gesture layer ──
-        Box(
-            Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onTap = { offset ->
-                            val currentRename = inlineRename
-                            if (currentRename != null) {
-                                // The live text is held in DesktopIcon; tapping outside
-                                // with no typed text means keep the initial name
-                                commitRename(currentRename, currentRename.initialName)
-                            } else {
-                                selectedIds = emptySet()
-                            }
-                            showDesktopCtx = false
-                            iconCtxTarget  = null
-                        },
-                        onLongPress = { off ->
-                            if (draggedId == null) {
-                                desktopCtxOffset = off
-                                showDesktopCtx   = true
-                                iconCtxTarget    = null
-                            }
-                        }
-                    )
-                }
-                .pointerInput(Unit) {
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = { off ->
-                            if (draggedId == null) {
-                                lassoActive = true
-                                isSelecting = true
-                                selStart    = off
-                                selEnd      = off
-                            }
-                        },
-                        onDrag = { ch, amt ->
-                            if (lassoActive) { ch.consume(); selEnd += amt }
-                        },
-                        onDragEnd = {
-                            if (lassoActive) {
-                                isSelecting = false
-                                lassoActive = false
-                                val rect = Rect(
-                                    minOf(selStart.x, selEnd.x), minOf(selStart.y, selEnd.y),
-                                    maxOf(selStart.x, selEnd.x), maxOf(selStart.y, selEnd.y)
-                                )
-                                selectedIds = sortedItems.filter { item ->
-                                    val idx = indexMap[item.id] ?: return@filter false
-                                    val pos = customPositions[item.id]
-                                        ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
-                                    Rect(pos.x, pos.y, pos.x + cellWPx, pos.y + cellHPx).overlaps(rect)
-                                }.map { it.id }.toSet()
-                            }
-                        },
-                        onDragCancel = { isSelecting = false; lassoActive = false }
-                    )
-                }
-        )
-
-        // ── Icons layer ──
-        if (showIconsOnDesktop) {
-            Box(Modifier.fillMaxSize()) {
-
-                // FIX: pre-compute the set of occupied grid cells for overlap detection
-                val occupiedCells = remember(sortedItems, customPositions, autoArrange, rows, maxCols) {
-                    buildSet {
-                        sortedItems.forEachIndexed { idx, item ->
-                            val pos = if (autoArrange) {
-                                autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
-                            } else {
-                                customPositions[item.id]
-                                    ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
-                            }
-                            add(posToCell(pos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
-                        }
-                    }
-                }
-
-                sortedItems.forEachIndexed { idx, item ->
-                    val basePos = autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
-
-                    var pos by remember(item.id, rows, maxCols, iconSize, autoArrange) {
-                        mutableStateOf(
-                            if (autoArrange) basePos else customPositions[item.id] ?: basePos
-                        )
-                    }
-
-                    LaunchedEffect(autoArrange, idx, rows, maxCols, iconSize) {
-                        if (autoArrange) pos = basePos
-                    }
-
-                    val isDragged = draggedId == item.id
-                    val dragScale by animateFloatAsState(
-                        targetValue   = if (isDragged) 1.08f else 1f,
-                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                        label         = "icon_drag_scale"
-                    )
-
-                    var dragMoved by remember { mutableStateOf(false) }
-
-                    Box(
-                        Modifier
-                            .offset { IntOffset(pos.x.roundToInt(), pos.y.roundToInt()) }
-                            .scale(dragScale)
-                            .zIndex(if (isDragged) 50f else 1f)
-                            .pointerInput(item.id, autoArrange) {
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = {
-                                        val r = inlineRename
-                                        if (r != null) commitRename(r, r.initialName)
-                                        draggedId = item.id
-                                        dragMoved = false
-                                    },
-                                    onDrag = { ch, amt ->
-                                        ch.consume()
-                                        if (!dragMoved && (abs(amt.x) > 10f || abs(amt.y) > 10f)) {
-                                            dragMoved = true
-                                        }
-                                        if (dragMoved) {
-                                            // FIX: clamp to full screen size, not just screenW/H - cell size
-                                            val maxX = screenWPxTotal - cellWPx
-                                            val maxY = screenHPxTotal - cellHPx
-                                            pos = Offset(
-                                                (pos.x + amt.x).coerceIn(padLeftPx, maxX),
-                                                (pos.y + amt.y).coerceIn(padTopPx, maxY)
-                                            )
-                                        }
-                                    },
-                                    onDragEnd = {
-                                        draggedId = null
-                                        if (!dragMoved) {
-                                            selectedIds    = setOf(item.id)
-                                            iconCtxTarget  = item
-                                            iconCtxOffset  = Offset(pos.x + cellWPx / 2, pos.y + cellHPx / 2)
-                                            showDesktopCtx = false
-                                        } else {
-                                            val maxX = screenWPxTotal - cellWPx
-                                            val maxY = screenHPxTotal - cellHPx
-                                            if (autoArrange) {
-                                                pos = basePos
-                                            } else {
-                                                // FIX: exclude current icon from occupied set so it can
-                                                // snap to its own old cell without being displaced
-                                                val otherCells = occupiedCells - posToCell(
-                                                    customPositions[item.id] ?: basePos,
-                                                    cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows
-                                                )
-                                                val snapped = snapToGrid(
-                                                    pos, cellWPx, cellHPx, padLeftPx, padTopPx,
-                                                    screenWPxTotal, screenHPxTotal, otherCells
-                                                )
-                                                val finalPos = Offset(
-                                                    snapped.x.coerceIn(padLeftPx, maxX),
-                                                    snapped.y.coerceIn(padTopPx, maxY)
-                                                )
-                                                pos = finalPos
-                                                customPositions[item.id] = finalPos
-                                                // FIX: persist immediately on every drop
-                                                prefs.saveCustomPositions(customPositions)
-                                            }
-                                        }
-                                        dragMoved = false
-                                    },
-                                    onDragCancel = {
-                                        draggedId = null
-                                        dragMoved = false
-                                        if (autoArrange) pos = basePos
-                                    }
-                                )
-                            }
-                    ) {
-                        // FIX: pass a lambda that provides the current typed text,
-                        // so commitRename can read the true final value
-                        var liveRenameText by remember { mutableStateOf("") }
-
-                        DesktopIcon(
-                            item              = item,
-                            isSelected        = item.id in selectedIds,
-                            iconSize          = iconSize,
-                            inlineRenaming    = inlineRename?.targetId == item.id,
-                            initialRenameText = inlineRename?.initialName ?: item.name,
-                            onLiveTextChange  = { liveRenameText = it },
-                            onInlineRenameConfirm = {
-                                inlineRename?.let { r -> commitRename(r, liveRenameText) }
-                            },
-                            onTap = {
-                                val r = inlineRename
-                                if (r != null && r.targetId != item.id) {
-                                    commitRename(r, liveRenameText)
+            // ── Background gesture layer ──
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { offset ->
+                                val currentRename = inlineRename
+                                if (currentRename != null) {
+                                    // The live text is held in DesktopIcon; tapping outside
+                                    // with no typed text means keep the initial name
+                                    commitRename(currentRename, currentRename.initialName)
+                                } else {
+                                    selectedIds = emptySet()
                                 }
-                                selectedIds    = if (item.id in selectedIds)
-                                    selectedIds - item.id else setOf(item.id)
                                 showDesktopCtx = false
                                 iconCtxTarget  = null
                             },
-                            onDoubleTap = { openItem(item) }
+                            onLongPress = { off ->
+                                if (draggedId == null) {
+                                    desktopCtxOffset = off
+                                    showDesktopCtx   = true
+                                    iconCtxTarget    = null
+                                }
+                            }
                         )
                     }
-                }
-
-                // Lasso selection rectangle
-                if (isSelecting) {
-                    Canvas(Modifier.fillMaxSize()) {
-                        val r = Rect(
-                            minOf(selStart.x, selEnd.x), minOf(selStart.y, selEnd.y),
-                            maxOf(selStart.x, selEnd.x), maxOf(selStart.y, selEnd.y)
+                    .pointerInput(Unit) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { off ->
+                                if (draggedId == null) {
+                                    lassoActive = true
+                                    isSelecting = true
+                                    selStart    = off
+                                    selEnd      = off
+                                }
+                            },
+                            onDrag = { ch, amt ->
+                                if (lassoActive) { ch.consume(); selEnd += amt }
+                            },
+                            onDragEnd = {
+                                if (lassoActive) {
+                                    isSelecting = false
+                                    lassoActive = false
+                                    val rect = Rect(
+                                        minOf(selStart.x, selEnd.x), minOf(selStart.y, selEnd.y),
+                                        maxOf(selStart.x, selEnd.x), maxOf(selStart.y, selEnd.y)
+                                    )
+                                    selectedIds = sortedItems.filter { item ->
+                                        val idx = indexMap[item.id] ?: return@filter false
+                                        val pos = customPositions[item.id]
+                                            ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
+                                        Rect(pos.x, pos.y, pos.x + cellWPx, pos.y + cellHPx).overlaps(rect)
+                                    }.map { it.id }.toSet()
+                                }
+                            },
+                            onDragCancel = { isSelecting = false; lassoActive = false }
                         )
-                        drawRect(Color(0xFF0078D4).copy(alpha = 0.12f), r.topLeft, Size(r.width, r.height))
-                        drawRect(Color(0xFF0078D4).copy(alpha = 0.50f), r.topLeft, Size(r.width, r.height),
-                            style = Stroke(width = 1.2f.dp.toPx()))
+                    }
+            )
+
+            // ── Icons layer ──
+            if (showIconsOnDesktop) {
+                Box(Modifier.fillMaxSize()) {
+
+                    // Pre-compute occupied cells for overlap detection.
+                    // occupiedCells is built in two passes so autoGridPos can skip
+                    // already-taken cells (Windows 11 behaviour: each icon claims
+                    // the next free slot; no two icons share a cell).
+                    val occupiedCells = remember(sortedItems, customPositions, autoArrange, rows, maxCols) {
+                        buildSet {
+                            sortedItems.forEachIndexed { idx, item ->
+                                val pos = if (autoArrange) {
+                                    // Pass already-claimed cells so this icon skips them
+                                    autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx,
+                                        occupiedCells = this.toSet())
+                                } else {
+                                    customPositions[item.id]
+                                        ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx,
+                                            occupiedCells = this.toSet())
+                                }
+                                if (pos != null) {
+                                    add(posToCell(pos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                                }
+                                // If pos == null the grid is full; icon is simply not rendered
+                            }
+                        }
+                    }
+
+                    sortedItems.forEachIndexed { idx, item ->
+                        // Resolve base position; skip rendering if grid is full
+                        val basePos = if (autoArrange) {
+                            // Recompute with occupied set built so far for this item's index
+                            val takenSoFar = buildSet {
+                                sortedItems.take(idx).forEachIndexed { i, prev ->
+                                    val p = autoGridPos(i, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx,
+                                        occupiedCells = this.toSet())
+                                    if (p != null) add(posToCell(p, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                                }
+                            }
+                            autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx,
+                                occupiedCells = takenSoFar)
+                        } else {
+                            customPositions[item.id]
+                                ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
+                        }
+
+                        // Windows 11 behaviour: if no free cell exists, don't render this icon
+                        if (basePos == null) return@forEachIndexed
+
+                        var pos by remember(item.id, rows, maxCols, iconSize, autoArrange) {
+                            mutableStateOf(
+                                if (autoArrange) basePos else customPositions[item.id] ?: basePos
+                            )
+                        }
+
+                        LaunchedEffect(autoArrange, idx, rows, maxCols, iconSize) {
+                            if (autoArrange) pos = basePos
+                        }
+
+                        val isDragged = draggedId == item.id
+                        val dragScale by animateFloatAsState(
+                            targetValue   = if (isDragged) 1.08f else 1f,
+                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                            label         = "icon_drag_scale"
+                        )
+
+                        var dragMoved by remember { mutableStateOf(false) }
+
+                        Box(
+                            Modifier
+                                .offset { IntOffset(pos.x.roundToInt(), pos.y.roundToInt()) }
+                                .scale(dragScale)
+                                .zIndex(if (isDragged) 50f else 1f)
+                                .pointerInput(item.id, autoArrange) {
+                                    detectDragGesturesAfterLongPress(
+                                        onDragStart = {
+                                            val r = inlineRename
+                                            if (r != null) commitRename(r, r.initialName)
+                                            draggedId = item.id
+                                            dragMoved = false
+                                        },
+                                        onDrag = { ch, amt ->
+                                            ch.consume()
+                                            if (!dragMoved && (abs(amt.x) > 10f || abs(amt.y) > 10f)) {
+                                                dragMoved = true
+                                            }
+                                            if (dragMoved) {
+                                                // FIX: clamp to full screen size, not just screenW/H - cell size
+                                                val maxX = screenWPxTotal - cellWPx
+                                                val maxY = screenHPxTotal - cellHPx
+                                                pos = Offset(
+                                                    (pos.x + amt.x).coerceIn(padLeftPx, maxX),
+                                                    (pos.y + amt.y).coerceIn(padTopPx, maxY)
+                                                )
+                                            }
+                                        },
+                                        onDragEnd = {
+                                            draggedId = null
+                                            if (!dragMoved) {
+                                                selectedIds    = setOf(item.id)
+                                                iconCtxTarget  = item
+                                                iconCtxOffset  = Offset(pos.x + cellWPx / 2, pos.y + cellHPx / 2)
+                                                showDesktopCtx = false
+                                            } else {
+                                                val maxX = screenWPxTotal - cellWPx
+                                                val maxY = screenHPxTotal - cellHPx
+                                                if (autoArrange) {
+                                                    pos = basePos
+                                                } else {
+                                                    // Exclude this icon from occupied set so it can
+                                                    // return to its own old cell without being blocked
+                                                    val originalCell = posToCell(
+                                                        customPositions[item.id] ?: basePos,
+                                                        cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows
+                                                    )
+                                                    val otherCells = occupiedCells - originalCell
+                                                    val snapped = snapToGrid(
+                                                        pos, cellWPx, cellHPx, padLeftPx, padTopPx,
+                                                        screenWPxTotal, screenHPxTotal, otherCells
+                                                    )
+                                                    if (snapped == null) {
+                                                        // Grid is full — snap back to where it came from
+                                                        // (Windows 11 behaviour: drop is rejected)
+                                                        pos = customPositions[item.id] ?: basePos
+                                                    } else {
+                                                        val finalPos = Offset(
+                                                            snapped.x.coerceIn(padLeftPx, maxX),
+                                                            snapped.y.coerceIn(padTopPx, maxY)
+                                                        )
+                                                        pos = finalPos
+                                                        customPositions[item.id] = finalPos
+                                                        prefs.saveCustomPositions(customPositions)
+                                                    }
+                                                }
+                                            }
+                                            dragMoved = false
+                                        },
+                                        onDragCancel = {
+                                            draggedId = null
+                                            dragMoved = false
+                                            if (autoArrange) pos = basePos
+                                        }
+                                    )
+                                }
+                        ) {
+                            // FIX: pass a lambda that provides the current typed text,
+                            // so commitRename can read the true final value
+                            var liveRenameText by remember { mutableStateOf("") }
+
+                            DesktopIcon(
+                                item              = item,
+                                isSelected        = item.id in selectedIds,
+                                iconSize          = iconSize,
+                                inlineRenaming    = inlineRename?.targetId == item.id,
+                                initialRenameText = inlineRename?.initialName ?: item.name,
+                                onLiveTextChange  = { liveRenameText = it },
+                                onInlineRenameConfirm = {
+                                    inlineRename?.let { r -> commitRename(r, liveRenameText) }
+                                },
+                                onTap = {
+                                    val r = inlineRename
+                                    if (r != null && r.targetId != item.id) {
+                                        commitRename(r, liveRenameText)
+                                    }
+                                    selectedIds    = if (item.id in selectedIds)
+                                        selectedIds - item.id else setOf(item.id)
+                                    showDesktopCtx = false
+                                    iconCtxTarget  = null
+                                },
+                                onDoubleTap = { openItem(item) }
+                            )
+                        }
+                    }
+
+                    // Lasso selection rectangle
+                    if (isSelecting) {
+                        Canvas(Modifier.fillMaxSize()) {
+                            val r = Rect(
+                                minOf(selStart.x, selEnd.x), minOf(selStart.y, selEnd.y),
+                                maxOf(selStart.x, selEnd.x), maxOf(selStart.y, selEnd.y)
+                            )
+                            drawRect(Color(0xFF0078D4).copy(alpha = 0.12f), r.topLeft, Size(r.width, r.height))
+                            drawRect(Color(0xFF0078D4).copy(alpha = 0.50f), r.topLeft, Size(r.width, r.height),
+                                style = Stroke(width = 1.2f.dp.toPx()))
+                        }
                     }
                 }
             }
-        }
 
-        // ── Desktop context menu ──
-        if (showDesktopCtx) {
-            Win11DesktopContextMenu(
-                offset              = desktopCtxOffset,
-                isDark              = isDark,
-                screenWidthDp       = screenW,
-                screenHeightDp      = screenH,
-                viewMode            = iconSize,
-                onViewChange        = { iconSize = it; prefs.iconSize = it; showDesktopCtx = false },
-                sortMode            = sortMode,
-                sortAscending       = sortAscending,
-                onSortChange        = { m, a ->
-                    sortMode = m; sortAscending = a
-                    prefs.sortMode = m; prefs.sortAscending = a
-                    showDesktopCtx = false
-                },
-                autoArrange         = autoArrange,
-                onAutoArrangeToggle = {
-                    autoArrange = it; prefs.autoArrange = it
-                    if (it) { customPositions.clear(); prefs.clearCustomPositions() }
-                    showDesktopCtx = false
-                },
-                showIcons           = showIconsOnDesktop,
-                onShowIconsToggle   = { showIconsOnDesktop = it; prefs.showIconsOnDesktop = it; showDesktopCtx = false },
-                onRefresh           = { refreshDesktop(); showDesktopCtx = false },
-                onPaste             = {
-                    clipboardFiles.forEach { (f, cut) ->
-                        val dest = File(desktopDir, uniqueName(desktopDir, f.nameWithoutExtension, f.extension))
-                        try { if (cut) f.renameTo(dest) else f.copyTo(dest, overwrite = false) } catch (_: Exception) {}
-                    }
-                    if (clipboardFiles.any { it.second }) clipboardFiles = emptyList()
-                    scheduleRefresh(); showDesktopCtx = false
-                },
-                hasPaste            = clipboardFiles.isNotEmpty(),
-                onNewFolder         = {
-                    val name   = uniqueName(desktopDir, "New folder")
-                    val newDir = File(desktopDir, name)
-                    newDir.mkdirs()
-                    pendingRenameId = newDir.absolutePath
-                    showDesktopCtx  = false
-                    scheduleRefresh()
-                },
-                onNewTextFile       = {
-                    val name    = uniqueName(desktopDir, "New Text Document", "txt")
-                    val newFile = File(desktopDir, name)
-                    try { newFile.createNewFile() } catch (_: Exception) {}
-                    pendingRenameId = newFile.absolutePath
-                    showDesktopCtx  = false
-                    scheduleRefresh()
-                },
-                onNewShortcut       = { showShortcutDialog  = true; showDesktopCtx = false },
-                onAddAppShortcut    = { showAppPickerDialog = true; showDesktopCtx = false },
-                onPersonalize       = { showWallpaperPanel  = true; showDesktopCtx = false },
-                onDisplaySettings   = { viewModel.openWindow(LauncherScreen.SETTINGS); showDesktopCtx = false },
-                onDismiss           = { showDesktopCtx = false }
-            )
-        }
+            // ── Desktop context menu ──
+            if (showDesktopCtx) {
+                Win11DesktopContextMenu(
+                    offset              = desktopCtxOffset,
+                    isDark              = isDark,
+                    screenWidthDp       = screenW,
+                    screenHeightDp      = screenH,
+                    viewMode            = iconSize,
+                    onViewChange        = { iconSize = it; prefs.iconSize = it; showDesktopCtx = false },
+                    sortMode            = sortMode,
+                    sortAscending       = sortAscending,
+                    onSortChange        = { m, a ->
+                        sortMode = m; sortAscending = a
+                        prefs.sortMode = m; prefs.sortAscending = a
+                        showDesktopCtx = false
+                    },
+                    autoArrange         = autoArrange,
+                    onAutoArrangeToggle = {
+                        autoArrange = it; prefs.autoArrange = it
+                        if (it) { customPositions.clear(); prefs.clearCustomPositions() }
+                        showDesktopCtx = false
+                    },
+                    showIcons           = showIconsOnDesktop,
+                    onShowIconsToggle   = { showIconsOnDesktop = it; prefs.showIconsOnDesktop = it; showDesktopCtx = false },
+                    onRefresh           = { refreshDesktop(); showDesktopCtx = false },
+                    onPaste             = {
+                        clipboardFiles.forEach { (f, cut) ->
+                            val dest = File(desktopDir, uniqueName(desktopDir, f.nameWithoutExtension, f.extension))
+                            try { if (cut) f.renameTo(dest) else f.copyTo(dest, overwrite = false) } catch (_: Exception) {}
+                        }
+                        if (clipboardFiles.any { it.second }) clipboardFiles = emptyList()
+                        scheduleRefresh(); showDesktopCtx = false
+                    },
+                    hasPaste            = clipboardFiles.isNotEmpty(),
+                    onNewFolder         = {
+                        val name   = uniqueName(desktopDir, "New folder")
+                        val newDir = File(desktopDir, name)
+                        newDir.mkdirs()
+                        pendingRenameId = newDir.absolutePath
+                        showDesktopCtx  = false
+                        scheduleRefresh()
+                    },
+                    onNewTextFile       = {
+                        val name    = uniqueName(desktopDir, "New Text Document", "txt")
+                        val newFile = File(desktopDir, name)
+                        try { newFile.createNewFile() } catch (_: Exception) {}
+                        pendingRenameId = newFile.absolutePath
+                        showDesktopCtx  = false
+                        scheduleRefresh()
+                    },
+                    onNewShortcut       = { showShortcutDialog  = true; showDesktopCtx = false },
+                    onAddAppShortcut    = { showAppPickerDialog = true; showDesktopCtx = false },
+                    onPersonalize       = { showWallpaperPanel  = true; showDesktopCtx = false },
+                    onDisplaySettings   = { viewModel.openWindow(LauncherScreen.SETTINGS); showDesktopCtx = false },
+                    onDismiss           = { showDesktopCtx = false }
+                )
+            }
 
-        // ── Icon context menu ──
-        iconCtxTarget?.let { target ->
-            Win11IconContextMenu(
-                item               = target,
-                isDark             = isDark,
-                offset             = iconCtxOffset,
-                screenWidthDp      = screenW,
-                screenHeightDp     = screenH,
-                onDismiss          = { iconCtxTarget = null },
-                onOpen             = { openItem(target); iconCtxTarget = null },
-                onOpenWith         = {
-                    try {
-                        val uri = androidx.core.content.FileProvider.getUriForFile(
-                            context, "${context.packageName}.fileprovider", target.file
-                        )
-                        context.startActivity(
-                            Intent.createChooser(
-                                Intent(Intent.ACTION_VIEW).apply {
-                                    setDataAndType(uri, "*/*")
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }, "Open with"
-                            ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                        )
-                    } catch (_: Exception) {}
-                    iconCtxTarget = null
-                },
-                onOpenFileLocation = { viewModel.openWindow(LauncherScreen.FILE_EXPLORER); iconCtxTarget = null },
-                onCut = {
-                    clipboardFiles = selectedIds
-                        .mapNotNull { id -> items.find { it.id == id }?.file }
-                        .map { it to true }
-                        .ifEmpty { listOf(target.file to true) }
-                    iconCtxTarget = null
-                },
-                onCopy = {
-                    clipboardFiles = selectedIds
-                        .mapNotNull { id -> items.find { it.id == id }?.file }
-                        .map { it to false }
-                        .ifEmpty { listOf(target.file to false) }
-                    iconCtxTarget = null
-                },
-                onDelete = {
-                    val toDelete = selectedIds
-                        .mapNotNull { id -> items.find { it.id == id }?.file }
-                        .ifEmpty { listOf(target.file) }
-                    toDelete.forEach { viewModel.deleteToRecycleBin(it.absolutePath) }
-                    selectedIds   = emptySet()
-                    iconCtxTarget = null
-                    scheduleRefresh()
-                },
-                onRename = {
-                    inlineRename  = InlineRenameState(targetId = target.id, initialName = target.name)
-                    selectedIds   = setOf(target.id)
-                    iconCtxTarget = null
-                },
-                onShare = {
-                    try {
-                        val uri = androidx.core.content.FileProvider.getUriForFile(
-                            context, "${context.packageName}.fileprovider", target.file
-                        )
-                        context.startActivity(
-                            Intent.createChooser(
-                                Intent(Intent.ACTION_SEND).apply {
-                                    type = "*/*"
-                                    putExtra(Intent.EXTRA_STREAM, uri)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }, "Share"
-                            ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                        )
-                    } catch (_: Exception) {}
-                    iconCtxTarget = null
-                },
-                onSetAsWallpaper = if (target.type == DesktopItemType.IMAGE_FILE) ({
-                    val uri = try {
-                        androidx.core.content.FileProvider.getUriForFile(
-                            context, "${context.packageName}.fileprovider", target.file
-                        ).toString()
-                    } catch (_: Exception) { "" }
-                    if (uri.isNotEmpty()) {
-                        customWallpaperUri = uri
-                        wallpaperMode = DesktopWallpaperMode.CUSTOM
-                        prefs.customWallpaperUri = uri
-                        prefs.wallpaperMode = DesktopWallpaperMode.CUSTOM
-                    }
-                    iconCtxTarget = null
-                }) else null,
-                onCreateShortcut = {
-                    val f = File(desktopDir, uniqueName(desktopDir, target.file.nameWithoutExtension, "desktop"))
-                    f.writeText("type=file\npath=${target.file.absolutePath}\nlabel=${target.file.nameWithoutExtension}\n")
-                    iconCtxTarget = null
-                    scheduleRefresh()
-                },
-                onProperties = { propsTarget = target; showPropsDialog = true; iconCtxTarget = null }
-            )
-        }
+            // ── Icon context menu ──
+            iconCtxTarget?.let { target ->
+                Win11IconContextMenu(
+                    item               = target,
+                    isDark             = isDark,
+                    offset             = iconCtxOffset,
+                    screenWidthDp      = screenW,
+                    screenHeightDp     = screenH,
+                    onDismiss          = { iconCtxTarget = null },
+                    onOpen             = { openItem(target); iconCtxTarget = null },
+                    onOpenWith         = {
+                        try {
+                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                context, "${context.packageName}.fileprovider", target.file
+                            )
+                            context.startActivity(
+                                Intent.createChooser(
+                                    Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(uri, "*/*")
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }, "Open with"
+                                ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                            )
+                        } catch (_: Exception) {}
+                        iconCtxTarget = null
+                    },
+                    onOpenFileLocation = { viewModel.openWindow(LauncherScreen.FILE_EXPLORER); iconCtxTarget = null },
+                    onCut = {
+                        clipboardFiles = selectedIds
+                            .mapNotNull { id -> items.find { it.id == id }?.file }
+                            .map { it to true }
+                            .ifEmpty { listOf(target.file to true) }
+                        iconCtxTarget = null
+                    },
+                    onCopy = {
+                        clipboardFiles = selectedIds
+                            .mapNotNull { id -> items.find { it.id == id }?.file }
+                            .map { it to false }
+                            .ifEmpty { listOf(target.file to false) }
+                        iconCtxTarget = null
+                    },
+                    onDelete = {
+                        val toDelete = selectedIds
+                            .mapNotNull { id -> items.find { it.id == id }?.file }
+                            .ifEmpty { listOf(target.file) }
+                        toDelete.forEach { viewModel.deleteToRecycleBin(it.absolutePath) }
+                        selectedIds   = emptySet()
+                        iconCtxTarget = null
+                        scheduleRefresh()
+                    },
+                    onRename = {
+                        inlineRename  = InlineRenameState(targetId = target.id, initialName = target.name)
+                        selectedIds   = setOf(target.id)
+                        iconCtxTarget = null
+                    },
+                    onShare = {
+                        try {
+                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                context, "${context.packageName}.fileprovider", target.file
+                            )
+                            context.startActivity(
+                                Intent.createChooser(
+                                    Intent(Intent.ACTION_SEND).apply {
+                                        type = "*/*"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }, "Share"
+                                ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                            )
+                        } catch (_: Exception) {}
+                        iconCtxTarget = null
+                    },
+                    onSetAsWallpaper = if (target.type == DesktopItemType.IMAGE_FILE) ({
+                        val uri = try {
+                            androidx.core.content.FileProvider.getUriForFile(
+                                context, "${context.packageName}.fileprovider", target.file
+                            ).toString()
+                        } catch (_: Exception) { "" }
+                        if (uri.isNotEmpty()) {
+                            customWallpaperUri = uri
+                            wallpaperMode = DesktopWallpaperMode.CUSTOM
+                            prefs.customWallpaperUri = uri
+                            prefs.wallpaperMode = DesktopWallpaperMode.CUSTOM
+                        }
+                        iconCtxTarget = null
+                    }) else null,
+                    onCreateShortcut = {
+                        val f = File(desktopDir, uniqueName(desktopDir, target.file.nameWithoutExtension, "desktop"))
+                        f.writeText("type=file\npath=${target.file.absolutePath}\nlabel=${target.file.nameWithoutExtension}\n")
+                        iconCtxTarget = null
+                        scheduleRefresh()
+                    },
+                    onProperties = { propsTarget = target; showPropsDialog = true; iconCtxTarget = null }
+                )
+            }
 
-        // ── Modals ──
-        if (showShortcutDialog) {
-            ShortcutDialog(
-                onConfirm = { pkg, label ->
-                    val f = File(desktopDir, uniqueName(desktopDir, label, "desktop"))
-                    f.writeText("type=app\npackage=$pkg\nlabel=$label\n")
-                    showShortcutDialog = false
-                    scheduleRefresh()
-                },
-                onDismiss = { showShortcutDialog = false }
-            )
-        }
+            // ── Modals ──
+            if (showShortcutDialog) {
+                ShortcutDialog(
+                    onConfirm = { pkg, label ->
+                        val f = File(desktopDir, uniqueName(desktopDir, label, "desktop"))
+                        f.writeText("type=app\npackage=$pkg\nlabel=$label\n")
+                        showShortcutDialog = false
+                        scheduleRefresh()
+                    },
+                    onDismiss = { showShortcutDialog = false }
+                )
+            }
 
-        if (showAppPickerDialog) {
-            AppPickerDialog(
-                isDark       = isDark,
-                onAppSelected = { pkg, label ->
-                    val f = File(desktopDir, uniqueName(desktopDir, label, "desktop"))
-                    f.writeText("type=app\npackage=$pkg\nlabel=$label\n")
-                    showAppPickerDialog = false
-                    scheduleRefresh()
-                },
-                onDismiss = { showAppPickerDialog = false }
-            )
-        }
+            if (showAppPickerDialog) {
+                AppPickerDialog(
+                    isDark       = isDark,
+                    onAppSelected = { pkg, label ->
+                        val f = File(desktopDir, uniqueName(desktopDir, label, "desktop"))
+                        f.writeText("type=app\npackage=$pkg\nlabel=$label\n")
+                        showAppPickerDialog = false
+                        scheduleRefresh()
+                    },
+                    onDismiss = { showAppPickerDialog = false }
+                )
+            }
 
-        if (showPropsDialog && propsTarget != null) {
-            PropertiesDialog(item = propsTarget!!, isDark = isDark, onDismiss = { showPropsDialog = false })
-        }
+            if (showPropsDialog && propsTarget != null) {
+                PropertiesDialog(item = propsTarget!!, isDark = isDark, onDismiss = { showPropsDialog = false })
+            }
 
-        // ── Wallpaper / Personalise Panel ──
-        if (showWallpaperPanel) {
-            WallpaperPersonalisePanel(
-                isDark             = isDark,
-                currentMode        = wallpaperMode,
-                currentGradientIdx = gradientIndex,
-                currentImageIdx    = defaultImageIndex,
-                onModeChange       = { mode ->
-                    wallpaperMode = mode
-                    prefs.wallpaperMode = mode
-                    // Clear custom URI if switching away from custom
-                    if (mode != DesktopWallpaperMode.CUSTOM) {
-                        customWallpaperUri = ""
-                        prefs.customWallpaperUri = ""
-                    }
-                },
-                onGradientChange   = { idx ->
-                    gradientIndex = idx
-                    prefs.wallpaperGradientIndex = idx
-                },
-                onImageChange      = { idx ->
-                    defaultImageIndex = idx
-                    prefs.wallpaperImageIndex = idx
-                },
-                onPickCustom       = { viewModel.openWallpaperPicker(WallpaperTarget.HOME) },
-                onDismiss          = { showWallpaperPanel = false }
-            )
-        }
-    }
-}
+            // ── Wallpaper / Personalise Panel ──
+            if (showWallpaperPanel) {
+                WallpaperPersonalisePanel(
+                    isDark             = isDark,
+                    currentMode        = wallpaperMode,
+                    currentGradientIdx = gradientIndex,
+                    currentImageIdx    = defaultImageIndex,
+                    onModeChange       = { mode ->
+                        wallpaperMode = mode
+                        prefs.wallpaperMode = mode
+                        // Clear custom URI if switching away from custom
+                        if (mode != DesktopWallpaperMode.CUSTOM) {
+                            customWallpaperUri = ""
+                            prefs.customWallpaperUri = ""
+                        }
+                    },
+                    onGradientChange   = { idx ->
+                        gradientIndex = idx
+                        prefs.wallpaperGradientIndex = idx
+                    },
+                    onImageChange      = { idx ->
+                        defaultImageIndex = idx
+                        prefs.wallpaperImageIndex = idx
+                    },
+                    onPickCustom       = { viewModel.openWallpaperPicker(WallpaperTarget.HOME) },
+                    onDismiss          = { showWallpaperPanel = false }
+                )
+            }
+        } // end BoxWithConstraints
+    } // end BoxWithConstraints lambda — was missing, caused all errors
+} // end Desktop
 
 // ─────────────────────────────────────────────────────────────────
 // DesktopIcon
