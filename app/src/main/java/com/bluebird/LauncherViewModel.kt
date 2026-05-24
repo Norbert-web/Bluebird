@@ -240,7 +240,55 @@ data class LauncherUiState(
 
     // Update
     val autoUpdate: Boolean = true,
-    val updateChannel: String = "Stable"
+    val updateChannel: String = "Stable",
+
+    // ── Appearance (extended) ──────────────────────────────────────────────
+    val launcherFont: String = "Default (Roboto)",
+    val gridSize: String = "4 × 5",
+    val showAppLabels: Boolean = true,
+    val cornerRadius: Float = 0.5f,
+    val statusBarClockPosition: String = "Right",
+    val darkModeSchedule: String = "Manual",
+    val wallpaperSlideshow: Boolean = false,
+    val wallpaperSlideshowInterval: String = "30 minutes",
+
+    // ── Gestures ──────────────────────────────────────────────────────────
+    val gestureSwipeUp: String = "App drawer",
+    val gestureSwipeDown: String = "Notification shade",
+    val gestureDoubleTap: String = "Lock screen",
+    val gesturePinch: String = "Overview",
+    val iconSwipeUpEnabled: Boolean = false,
+    val navBarGestures: Boolean = true,
+
+    // ── Apps ──────────────────────────────────────────────────────────────
+    val hideAppsEnabled: Boolean = false,
+    val recentAppsLimit: String = "10",
+
+    // ── System (extended) ─────────────────────────────────────────────────
+    val batterySaver: Boolean = false,
+    val thermalProtection: Boolean = true,
+
+    // ── Sound (extended) ──────────────────────────────────────────────────
+    val alarmVolume: Float = 0.7f,
+    val volumeKeysMedia: Boolean = true,
+
+    // ── Gaming (extended) ─────────────────────────────────────────────────
+    val blockGameScreenshots: Boolean = false,
+
+    // ── Accessibility (extended) ───────────────────────────────────────────
+    val magnificationEnabled: Boolean = false,
+    val captionsEnabled: Boolean = false,
+
+    // ── Backup & Restore ──────────────────────────────────────────────────
+    val autoBackup: Boolean = false,
+
+    // ── Search ────────────────────────────────────────────────────────────
+    val showSearchBar: Boolean = true,
+    val searchEngine: String = "Google",
+    val searchIncludeApps: Boolean = true,
+    val searchIncludeContacts: Boolean = true,
+    val searchIncludeSettings: Boolean = true,
+    val searchWebSuggestions: Boolean = true
 )
 
 // ─── Serializable versions for persistence ───────────────────────────────────
@@ -342,6 +390,46 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val autoUpdate         = prefs.getBoolean("auto_update", true)
         val updateChannel      = prefs.getString("update_channel", "Stable") ?: "Stable"
 
+        // Extended – appearance
+        val launcherFont           = prefs.getString("launcher_font", "Default (Roboto)") ?: "Default (Roboto)"
+        val gridSize               = prefs.getString("grid_size", "4 × 5") ?: "4 × 5"
+        val showAppLabels          = prefs.getBoolean("show_app_labels", true)
+        val cornerRadius           = prefs.getFloat("corner_radius", 0.5f)
+        val statusBarClockPosition = prefs.getString("status_bar_clock_position", "Right") ?: "Right"
+        val darkModeSchedule       = prefs.getString("dark_mode_schedule", "Manual") ?: "Manual"
+        val wallpaperSlideshow     = prefs.getBoolean("wallpaper_slideshow", false)
+        val wallpaperSlideshowInterval = prefs.getString("wallpaper_slideshow_interval", "30 minutes") ?: "30 minutes"
+        // Extended – gestures
+        val gestureSwipeUp      = prefs.getString("gesture_swipe_up", "App drawer") ?: "App drawer"
+        val gestureSwipeDown    = prefs.getString("gesture_swipe_down", "Notification shade") ?: "Notification shade"
+        val gestureDoubleTap    = prefs.getString("gesture_double_tap", "Lock screen") ?: "Lock screen"
+        val gesturePinch        = prefs.getString("gesture_pinch", "Overview") ?: "Overview"
+        val iconSwipeUpEnabled  = prefs.getBoolean("icon_swipe_up_enabled", false)
+        val navBarGestures      = prefs.getBoolean("nav_bar_gestures", true)
+        // Extended – apps
+        val hideAppsEnabled   = prefs.getBoolean("hide_apps_enabled", false)
+        val recentAppsLimit   = prefs.getString("recent_apps_limit", "10") ?: "10"
+        // Extended – system
+        val batterySaver        = prefs.getBoolean("battery_saver", false)
+        val thermalProtection   = prefs.getBoolean("thermal_protection", true)
+        // Extended – sound
+        val alarmVolume        = prefs.getFloat("alarm_volume", 0.7f)
+        val volumeKeysMedia    = prefs.getBoolean("volume_keys_media", true)
+        // Extended – gaming
+        val blockGameScreenshots = prefs.getBoolean("block_game_screenshots", false)
+        // Extended – accessibility
+        val magnificationEnabled = prefs.getBoolean("magnification_enabled", false)
+        val captionsEnabled      = prefs.getBoolean("captions_enabled", false)
+        // Extended – backup
+        val autoBackup = prefs.getBoolean("auto_backup", false)
+        // Extended – search
+        val showSearchBar          = prefs.getBoolean("show_search_bar", true)
+        val searchEngine           = prefs.getString("search_engine", "Google") ?: "Google"
+        val searchIncludeApps      = prefs.getBoolean("search_include_apps", true)
+        val searchIncludeContacts  = prefs.getBoolean("search_include_contacts", true)
+        val searchIncludeSettings  = prefs.getBoolean("search_include_settings", true)
+        val searchWebSuggestions   = prefs.getBoolean("search_web_suggestions", true)
+
         val recycleJson  = prefs.getString("recycle_bin", "[]") ?: "[]"
         val recycleItems = try {
             val type = object : TypeToken<List<RecycleBinItemSaved>>() {}.type
@@ -422,7 +510,46 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             dateFormat            = dateFormat,
             firstDayOfWeek        = firstDayOfWeek,
             autoUpdate            = autoUpdate,
-            updateChannel         = updateChannel
+            updateChannel         = updateChannel,
+            // Extended – appearance
+            launcherFont               = launcherFont,
+            gridSize                   = gridSize,
+            showAppLabels              = showAppLabels,
+            cornerRadius               = cornerRadius,
+            statusBarClockPosition     = statusBarClockPosition,
+            darkModeSchedule           = darkModeSchedule,
+            wallpaperSlideshow         = wallpaperSlideshow,
+            wallpaperSlideshowInterval = wallpaperSlideshowInterval,
+            // Extended – gestures
+            gestureSwipeUp      = gestureSwipeUp,
+            gestureSwipeDown    = gestureSwipeDown,
+            gestureDoubleTap    = gestureDoubleTap,
+            gesturePinch        = gesturePinch,
+            iconSwipeUpEnabled  = iconSwipeUpEnabled,
+            navBarGestures      = navBarGestures,
+            // Extended – apps
+            hideAppsEnabled = hideAppsEnabled,
+            recentAppsLimit = recentAppsLimit,
+            // Extended – system
+            batterySaver      = batterySaver,
+            thermalProtection = thermalProtection,
+            // Extended – sound
+            alarmVolume     = alarmVolume,
+            volumeKeysMedia = volumeKeysMedia,
+            // Extended – gaming
+            blockGameScreenshots = blockGameScreenshots,
+            // Extended – accessibility
+            magnificationEnabled = magnificationEnabled,
+            captionsEnabled      = captionsEnabled,
+            // Extended – backup
+            autoBackup = autoBackup,
+            // Extended – search
+            showSearchBar         = showSearchBar,
+            searchEngine          = searchEngine,
+            searchIncludeApps     = searchIncludeApps,
+            searchIncludeContacts = searchIncludeContacts,
+            searchIncludeSettings = searchIncludeSettings,
+            searchWebSuggestions  = searchWebSuggestions
         )
     }
 
@@ -507,6 +634,45 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             putString("first_day_of_week",  state.firstDayOfWeek)
             putBoolean("auto_update",       state.autoUpdate)
             putString("update_channel",     state.updateChannel)
+            // Extended – appearance
+            putString("launcher_font",                  state.launcherFont)
+            putString("grid_size",                      state.gridSize)
+            putBoolean("show_app_labels",               state.showAppLabels)
+            putFloat("corner_radius",                   state.cornerRadius)
+            putString("status_bar_clock_position",      state.statusBarClockPosition)
+            putString("dark_mode_schedule",             state.darkModeSchedule)
+            putBoolean("wallpaper_slideshow",           state.wallpaperSlideshow)
+            putString("wallpaper_slideshow_interval",      state.wallpaperSlideshowInterval)
+            // Extended – gestures
+            putString("gesture_swipe_up",       state.gestureSwipeUp)
+            putString("gesture_swipe_down",     state.gestureSwipeDown)
+            putString("gesture_double_tap",     state.gestureDoubleTap)
+            putString("gesture_pinch",          state.gesturePinch)
+            putBoolean("icon_swipe_up_enabled", state.iconSwipeUpEnabled)
+            putBoolean("nav_bar_gestures",      state.navBarGestures)
+            // Extended – apps
+            putBoolean("hide_apps_enabled", state.hideAppsEnabled)
+            putString("recent_apps_limit",     state.recentAppsLimit)
+            // Extended – system
+            putBoolean("battery_saver",       state.batterySaver)
+            putBoolean("thermal_protection",  state.thermalProtection)
+            // Extended – sound
+            putFloat("alarm_volume",         state.alarmVolume)
+            putBoolean("volume_keys_media",  state.volumeKeysMedia)
+            // Extended – gaming
+            putBoolean("block_game_screenshots", state.blockGameScreenshots)
+            // Extended – accessibility
+            putBoolean("magnification_enabled", state.magnificationEnabled)
+            putBoolean("captions_enabled",      state.captionsEnabled)
+            // Extended – backup
+            putBoolean("auto_backup", state.autoBackup)
+            // Extended – search
+            putBoolean("show_search_bar",           state.showSearchBar)
+            putString("search_engine",              state.searchEngine)
+            putBoolean("search_include_apps",       state.searchIncludeApps)
+            putBoolean("search_include_contacts",   state.searchIncludeContacts)
+            putBoolean("search_include_settings",   state.searchIncludeSettings)
+            putBoolean("search_web_suggestions",    state.searchWebSuggestions)
             apply()
         }
     }
@@ -1517,5 +1683,265 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun closeDesktopContextMenu() {
         _uiState.value = _uiState.value.copy(isDesktopContextMenuOpen = false)
+    }
+
+    // ─── Appearance (extended) ────────────────────────────────────────────────
+    fun setLauncherFont(font: String) {
+        _uiState.value = _uiState.value.copy(launcherFont = font); saveAll()
+    }
+
+    fun setGridSize(size: String) {
+        _uiState.value = _uiState.value.copy(gridSize = size); saveAll()
+    }
+
+    fun setShowAppLabels(show: Boolean) {
+        _uiState.value = _uiState.value.copy(showAppLabels = show); saveAll()
+    }
+
+    fun setCornerRadius(radius: Float) {
+        _uiState.value = _uiState.value.copy(cornerRadius = radius); saveAll()
+    }
+
+    fun setStatusBarClockPosition(position: String) {
+        _uiState.value = _uiState.value.copy(statusBarClockPosition = position); saveAll()
+    }
+
+    fun setDarkModeSchedule(schedule: String) {
+        _uiState.value = _uiState.value.copy(darkModeSchedule = schedule); saveAll()
+    }
+
+    fun setWallpaperSlideshow(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(wallpaperSlideshow = enabled); saveAll()
+    }
+
+    fun setWallpaperSlideshowInterval(interval: String) {
+        _uiState.value = _uiState.value.copy(wallpaperSlideshowInterval = interval); saveAll()
+    }
+
+    // ─── Gestures ─────────────────────────────────────────────────────────────
+    fun setGestureSwipeUp(action: String) {
+        _uiState.value = _uiState.value.copy(gestureSwipeUp = action); saveAll()
+    }
+
+    fun setGestureSwipeDown(action: String) {
+        _uiState.value = _uiState.value.copy(gestureSwipeDown = action); saveAll()
+    }
+
+    fun setGestureDoubleTap(action: String) {
+        _uiState.value = _uiState.value.copy(gestureDoubleTap = action); saveAll()
+    }
+
+    fun setGesturePinch(action: String) {
+        _uiState.value = _uiState.value.copy(gesturePinch = action); saveAll()
+    }
+
+    fun setIconSwipeUp(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(iconSwipeUpEnabled = enabled); saveAll()
+    }
+
+    fun setNavBarGestures(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(navBarGestures = enabled); saveAll()
+    }
+
+    // ─── Apps ─────────────────────────────────────────────────────────────────
+    fun setHideApps(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(hideAppsEnabled = enabled); saveAll()
+    }
+
+    fun setRecentAppsLimit(limit: String) {
+        _uiState.value = _uiState.value.copy(recentAppsLimit = limit); saveAll()
+    }
+
+    // ─── System (extended) ────────────────────────────────────────────────────
+    fun setBatterySaver(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(batterySaver = enabled); saveAll()
+    }
+
+    fun setThermalProtection(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(thermalProtection = enabled); saveAll()
+    }
+
+    // ─── Sound (extended) ─────────────────────────────────────────────────────
+    fun setAlarmVolume(value: Float, context: Context = getApplication()) {
+        _uiState.value = _uiState.value.copy(alarmVolume = value.coerceIn(0f, 1f))
+        try {
+            val am     = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+            am.setStreamVolume(AudioManager.STREAM_ALARM, (value * maxVol).toInt(), 0)
+        } catch (e: Exception) { e.printStackTrace() }
+        saveAll()
+    }
+
+    fun setVolumeKeysMedia(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(volumeKeysMedia = enabled); saveAll()
+    }
+
+    // ─── Gaming (extended) ────────────────────────────────────────────────────
+    fun setBlockGameScreenshots(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(blockGameScreenshots = enabled); saveAll()
+    }
+
+    // ─── Accessibility (extended) ─────────────────────────────────────────────
+    fun setMagnification(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(magnificationEnabled = enabled); saveAll()
+    }
+
+    fun setCaptionsEnabled(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(captionsEnabled = enabled); saveAll()
+    }
+
+    // ─── Backup & Restore ─────────────────────────────────────────────────────
+    fun setAutoBackup(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(autoBackup = enabled); saveAll()
+    }
+
+    fun exportSettings(context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val state    = _uiState.value
+                val snapshot = mapOf(
+                    "dark_theme"          to state.isDarkTheme,
+                    "accent_color"        to state.accentColor,
+                    "app_theme"           to state.appTheme.ordinal,
+                    "text_scale"          to state.textScale,
+                    "icon_size"           to state.iconSize,
+                    "taskbar_position"    to state.taskbarPosition,
+                    "launcher_font"       to state.launcherFont,
+                    "grid_size"           to state.gridSize,
+                    "show_app_labels"     to state.showAppLabels,
+                    "corner_radius"       to state.cornerRadius,
+                    "transparency_effects" to state.transparencyEffects,
+                    "animation_speed"     to state.animationSpeed
+                )
+                val json      = gson.toJson(snapshot)
+                val dest      = File(context.filesDir, "bluebird_settings_export.json")
+                dest.writeText(json)
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
+    fun importSettings(context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val src = File(context.filesDir, "bluebird_settings_export.json")
+                if (!src.exists()) return@launch
+                val type: java.lang.reflect.Type = object : TypeToken<Map<String, Any>>() {}.type
+                val map: Map<String, Any> = gson.fromJson(src.readText(), type)
+                withContext(Dispatchers.Main) {
+                    val st = _uiState.value
+                    _uiState.value = st.copy(
+                        isDarkTheme         = (map["dark_theme"] as? Boolean) ?: st.isDarkTheme,
+                        textScale           = (map["text_scale"] as? Double)?.toFloat() ?: st.textScale,
+                        iconSize            = (map["icon_size"] as? String) ?: st.iconSize,
+                        taskbarPosition     = (map["taskbar_position"] as? String) ?: st.taskbarPosition,
+                        launcherFont        = (map["launcher_font"] as? String) ?: st.launcherFont,
+                        gridSize            = (map["grid_size"] as? String) ?: st.gridSize,
+                        showAppLabels       = (map["show_app_labels"] as? Boolean) ?: st.showAppLabels,
+                        cornerRadius        = (map["corner_radius"] as? Double)?.toFloat() ?: st.cornerRadius,
+                        transparencyEffects = (map["transparency_effects"] as? Boolean) ?: st.transparencyEffects,
+                        animationSpeed      = (map["animation_speed"] as? Double)?.toFloat() ?: st.animationSpeed
+                    )
+                    saveAll()
+                }
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
+    fun resetAllSettings() {
+        _uiState.value = _uiState.value.copy(
+            appTheme              = AppTheme.SYSTEM,
+            isDarkTheme           = true,
+            accentColor           = 0xFF0078D4,
+            textScale             = 1f,
+            iconSize              = "Medium",
+            taskbarPosition       = "Bottom",
+            startMenuLayout       = "Balanced",
+            transparencyEffects   = true,
+            animationSpeed        = 1f,
+            launcherFont          = "Default (Roboto)",
+            gridSize              = "4 × 5",
+            showAppLabels         = true,
+            cornerRadius          = 0.5f,
+            statusBarClockPosition= "Right",
+            darkModeSchedule      = "Manual",
+            wallpaperSlideshow    = false,
+            wallpaperSlideshowInterval = "30 minutes",
+            gestureSwipeUp        = "App drawer",
+            gestureSwipeDown      = "Notification shade",
+            gestureDoubleTap      = "Lock screen",
+            gesturePinch          = "Overview",
+            iconSwipeUpEnabled    = false,
+            navBarGestures        = true,
+            hideAppsEnabled       = false,
+            recentAppsLimit       = "10",
+            batterySaver          = false,
+            thermalProtection     = true,
+            alarmVolume           = 0.7f,
+            volumeKeysMedia       = true,
+            blockGameScreenshots  = false,
+            magnificationEnabled  = false,
+            captionsEnabled       = false,
+            autoBackup            = false,
+            showSearchBar         = true,
+            searchEngine          = "Google",
+            searchIncludeApps     = true,
+            searchIncludeContacts = true,
+            searchIncludeSettings = true,
+            searchWebSuggestions  = true,
+            dndEnabled            = false,
+            focusAssist           = false,
+            screenTimeoutMinutes  = 2,
+            notificationBanners   = true,
+            showNotificationBadges= true,
+            hapticFeedback        = true,
+            systemSounds          = true
+        )
+        saveAll()
+    }
+
+    // ─── Profile picture picker ───────────────────────────────────────────────
+    /** Call this from the Activity/Composable to trigger the image picker.
+     *  This emits a one-shot event that the UI layer should listen to. */
+    private val _openProfilePicturePicker = MutableStateFlow(false)
+    val openProfilePickerEvent: StateFlow<Boolean> = _openProfilePicturePicker.asStateFlow()
+
+    fun openProfilePicturePicker() {
+        _openProfilePicturePicker.value = true
+    }
+
+    fun consumeProfilePickerEvent() {
+        _openProfilePicturePicker.value = false
+    }
+
+    // ─── Search (extended) ────────────────────────────────────────────────────
+    fun setShowSearchBar(show: Boolean) {
+        _uiState.value = _uiState.value.copy(showSearchBar = show); saveAll()
+    }
+
+    fun setSearchEngine(engine: String) {
+        _uiState.value = _uiState.value.copy(searchEngine = engine); saveAll()
+    }
+
+    fun setSearchIncludeApps(include: Boolean) {
+        _uiState.value = _uiState.value.copy(searchIncludeApps = include); saveAll()
+    }
+
+    fun setSearchIncludeContacts(include: Boolean) {
+        _uiState.value = _uiState.value.copy(searchIncludeContacts = include); saveAll()
+    }
+
+    fun setSearchIncludeSettings(include: Boolean) {
+        _uiState.value = _uiState.value.copy(searchIncludeSettings = include); saveAll()
+    }
+
+    fun setSearchWebSuggestions(enable: Boolean) {
+        _uiState.value = _uiState.value.copy(searchWebSuggestions = enable); saveAll()
+    }
+
+    // ─── Storage helper (exposed for SettingsScreen) ──────────────────────────
+    fun getStorageTotalBytes(context: Context): Long {
+        return try {
+            context.filesDir.totalSpace
+        } catch (e: Exception) { 0L }
     }
 }
