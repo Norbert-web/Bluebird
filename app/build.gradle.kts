@@ -13,8 +13,8 @@ android {
         applicationId = "com.bluebird"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "1.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -57,6 +57,11 @@ configurations.all {
 
 
 dependencies {
+    // Already in Compose projects — confirm these are present:
+    implementation("androidx.webkit:webkit:1.8.0")
+// WebSettingsCompat dark mode
+    implementation("androidx.activity:activity-compose:1.8.2")
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

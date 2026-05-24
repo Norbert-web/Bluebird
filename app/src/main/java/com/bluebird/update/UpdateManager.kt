@@ -17,16 +17,7 @@ import java.util.concurrent.TimeUnit
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Central controller for Bluebird's update system.
- *
- * Replace [UPDATE_JSON_URL] with your real GitHub raw URL, e.g.:
- *   https://raw.githubusercontent.com/yourname/win11launcher/main/update.json
- *
- * Usage:
- *   val result = UpdateManager.checkForUpdate(context)
- *
- * Call [shouldCheckNow] before doing a background check so we respect the
- * user's chosen frequency.
+
  */
 object UpdateManager {
 
