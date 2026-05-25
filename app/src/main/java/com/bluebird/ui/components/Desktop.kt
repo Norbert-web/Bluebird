@@ -1,5 +1,7 @@
 package com.bluebird.ui.components
 
+//import androidx.compose.ui.text.LocalTextStyle
+// I need to review something here,LAMN NOBERT
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -10,34 +12,118 @@ import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Environment
 import android.os.FileObserver
-import androidx.annotation.DrawableRes
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.*
-import androidx.compose.foundation.layout.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Android
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Monitor
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Reply
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material.icons.filled.ViewModule
+import androidx.compose.material.icons.filled.Wallpaper
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.*
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -45,8 +131,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-//import androidx.compose.ui.text.LocalTextStyle
-// I need to review something here,LAMN NOBERT
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -54,17 +138,23 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.*
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
-import com.bluebird.*
+import com.bluebird.LauncherScreen
+import com.bluebird.LauncherViewModel
+import com.bluebird.WallpaperState
+import com.bluebird.WallpaperTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -202,9 +292,8 @@ private fun cellHeightDp(size: DesktopIconSize): Float = when (size) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// autoGridPos — Windows 11 style.
-// Scans column-first (top→bottom, left→right) for the next free cell.
-// Returns null when the grid is completely full (no placement allowed).
+// FIX: autoGridPos — clamps to screen bounds so icons never overflow.
+// Column-first layout (top→bottom then right), stops at maxCols.
 // ─────────────────────────────────────────────────────────────────
 private fun autoGridPos(
     idx: Int,
@@ -213,24 +302,17 @@ private fun autoGridPos(
     cellWidthPx: Float,
     cellHeightPx: Float,
     startPaddingPx: Float = 0f,
-    topPaddingPx: Float = 0f,
-    occupiedCells: Set<Pair<Int, Int>> = emptySet()
-): Offset? {
+    topPaddingPx: Float = 0f
+): Offset {
     val safeRows = maxOf(1, rows)
-    val safeCols = maxOf(1, maxCols)
-    // Scan column-first for the (idx+1)-th free cell
-    var free = 0
-    for (col in 0 until safeCols) {
-        for (row in 0 until safeRows) {
-            if (Pair(col, row) !in occupiedCells) {
-                if (free == idx) {
-                    return Offset(col * cellWidthPx + startPaddingPx, row * cellHeightPx + topPaddingPx)
-                }
-                free++
-            }
-        }
-    }
-    return null  // grid is full — caller must not place this icon
+    // FIX: Do NOT clamp idx to totalSlots-1.  The old code forced every icon
+    // beyond the grid capacity onto the very last cell, causing them all to
+    // stack on top of each other.  Instead let col/row grow naturally — extra
+    // columns simply extend to the right, which is harmless (the desktop Box
+    // is not scroll-limited and icons remain individually draggable).
+    val col = idx / safeRows
+    val row = idx % safeRows
+    return Offset(col * cellWidthPx + startPaddingPx, row * cellHeightPx + topPaddingPx)
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -246,7 +328,7 @@ private fun snapToGrid(
     screenWidthPx: Float,
     screenHeightPx: Float,
     occupiedPositions: Set<Pair<Int, Int>> = emptySet()
-): Offset? {
+): Offset {
     val maxCols = ((screenWidthPx - startPaddingPx) / cellWidthPx).toInt().coerceAtLeast(1)
     val maxRows = ((screenHeightPx - topPaddingPx) / cellHeightPx).toInt().coerceAtLeast(1)
 
@@ -275,8 +357,8 @@ private fun snapToGrid(
             }
         }
     }
-    // Grid is full — return null so caller can snap back to original position
-    return null
+    // Absolute fallback: preferred position even if occupied
+    return Offset(preferredCol * cellWidthPx + startPaddingPx, preferredRow * cellHeightPx + topPaddingPx)
 }
 
 // Convert pixel position → grid cell (col, row)
@@ -699,6 +781,7 @@ fun Desktop(
                                         val idx = indexMap[item.id] ?: return@filter false
                                         val pos = customPositions[item.id]
                                             ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
+                                            ?: return@filter false  // icon has no cell (grid full)
                                         Rect(pos.x, pos.y, pos.x + cellWPx, pos.y + cellHPx).overlaps(rect)
                                     }.map { it.id }.toSet()
                                 }
@@ -712,50 +795,23 @@ fun Desktop(
             if (showIconsOnDesktop) {
                 Box(Modifier.fillMaxSize()) {
 
-                    // Pre-compute occupied cells for overlap detection.
-                    // occupiedCells is built in two passes so autoGridPos can skip
-                    // already-taken cells (Windows 11 behaviour: each icon claims
-                    // the next free slot; no two icons share a cell).
+                    // FIX: pre-compute the set of occupied grid cells for overlap detection
                     val occupiedCells = remember(sortedItems, customPositions, autoArrange, rows, maxCols) {
                         buildSet {
                             sortedItems.forEachIndexed { idx, item ->
                                 val pos = if (autoArrange) {
-                                    // Pass already-claimed cells so this icon skips them
-                                    autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx,
-                                        occupiedCells = this.toSet())
+                                    autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
                                 } else {
                                     customPositions[item.id]
-                                        ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx,
-                                            occupiedCells = this.toSet())
+                                        ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
                                 }
-                                if (pos != null) {
-                                    add(posToCell(pos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
-                                }
-                                // If pos == null the grid is full; icon is simply not rendered
+                                add(posToCell(pos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
                             }
                         }
                     }
 
                     sortedItems.forEachIndexed { idx, item ->
-                        // Resolve base position; skip rendering if grid is full
-                        val basePos = if (autoArrange) {
-                            // Recompute with occupied set built so far for this item's index
-                            val takenSoFar = buildSet {
-                                sortedItems.take(idx).forEachIndexed { i, prev ->
-                                    val p = autoGridPos(i, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx,
-                                        occupiedCells = this.toSet())
-                                    if (p != null) add(posToCell(p, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
-                                }
-                            }
-                            autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx,
-                                occupiedCells = takenSoFar)
-                        } else {
-                            customPositions[item.id]
-                                ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
-                        }
-
-                        // Windows 11 behaviour: if no free cell exists, don't render this icon
-                        if (basePos == null) return@forEachIndexed
+                        val basePos = autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
 
                         var pos by remember(item.id, rows, maxCols, iconSize, autoArrange) {
                             mutableStateOf(
@@ -817,30 +873,24 @@ fun Desktop(
                                                 if (autoArrange) {
                                                     pos = basePos
                                                 } else {
-                                                    // Exclude this icon from occupied set so it can
-                                                    // return to its own old cell without being blocked
-                                                    val originalCell = posToCell(
+                                                    // FIX: exclude current icon from occupied set so it can
+                                                    // snap to its own old cell without being displaced
+                                                    val otherCells = occupiedCells - posToCell(
                                                         customPositions[item.id] ?: basePos,
                                                         cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows
                                                     )
-                                                    val otherCells = occupiedCells - originalCell
                                                     val snapped = snapToGrid(
                                                         pos, cellWPx, cellHPx, padLeftPx, padTopPx,
                                                         screenWPxTotal, screenHPxTotal, otherCells
                                                     )
-                                                    if (snapped == null) {
-                                                        // Grid is full — snap back to where it came from
-                                                        // (Windows 11 behaviour: drop is rejected)
-                                                        pos = customPositions[item.id] ?: basePos
-                                                    } else {
-                                                        val finalPos = Offset(
-                                                            snapped.x.coerceIn(padLeftPx, maxX),
-                                                            snapped.y.coerceIn(padTopPx, maxY)
-                                                        )
-                                                        pos = finalPos
-                                                        customPositions[item.id] = finalPos
-                                                        prefs.saveCustomPositions(customPositions)
-                                                    }
+                                                    val finalPos = Offset(
+                                                        snapped.x.coerceIn(padLeftPx, maxX),
+                                                        snapped.y.coerceIn(padTopPx, maxY)
+                                                    )
+                                                    pos = finalPos
+                                                    customPositions[item.id] = finalPos
+                                                    // FIX: persist immediately on every drop
+                                                    prefs.saveCustomPositions(customPositions)
                                                 }
                                             }
                                             dragMoved = false

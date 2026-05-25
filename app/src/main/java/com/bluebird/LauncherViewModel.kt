@@ -1944,4 +1944,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             context.filesDir.totalSpace
         } catch (e: Exception) { 0L }
     }
+
+    // ─── Window geometry persistence ─────────────────────────────────────────
+    // Stores each window's last position + size so reopening restores it.
+    private val _windowGeometries = mutableMapOf<String, com.bluebird.ui.components.WindowGeometry>()
+
+    fun getWindowGeometry(id: String): com.bluebird.ui.components.WindowGeometry? =
+        _windowGeometries[id]
+
+    fun saveWindowGeometry(id: String, geometry: com.bluebird.ui.components.WindowGeometry) {
+        _windowGeometries[id] = geometry
+    }
 }
