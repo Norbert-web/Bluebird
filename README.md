@@ -9,7 +9,7 @@
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2024.08-4285F4?style=flat-square&logo=jetpackcompose)](https://developer.android.com/jetpack/compose)
 [![API](https://img.shields.io/badge/Min%20API-26%20(Android%208.0)-orange?style=flat-square)](https://developer.android.com/studio/releases/platforms)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v1.0.0-success?style=flat-square)](https://github.com/norbert-web/bluebird/releases)
+[![Release](https://img.shields.io/badge/Release-v1.5.0-success?style=flat-square)](https://github.com/norbert-web/bluebird/releases)
 [![Build](https://img.shields.io/badge/Build-Passing-brightgreen?style=flat-square)](https://github.com/norbert-web/bluebird/actions)
 
 <br/>
@@ -90,9 +90,11 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Floating Windows** | Every app opens in a draggable, focusable window with minimize/maximize/close |
 | **Acrylic Glassmorphism UI** | Frosted-glass panels with blur, transparency, and layered depth |
 | **Multi-window management** | Stack and switch between multiple open windows |
+| **Snap layout picker** | Windows 11–style snap layout overlay for quick window positioning |
 | **Desktop icons** | System icons (This PC, Recycle Bin, Settings, Network), file shortcuts, and app shortcuts |
 | **Right-click context menu** | Long-press desktop → New Folder, New Text File, Personalize, Refresh, Display Settings |
 | **Desktop shortcuts** | Drag any file from File Explorer → Create Shortcut; long-press app in Start Menu → Add to Desktop |
+| **Scrollable desktop** | Desktop scrolls when icons exceed the screen area |
 | **5 built-in wallpapers** | Blue Bloom, Sunset Purple, Forest Green, Deep Space, Aurora — gradient themes |
 | **Custom wallpaper** | Pick any image from Gallery for home screen and lock screen separately |
 | **Wallpaper persistence** | Custom images copied to internal storage — survive app restarts and reboots |
@@ -261,6 +263,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Calendar** | 📅 | Month calendar view |
 | **Photos** | 🖼️ | Photo gallery |
 | **Task Manager** | 📊 | Running processes viewer |
+| **Text Editor** | 📝 | In-launcher editor with syntax highlighting |
 
 ---
 
@@ -361,51 +364,437 @@ All state lives in a single `LauncherUiState` data class, collected as `StateFlo
 ## 📁 Project Structure
 
 ```
-bluebird/
+Bluebird/
 ├── app/
-│   ├── src/
-│   │   └── main/
-│   │       ├── AndroidManifest.xml
-│   │       ├── java/com/bluebird/
-│   │       │   │
-│   │       │   ├── MainActivity.kt              # Entry point, OOBE routing, immersive mode
-│   │       │   ├── LauncherViewModel.kt         # Single ViewModel, all state & business logic
-│   │       │   │
-│   │       │   ├── data/
-│   │       │   │   ├── NotificationListener.kt  # NotificationListenerService
-│   │       │   │   └── BootReceiver.kt          # Auto-launch on device boot
-│   │       │   │
-│   │       │   └── ui/
-│   │       │       ├── theme/
-│   │       │       │   └── Theme.kt             # Win11Colors, dark/light Material3 themes
-│   │       │       │
-│   │       │       ├── components/
-│   │       │       │   ├── ActionCenter.kt      # Notification panel + quick tiles
-│   │       │       │   ├── CommonComponents.kt  # AcrylicSurface, AppIconSmall, shared UI
-│   │       │       │   ├── Desktop.kt           # Wallpaper, icons, context menu
-│   │       │       │   ├── SearchOverlay.kt     # Global search overlay
-│   │       │       │   ├── StartMenu.kt         # Start menu, app grid, power menu
-│   │       │       │   ├── Taskbar.kt           # Bluebird taskbar, tray, clock
-│   │       │       │   ├── WidgetsPanel.kt      # Widgets slide-in panel
-│   │       │       │   └── WindowManager.kt     # Floating window container & routing
-│   │       │       │
-│   │       │       └── screens/
-│   │       │           ├── AppScreens.kt        # Calculator, Calendar, Photos, TaskManager
-│   │       │           ├── BrowserScreen.kt     # WebView browser
-│   │       │           ├── DesktopScreen.kt     # Root desktop compositor
-│   │       │           ├── FileExplorerScreen.kt # Real file manager
-│   │       │           ├── ImageViewerScreen.kt # Full-screen image viewer
-│   │       │           ├── LockScreenActivity.kt # System lock screen activity
-│   │       │           ├── MediaPlayerScreen.kt # Audio/video player
-│   │       │           ├── MessagesScreen.kt    # SMS reader/sender
-│   │       │           ├── PhoneScreen.kt       # Dialer + contacts + call log
-│   │       │           ├── RecycleBinScreen.kt  # Recycle bin manager
-│   │       │           ├── SettingsScreen.kt    # Full settings (12 categories)
-│   │       │           └── SetupScreen.kt       # First-launch OOBE wizard
-│   │       │
-│   │       └── res/
-│   │           ├── drawable/                    # Icons, launcher foreground/background
-│   │           ├── mipmap-anydpi-v26/           # Adaptive icon definitions
-│   │           ├── values/                      # strings.xml, colors.xml, themes.xml
-│   │           └── xml/
-│   │               └── file_pa
+│   ├── build.gradle.kts
+│   ├── proguard-rules.pro
+│   └── src/main/
+│       ├── AndroidManifest.xml
+│       └── java/com/bluebird/
+│           ├── BluebirdApplication.kt
+│           ├── DesktopModeHelper.kt
+│           ├── LauncherApplication.kt
+│           ├── LauncherViewModel.kt          # Core logic (~92KB) — all state & business logic
+│           ├── MainActivity.kt               # Entry point, OOBE routing, immersive mode
+│           │
+│           ├── browser/
+│           │   ├── data/
+│           │   │   └── BrowserRepository.kt
+│           │   ├── ui/
+│           │   │   ├── BrowserScreen.kt
+│           │   │   ├── NewTabPage.kt
+│           │   │   ├── components/
+│           │   │   │   ├── Dialogs.kt
+│           │   │   │   └── NavigationComponents.kt
+│           │   │   ├── keyboard/
+│           │   │   │   └── FloatingKeyboard.kt
+│           │   │   ├── model/
+│           │   │   │   └── Models.kt
+│           │   │   ├── panels/
+│           │   │   │   └── Panels.kt
+│           │   │   └── webview/
+│           │   │       └── BrowserWebView.kt
+│           │   └── utils/
+│           │       ├── AdBlocker.kt
+│           │       ├── DownloadHelper.kt
+│           │       ├── UrlUtils.kt
+│           │       └── UserAgents.kt
+│           │
+│           ├── data/
+│           │   ├── BootReceiver.kt           # Auto-launch on device boot
+│           │   └── NotificationListener.kt   # NotificationListenerService
+│           │
+│           ├── editor/
+│           │   ├── core/
+│           │   │   ├── EditorModels.kt
+│           │   │   └── PremiumEditorState.kt
+│           │   ├── editor/actions/
+│           │   │   └── TextActions.kt
+│           │   ├── highlighting/
+│           │   │   └── SyntaxEngine.kt       # Syntax/code highlighting engine
+│           │   ├── ui/
+│           │   │   ├── components/
+│           │   │   │   └── EditorComponents.kt
+│           │   │   ├── screens/
+│           │   │   │   └── PremiumTextEditorScreen.kt
+│           │   │   └── theme/
+│           │   │       └── EditorThemes.kt
+│           │   └── utils/
+│           │       └── EditorPreferences.kt
+│           │
+│           ├── ui/
+│           │   ├── components/
+│           │   │   ├── ActionCenter.kt       # Notification panel + quick tiles
+│           │   │   ├── CommonComponents.kt   # AcrylicSurface, AppIconSmall, shared UI
+│           │   │   ├── Desktop.kt            # Wallpaper, icons, context menu (~104KB)
+│           │   │   ├── DesktopPreferences.kt
+│           │   │   ├── DesktopWallpaperState.kt
+│           │   │   ├── SearchOverlay.kt      # Global search overlay
+│           │   │   ├── StartMenu.kt          # Start menu, app grid, power menu (~98.6KB)
+│           │   │   ├── Taskbar.kt            # Bluebird taskbar, tray, clock (~75.3KB)
+│           │   │   ├── WidgetsPanel.kt       # Widgets slide-in panel
+│           │   │   └── WindowManager.kt      # Floating window container & routing
+│           │   ├── screens/
+│           │   │   ├── AppScreens.kt         # Calculator, Calendar, Photos, TaskManager
+│           │   │   ├── BrowserScreen.kt      # WebView browser (legacy screen)
+│           │   │   ├── DesktopScreen.kt      # Root desktop compositor
+│           │   │   ├── FileExplorerScreen.kt # Real file manager
+│           │   │   ├── ImageViewerScreen.kt  # Full-screen image viewer
+│           │   │   ├── Launcherupdatesettings.kt # In-app update settings
+│           │   │   ├── LockScreenActivity.kt # System lock screen activity
+│           │   │   ├── MediaPlayerScreen.kt  # Audio/video player
+│           │   │   ├── MessagesScreen.kt     # SMS reader/sender
+│           │   │   ├── PhoneScreen.kt        # Dialer + contacts + call log
+│           │   │   ├── RecycleBinScreen.kt   # Recycle bin manager
+│           │   │   ├── SettingsScreen.kt     # Full settings (12 categories)
+│           │   │   ├── SetupScreen.kt        # First-launch OOBE wizard
+│           │   │   └── TextEditorScreen.kt   # In-launcher text/code editor
+│           │   └── theme/
+│           │       └── Theme.kt              # Win11Colors, dark/light Material3 themes
+│           │
+│           └── update/
+│               ├── UpdateManager.kt          # GitHub-based update checker & downloader
+│               ├── UpdateNotificationHelper.kt
+│               └── Updatemodels.kt
+│
+├── gradle/
+│   ├── libs.versions.toml                    # Version catalog (all dependencies)
+│   └── wrapper/
+│       └── gradle-wrapper.properties
+│
+├── build.gradle.kts                          # Project-level build config
+├── settings.gradle.kts                       # Module settings
+├── gradle.properties                         # Gradle JVM args
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── LICENSE
+├── SECURITY.md
+└── README.md
+```
+
+---
+
+## 🔐 Permissions
+
+Bluebird requests the following permissions, each explained:
+
+| Permission | Why it's needed | Required? |
+|-----------|-----------------|-----------|
+| `QUERY_ALL_PACKAGES` | List all installed apps in Start Menu | ✅ Yes |
+| `RECEIVE_BOOT_COMPLETED` | Auto-start as home screen after reboot | ✅ Yes |
+| `SET_WALLPAPER` / `SET_WALLPAPER_HINTS` | Apply custom wallpaper to system | ✅ Yes |
+| `READ_MEDIA_IMAGES/VIDEO/AUDIO` | Browse media files in File Explorer | ✅ Yes |
+| `READ_EXTERNAL_STORAGE` | Filesystem access (Android ≤ 12) | ✅ Yes |
+| `MANAGE_EXTERNAL_STORAGE` | Full filesystem access for File Explorer | ⚠️ Optional |
+| `READ_CONTACTS` | Show real contacts in Phone app | ⚠️ Optional |
+| `CALL_PHONE` | Dial calls from the Phone dialer | ⚠️ Optional |
+| `READ_CALL_LOG` | Show recent calls in Phone app | ⚠️ Optional |
+| `READ_SMS` / `SEND_SMS` / `RECEIVE_SMS` | Read and send messages | ⚠️ Optional |
+| `CAMERA` | Take profile picture during OOBE | ⚠️ Optional |
+| `POST_NOTIFICATIONS` | Show system notifications | ⚠️ Optional |
+| `BIND_NOTIFICATION_LISTENER_SERVICE` | Read live notifications via system service | ⚠️ Optional |
+| `INTERNET` / `ACCESS_NETWORK_STATE` | Browser app, network status, update checker | ⚠️ Optional |
+| `BLUETOOTH_CONNECT` / `BLUETOOTH_SCAN` | Bluetooth status in Quick Settings | ⚠️ Optional |
+| `WRITE_SETTINGS` | Adjust screen brightness | ⚠️ Optional |
+| `BATTERY_STATS` | Real battery level in status bar | ⚠️ Optional |
+
+> ⚠️ `MANAGE_EXTERNAL_STORAGE` requires manual grant in Android Settings on API 30+. The OOBE wizard guides the user through this.
+
+> ⚠️ **Notification Listener** must be manually granted in **Settings → Notifications → Notification Access**. The OOBE wizard opens this screen directly.
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Android Studio **Hedgehog (2023.1.1)** or newer
+- JDK **17** or newer
+- Android device or emulator running **Android 8.0+ (API 26+)**
+- Gradle **8.5.2**
+
+### Clone the Repository
+
+```bash
+git clone https://github.com/norbert-web/bluebird.git
+cd bluebird
+```
+
+### Open in Android Studio
+
+1. Open Android Studio
+2. Click **File → Open** and select the `Bluebird/` folder
+3. Wait for Gradle sync to complete
+4. Connect your device or start an emulator
+
+### Set as Default Launcher
+
+After installing, Android will prompt you to select a default launcher. Choose **Bluebird** and tap **Always**. If not prompted:
+
+1. Go to **Settings → Apps → Default Apps → Home App**
+2. Select **Bluebird**
+
+---
+
+## 🔨 Building from Source
+
+### Debug Build (for development)
+
+```bash
+./gradlew assembleDebug
+```
+
+Output: `app/build/outputs/apk/debug/app-debug.apk`
+
+### Release Build
+
+1. Create a keystore (first time only):
+
+```bash
+keytool -genkey -v -keystore bluebird-release.jks \
+  -keyalg RSA -keysize 2048 -validity 10000 \
+  -alias bluebird
+```
+
+2. Configure signing in `app/build.gradle.kts`:
+
+```kotlin
+android {
+    signingConfigs {
+        create("release") {
+            storeFile = file("../bluebird-release.jks")
+            storePassword = System.getenv("KEYSTORE_PASS")
+            keyAlias = "bluebird"
+            keyPassword = System.getenv("KEY_PASS")
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+}
+```
+
+3. Build:
+
+```bash
+KEYSTORE_PASS=yourpassword KEY_PASS=yourkeypass ./gradlew assembleRelease
+```
+
+Output: `app/build/outputs/apk/release/app-release.apk`
+
+### Install Directly to Device
+
+```bash
+# Debug
+./gradlew installDebug
+
+# Or use ADB manually
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Run Tests
+
+```bash
+./gradlew test          # Unit tests
+./gradlew connectedTest # Instrumented tests (requires device/emulator)
+```
+
+---
+
+## 📦 Download & Releases
+
+### Latest Release: v1.5.0
+
+**[⬇️ Download from GitHub Releases →](https://github.com/norbert-web/bluebird/releases/latest)**
+
+### Installing the APK
+
+1. Download the latest `bluebird-release.apk` from [GitHub Releases](https://github.com/norbert-web/bluebird/releases/latest)
+2. On your Android device, go to **Settings → Security → Install unknown apps**
+3. Enable **Allow from this source** for your browser or file manager
+4. Open the downloaded APK and tap **Install**
+5. When prompted to choose a launcher, select **Bluebird → Always**
+
+### Sideload via ADB
+
+```bash
+adb install bluebird-release.apk
+```
+
+---
+
+## ⚙️ Configuration
+
+Bluebird stores all user preferences in `SharedPreferences` under the key `launcher_prefs_v2`. There is no config file — everything is configured through the in-app **Settings** and **OOBE wizard**.
+
+### Resetting to defaults
+
+To fully reset Bluebird:
+
+```bash
+adb shell pm clear com.bluebird
+```
+
+Or: **Android Settings → Apps → Bluebird → Storage → Clear Data**
+
+### Changing the package name
+
+If you want to publish your own fork, change the package name in:
+
+1. `app/build.gradle.kts` → `namespace` and `applicationId`
+2. `app/src/main/AndroidManifest.xml` → `android:authorities` in the `FileProvider`
+3. Rename the Java package directory from `com/bluebird/` to your new package
+
+---
+
+## ⚠️ Known Limitations
+
+| Limitation | Reason | Workaround |
+|-----------|--------|-----------|
+| **Wi-Fi cannot be toggled programmatically** | Removed in Android 10 (API 29) by Google | Tapping Wi-Fi opens system Wi-Fi Settings |
+| **Bluetooth toggle** | Deprecated for third-party apps in Android 13 | Tapping opens system Bluetooth Settings |
+| **MANAGE_EXTERNAL_STORAGE** | Requires manual grant on Android 11+ | OOBE wizard provides a direct link |
+| **Notification Listener** | Requires manual grant in system settings | OOBE wizard opens the settings screen |
+| **File deletions are permanent** | Recycle Bin tracks metadata but `File.delete()` can't be reliably undone on all devices | Items appear in Recycle Bin with restore option |
+| **Screen brightness control** | Requires `WRITE_SETTINGS` which must be granted manually | Settings → Display → System permissions |
+| **Wallpaper on lock screen** | Android system lock screen is separate from the in-app lock screen | Use the in-app lock (Start → Power → Lock) for Bluebird's lock screen |
+
+---
+
+## 🗺️ Roadmap
+
+### Upcoming
+- [ ] Resizable floating windows (drag handles on edges/corners)
+- [ ] Remote Schools built-in learning app (Uganda curriculum P1–S6)
+- [ ] Taskbar auto-hide mode (hover to reveal)
+- [ ] Multiple virtual desktops
+- [ ] Window transparency controls
+
+### Future
+- [ ] Widget support (third-party app widgets on desktop)
+- [ ] Clipboard manager
+- [ ] Screen recording
+- [ ] Keyboard shortcuts (for physical keyboards)
+- [ ] Custom accent color picker (full color wheel)
+- [ ] Cloud sync for settings and shortcuts
+- [ ] Theming engine (custom themes beyond dark/light)
+
+---
+
+## 🤝 Contributing
+
+Contributions are warmly welcome! Here's how to get started:
+
+### Bug Reports
+
+Use the [GitHub Issues](https://github.com/norbert-web/bluebird/issues) tracker. Please include:
+
+- Android version and device model
+- Steps to reproduce
+- Expected vs actual behavior
+- Logcat output (filter by `com.bluebird`)
+
+### Pull Requests
+
+1. **Fork** the repository
+2. **Create a branch**: `git checkout -b feature/your-feature-name`
+3. **Make your changes** following the existing code style
+4. **Test** on a real device (emulators may not support all launcher features)
+5. **Commit** with a clear message: `git commit -m "feat: add window resize handles"`
+6. **Push** and open a Pull Request
+
+### Code Style
+
+- Follow [Kotlin coding conventions](https://kotlinlang.org/docs/coding-conventions.html)
+- Use Jetpack Compose best practices (hoisted state, stable parameters)
+- Keep Composables small and focused
+- Add `@Preview` annotations where useful
+- State mutations must go through `LauncherViewModel` — never mutate state directly in a composable
+
+### Branching Strategy
+
+| Branch | Purpose |
+|--------|---------|
+| `main` | Stable, released code |
+| `develop` | Integration branch for next release |
+| `feature/*` | New features |
+| `fix/*` | Bug fixes |
+| `release/*` | Release preparation |
+
+---
+
+## 📜 License
+
+```
+MIT License
+
+Copyright (c) 2025 Bluebird Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+---
+
+## 🙏 Credits
+
+### Libraries Used
+
+| Library | License | Purpose |
+|---------|---------|---------|
+| [Jetpack Compose](https://developer.android.com/jetpack/compose) | Apache 2.0 | UI framework |
+| [Coil](https://coil-kt.github.io/coil/) | Apache 2.0 | Image loading |
+| [Gson](https://github.com/google/gson) | Apache 2.0 | JSON serialization |
+| [Accompanist](https://google.github.io/accompanist/) | Apache 2.0 | System UI, permissions, painter |
+| [Material Icons Extended](https://fonts.google.com/icons) | Apache 2.0 | Icon set |
+| [AndroidX DataStore](https://developer.android.com/jetpack/androidx/releases/datastore) | Apache 2.0 | Preferences persistence |
+| [AndroidX SplashScreen](https://developer.android.com/develop/ui/views/launch/splash-screen) | Apache 2.0 | Splash screen API |
+
+### Design Inspiration
+
+- [Windows 11](https://www.microsoft.com/en-us/windows/windows-11) by Microsoft — for the UI design language, Fluent Design system, and Acrylic material
+
+### Contributors
+
+<a href="https://github.com/norbert-web/bluebird/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=norbert-web/bluebird" />
+</a>
+
+---
+
+## 📬 Contact
+
+- **GitHub Issues**: [github.com/norbert-web/bluebird/issues](https://github.com/norbert-web/bluebird/issues)
+- **Discussions**: [github.com/norbert-web/bluebird/discussions](https://github.com/norbert-web/bluebird/discussions)
+- **Email**: trebronwayne@gmail.com
+
+---
+
+<div align="center">
+
+Made with 🫡💪💗 and Kotlin · [⬆️ Back to top](#-bluebird)
+
+</div>
