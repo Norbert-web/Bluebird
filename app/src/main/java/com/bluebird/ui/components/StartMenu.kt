@@ -2127,8 +2127,9 @@ internal val builtInApps = listOf(
     Triple("Media Player", Icons.Default.PlayCircleOutline, LauncherScreen.MEDIA_PLAYER),
     Triple("Recycle Bin",  Icons.Default.Delete,            LauncherScreen.RECYCLE_BIN),
     Triple("Image Viewer", Icons.Default.Photo,             LauncherScreen.IMAGE_VIEWER),
-    Triple("Text Editor",  Icons.Default.TextFields,        LauncherScreen.PremiumTextEditorScreen),
+    Triple("Text Editor",  Icons.Default.TextFields,        LauncherScreen.PremiumTextEditorScreen  qwere),
 )
+
 
 private val powerOptions = listOf(
     Triple("Sleep",     Icons.Default.BedtimeOff,       PowerAction.SLEEP),

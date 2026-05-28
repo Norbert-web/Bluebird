@@ -17,6 +17,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -31,6 +32,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.bluebird.data.NotificationListener
 import com.bluebird.ui.screens.DesktopScreen
 import com.bluebird.ui.screens.SetupScreen
+import com.bluebird.ui.theme.LocalTextScale
 import com.bluebird.ui.theme.Win11Theme
 
 class MainActivity : ComponentActivity() {
@@ -96,19 +98,21 @@ class MainActivity : ComponentActivity() {
             // but works entirely within the app, no root or ADB needed.
             // ─────────────────────────────────────────────────────────────────────
             DesktopDensityOverride(context = context) {
-                Win11Theme(darkTheme = uiState.isDarkTheme) {
-                    Surface(modifier = Modifier.fillMaxSize()) {
-                        if (!uiState.hasCompletedSetup) {
-                            SetupScreen(
-                                viewModel = viewModel,
-                                onRequestNotificationAccess = {
-                                    startActivity(
-                                        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                                    )
-                                }
-                            )
-                        } else {
-                            DesktopScreen(viewModel = viewModel)
+                CompositionLocalProvider(LocalTextScale provides uiState.textScale) {
+                    Win11Theme(darkTheme = uiState.isDarkTheme) {
+                        Surface(modifier = Modifier.fillMaxSize()) {
+                            if (!uiState.hasCompletedSetup) {
+                                SetupScreen(
+                                    viewModel = viewModel,
+                                    onRequestNotificationAccess = {
+                                        startActivity(
+                                            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                        )
+                                    }
+                                )
+                            } else {
+                                DesktopScreen(viewModel = viewModel)
+                            }
                         }
                     }
                 }
