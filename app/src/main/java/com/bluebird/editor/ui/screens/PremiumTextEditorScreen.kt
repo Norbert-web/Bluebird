@@ -101,6 +101,7 @@ import java.io.File
 @Composable
 fun PremiumTextEditorScreen(
     isDark: Boolean,
+
     filePath: String = "",
     initialContent: String = "",
     savedSettings: EditorSettings = EditorSettings(),

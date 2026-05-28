@@ -81,7 +81,7 @@ import com.bluebird.ui.screens.PhotosScreen
 import com.bluebird.ui.screens.RecycleBinScreen
 import com.bluebird.ui.screens.SettingsScreen
 import com.bluebird.ui.screens.TaskManagerScreen
-import com.bluebird.ui.screens.TextEditorScreen
+import com.bluebird.editor.ui.screens.PremiumTextEditorScreen
 import com.bluebird.ui.theme.Win11Colors
 import com.win11launcher.ui.screens.BrowserScreen
 import kotlinx.coroutines.delay
@@ -128,7 +128,7 @@ enum class SnapLayout {
 // Icon helper
 // ─────────────────────────────────────────────────────────────────────────────
 private fun iconForKey(key: String): ImageVector = when (key) {
-    WindowIconKey.TEXTEDITORSCREEN -> Icons.Default.TextFields
+    WindowIconKey.PremiumTextEditorScreen -> Icons.Default.TextFields
     WindowIconKey.SETTINGS         -> Icons.Default.Settings
     WindowIconKey.FILE_EXPLORER    -> Icons.Default.Folder
     WindowIconKey.BROWSER          -> Icons.Default.Public
@@ -997,7 +997,7 @@ fun WindowContent(
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             val extras = windowState.extras
             when (windowState.screen) {
-                LauncherScreen.TextEditorScreen -> TextEditorScreen(isDark)
+                LauncherScreen.PremiumTextEditorScreen -> PremiumTextEditorScreen(isDark)
                 LauncherScreen.SETTINGS      -> SettingsScreen(isDark, viewModel)
                 LauncherScreen.FILE_EXPLORER -> FileExplorerScreen(isDark, viewModel)
                 LauncherScreen.BROWSER       -> BrowserScreen(isDark)

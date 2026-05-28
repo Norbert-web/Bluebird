@@ -69,7 +69,7 @@ enum class PowerAction { SLEEP, LOCK, RESTART, SHUTDOWN }
 enum class LauncherScreen {
     DESKTOP, SETTINGS, FILE_EXPLORER, BROWSER, TASK_MANAGER,
     CALCULATOR, CALENDAR, PHOTOS, MEDIA_PLAYER, IMAGE_VIEWER,
-    PHONE, MESSAGES, RECYCLE_BIN, TextEditorScreen
+    PHONE, MESSAGES, RECYCLE_BIN, PremiumTextEditorScreen
 }
 
 // Added: iconKey so the taskbar/title-bar can show the right icon without
@@ -97,7 +97,7 @@ object WindowIconKey {
     const val PHONE         = "phone"
     const val MESSAGES      = "chat"
     const val RECYCLE_BIN   = "delete"
-    const val TEXTEDITORSCREEN = ""
+    const val PremiumTextEditorScreen = ""
 }
 
 data class RealNotification(
@@ -127,6 +127,7 @@ data class WallpaperState(
 enum class AppTheme { SYSTEM, FOR_YOU, DARK, LIGHT, SPECIAL }
 
 data class LauncherUiState(
+
     val hasCompletedSetup: Boolean = false,
     val setupStep: Int = 0,
     val isTaskbarVisible: Boolean = true,
@@ -684,6 +685,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         else _uiState.value = _uiState.value.copy(setupStep = current + 1)
     }
 
+    fun decrementSetupStep() {
+        val current = _uiState.value.setupStep
+        if (current > 0) _uiState.value = _uiState.value.copy(setupStep = current - 1)
+    }
+
     fun setUserName(name: String) {
         _uiState.value = _uiState.value.copy(userProfile = _uiState.value.userProfile.copy(userName = name))
         saveAll() // FIX: original never persisted this
@@ -1164,7 +1170,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
 
         val title = when (screen) {
-            LauncherScreen.TextEditorScreen      -> "Text Editor"
+            LauncherScreen.PremiumTextEditorScreen      -> "Text Editor"
             LauncherScreen.SETTINGS      -> "Settings"
             LauncherScreen.FILE_EXPLORER -> "File Explorer"
             LauncherScreen.BROWSER       -> "Bluebird Surfer Browser"
@@ -1181,7 +1187,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
 
         val iconKey = when (screen) {
-            LauncherScreen.TextEditorScreen   -> WindowIconKey.TEXTEDITORSCREEN
+            LauncherScreen.PremiumTextEditorScreen   -> WindowIconKey.PremiumTextEditorScreen
             LauncherScreen.SETTINGS      -> WindowIconKey.SETTINGS
             LauncherScreen.FILE_EXPLORER -> WindowIconKey.FILE_EXPLORER
             LauncherScreen.BROWSER       -> WindowIconKey.BROWSER

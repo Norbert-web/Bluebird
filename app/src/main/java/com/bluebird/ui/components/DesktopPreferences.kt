@@ -63,6 +63,13 @@ class DesktopPreferences(context: Context) {
         get() = prefs.getBoolean("wallpaper_mode_ever_set", false)
         set(v) = prefs.edit().putBoolean("wallpaper_mode_ever_set", v).apply()
 
+    // ── First-launch shortcuts ─────────────────────────────────────
+    // True after default app shortcuts have been created on first launch.
+    // Prevents re-creating them on every app start.
+    var defaultShortcutsCreated: Boolean
+        get() = prefs.getBoolean("default_shortcuts_created", false)
+        set(v) = prefs.edit().putBoolean("default_shortcuts_created", v).apply()
+
     var wallpaperGradientIndex: Int
         get() = prefs.getInt("wallpaper_gradient_index", 0)
         set(v) = prefs.edit().putInt("wallpaper_gradient_index", v).apply()

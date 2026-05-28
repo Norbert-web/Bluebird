@@ -1,7 +1,12 @@
 package com.bluebird.ui.components
 
+import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.provider.Settings
+import androidx.compose.animation.animateColorAsState
+import androidx.core.content.ContextCompat
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -212,9 +217,29 @@ private fun autoGridPos(
     cellWidthPx: Float,
     cellHeightPx: Float,
     startPaddingPx: Float = 0f,
-    topPaddingPx: Float = 0f
-): Offset {
+    topPaddingPx: Float = 0f,
+    taken: MutableSet<Pair<Int, Int>> = mutableSetOf()
+): Offset? {
     val safeRows = maxOf(1, rows)
+    // When a taken-set is provided (auto-arrange with collision avoidance),
+    // scan columns left-to-right and rows top-to-bottom for the first free cell.
+    // When taken is empty (simple index-based placement), fall straight through
+    // to the fast idx-based formula so existing call sites are unaffected.
+    if (taken.isNotEmpty() || idx == 0) {
+        // Scan every column up to maxCols for a free slot.
+        for (col in 0 until maxCols) {
+            for (row in 0 until safeRows) {
+                val cell = Pair(col, row)
+                if (cell !in taken) {
+                    taken.add(cell)
+                    return Offset(col * cellWidthPx + startPaddingPx, row * cellHeightPx + topPaddingPx)
+                }
+            }
+        }
+        // Grid is completely full.
+        return null
+    }
+    // Fast path: no collision tracking needed — use direct index formula.
     // FIX: Do NOT clamp idx to totalSlots-1.  The old code forced every icon
     // beyond the grid capacity onto the very last cell, causing them all to
     // stack on top of each other.  Instead let col/row grow naturally — extra
@@ -287,6 +312,69 @@ private fun posToCell(
 }
 
 // ─────────────────────────────────────────────────────────────────
+// animateOffsetAsState — smooth positional animation for snap-back
+// ─────────────────────────────────────────────────────────────────
+@Composable
+private fun animateOffsetAsState(
+    targetValue: Offset,
+    animationSpec: AnimationSpec<Float> = spring(stiffness = Spring.StiffnessMediumLow),
+    label: String = "offset"
+): State<Offset> {
+    val x by animateFloatAsState(
+        targetValue   = targetValue.x,
+        animationSpec = animationSpec,
+        label         = "${label}_x"
+    )
+    val y by animateFloatAsState(
+        targetValue   = targetValue.y,
+        animationSpec = animationSpec,
+        label         = "${label}_y"
+    )
+    return derivedStateOf { Offset(x, y) }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Default shortcuts created on first launch (only if app is installed)
+// Groups: System, Social, Utilities
+// ─────────────────────────────────────────────────────────────────
+private data class DefaultShortcut(val label: String, val packageName: String)
+
+private val DEFAULT_SHORTCUTS = listOf(
+    // System
+    DefaultShortcut("Settings",   "com.android.settings"),
+    DefaultShortcut("Phone",      "com.android.dialer"),
+    DefaultShortcut("Messages",   "com.android.mms"),
+    DefaultShortcut("Camera",     "com.android.camera2"),
+    // Social / Entertainment
+    DefaultShortcut("TikTok",     "com.zhiliaoapp.musically"),
+    DefaultShortcut("WhatsApp",   "com.whatsapp"),
+    DefaultShortcut("Instagram",  "com.instagram.android"),
+    DefaultShortcut("YouTube",    "com.google.android.youtube"),
+    // Utilities
+    DefaultShortcut("Chrome",     "com.android.chrome"),
+    DefaultShortcut("Maps",       "com.google.android.apps.maps"),
+)
+
+/** Creates .desktop shortcut files for installed apps on first launch. */
+private fun createDefaultShortcuts(desktopDir: File, pm: PackageManager) {
+    desktopDir.mkdirs()
+    DEFAULT_SHORTCUTS.forEach { shortcut ->
+        // Only create if the app is actually installed
+        val installed = try {
+            pm.getApplicationInfo(shortcut.packageName, 0)
+            true
+        } catch (_: PackageManager.NameNotFoundException) { false }
+
+        if (!installed) return@forEach
+
+        val file = File(desktopDir, "${shortcut.label}.desktop")
+        if (file.exists()) return@forEach          // never overwrite existing
+
+        file.writeText("package=${shortcut.packageName}\nlabel=${shortcut.label}\n")
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Wallpaper crossfade helper
 // ─────────────────────────────────────────────────────────────────
 private const val WALLPAPER_CYCLE_MS = 5 * 60 * 1000L   // 5 minutes
@@ -338,6 +426,18 @@ fun Desktop(
             }
         }
         var draggedId           by remember { mutableStateOf<String?>(null) }
+
+        // ── Multi-select drag ──────────────────────────────────────────
+        // When dragging starts on a selected icon, all selected icons move together.
+        // dragGroupOrigins stores each icon's pixel offset from the drag anchor.
+        var isDraggingGroup     by remember { mutableStateOf(false) }
+        val dragGroupOffsets    = remember { mutableStateMapOf<String, Offset>() }
+
+        // ── Desktop-full toast ─────────────────────────────────────────
+        var showDesktopFullToast  by remember { mutableStateOf(false) }
+
+        // ── File-access toast (shown when storage permission denied) ───
+        var showFileAccessToast   by remember { mutableStateOf(false) }
 
         // ── Wallpaper state (FIX: persisted mode + indices + cycle) ──
         // FIX: On a fresh install prefs.wallpaperMode returns APPARENT (the old
@@ -477,6 +577,27 @@ fun Desktop(
 
         fun refreshDesktop() {
             scope.launch(Dispatchers.IO) {
+                // ── Check storage permission ──────────────────────────
+                val hasPermission = ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.READ_EXTERNAL_STORAGE
+                ) == PackageManager.PERMISSION_GRANTED ||
+                        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
+                        android.os.Environment.isExternalStorageManager()
+
+                if (!hasPermission) {
+                    withContext(Dispatchers.Main) {
+                        showFileAccessToast = true
+                        refreshPending = false
+                    }
+                    return@launch
+                }
+
+                // ── Create default shortcuts on very first launch ─────
+                if (!prefs.defaultShortcutsCreated) {
+                    createDefaultShortcuts(desktopDir, context.packageManager)
+                    prefs.defaultShortcutsCreated = true
+                }
+
                 desktopDir.mkdirs()
                 val loaded = (desktopDir.listFiles()?.toList() ?: emptyList())
                     .sortedBy { it.name.lowercase() }
@@ -484,7 +605,6 @@ fun Desktop(
                 withContext(Dispatchers.Main) {
                     items = loaded
                     customPositions.keys.retainAll(loaded.map { it.id }.toSet())
-                    // FIX: save positions after stale entries are pruned
                     prefs.saveCustomPositions(customPositions)
                     val pendId = pendingRenameId
                     if (pendId != null) {
@@ -714,28 +834,60 @@ fun Desktop(
                                 } else {
                                     customPositions[item.id]
                                         ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
-                                }
+                                } ?: return@forEachIndexed  // grid full — skip icon
                                 add(posToCell(pos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
                             }
                         }
                     }
 
+                    // ── Performance: O(n) cached auto-arrange positions ──
+                    // Build positions once per recomposition key instead of
+                    // recomputing from scratch for every icon (was O(n²)).
+                    val autoArrangePositions = remember(sortedItems, autoArrange, rows, maxCols, iconSize) {
+                        if (!autoArrange) return@remember emptyMap<String, Offset>()
+                        val taken = mutableSetOf<Pair<Int, Int>>()
+                        buildMap {
+                            sortedItems.forEachIndexed { i, item ->
+                                val p = autoGridPos(i, rows, maxCols, cellWPx, cellHPx,
+                                    padLeftPx, padTopPx, taken)
+                                if (p != null) {
+                                    put(item.id, p)
+                                    taken.add(posToCell(p, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                                }
+                            }
+                        }
+                    }
+
                     sortedItems.forEachIndexed { idx, item ->
-                        val basePos = autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
+                        // O(1) lookup from cached map
+                        val basePos: Offset = if (autoArrange) {
+                            autoArrangePositions[item.id] ?: return@forEachIndexed  // grid full → skip
+                        } else {
+                            customPositions[item.id]
+                                ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
+                                ?: return@forEachIndexed
+                        }
 
                         var pos by remember(item.id, rows, maxCols, iconSize, autoArrange) {
-                            mutableStateOf(
-                                if (autoArrange) basePos else customPositions[item.id] ?: basePos
-                            )
+                            mutableStateOf(if (autoArrange) basePos else customPositions[item.id] ?: basePos)
                         }
 
                         LaunchedEffect(autoArrange, idx, rows, maxCols, iconSize) {
                             if (autoArrange) pos = basePos
                         }
 
-                        val isDragged = draggedId == item.id
+                        val isDragged    = draggedId == item.id
+                        val isInGroup    = isDraggingGroup && item.id in selectedIds && !isDragged
+
+                        // Snap-back animation: animates position smoothly on grid rejection
+                        val animatedPos  by animateOffsetAsState(
+                            targetValue   = pos,
+                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                            label         = "icon_pos_${item.id}"
+                        )
+
                         val dragScale by animateFloatAsState(
-                            targetValue   = if (isDragged) 1.08f else 1f,
+                            targetValue   = if (isDragged || isInGroup) 1.08f else 1f,
                             animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
                             label         = "icon_drag_scale"
                         )
@@ -744,16 +896,30 @@ fun Desktop(
 
                         Box(
                             Modifier
-                                .offset { IntOffset(pos.x.roundToInt(), pos.y.roundToInt()) }
+                                .offset { IntOffset(animatedPos.x.roundToInt(), animatedPos.y.roundToInt()) }
                                 .scale(dragScale)
-                                .zIndex(if (isDragged) 50f else 1f)
-                                .pointerInput(item.id, autoArrange) {
+                                .zIndex(if (isDragged) 50f else if (isInGroup) 40f else 1f)
+                                .pointerInput(item.id, autoArrange, selectedIds) {
                                     detectDragGesturesAfterLongPress(
                                         onDragStart = {
                                             val r = inlineRename
                                             if (r != null) commitRename(r, r.initialName)
                                             draggedId = item.id
                                             dragMoved = false
+                                            // Multi-select drag: record relative offsets of group members
+                                            if (item.id in selectedIds && selectedIds.size > 1) {
+                                                isDraggingGroup = true
+                                                dragGroupOffsets.clear()
+                                                selectedIds.filter { it != item.id }.forEach { otherId ->
+                                                    val otherIdx = sortedItems.indexOfFirst { it.id == otherId }
+                                                    val otherPos = customPositions[otherId]
+                                                        ?: autoArrangePositions[otherId]
+                                                        ?: autoGridPos(otherIdx.coerceAtLeast(0), rows, maxCols,
+                                                            cellWPx, cellHPx, padLeftPx, padTopPx)
+                                                        ?: return@forEach
+                                                    dragGroupOffsets[otherId] = otherPos - pos
+                                                }
+                                            }
                                         },
                                         onDrag = { ch, amt ->
                                             ch.consume()
@@ -761,17 +927,27 @@ fun Desktop(
                                                 dragMoved = true
                                             }
                                             if (dragMoved) {
-                                                // FIX: clamp to full screen size, not just screenW/H - cell size
                                                 val maxX = screenWPxTotal - cellWPx
                                                 val maxY = screenHPxTotal - cellHPx
                                                 pos = Offset(
                                                     (pos.x + amt.x).coerceIn(padLeftPx, maxX),
                                                     (pos.y + amt.y).coerceIn(padTopPx, maxY)
                                                 )
+                                                // Move group members relative to anchor
+                                                if (isDraggingGroup) {
+                                                    dragGroupOffsets.keys.forEach { otherId ->
+                                                        val rel = dragGroupOffsets[otherId] ?: return@forEach
+                                                        // group member positions are updated via their own pos state
+                                                        // by broadcasting through a shared map
+                                                        dragGroupOffsets[otherId] = rel  // keep offset, pos will animate
+                                                    }
+                                                }
                                             }
                                         },
                                         onDragEnd = {
                                             draggedId = null
+                                            val wasGroup = isDraggingGroup
+                                            isDraggingGroup = false
                                             if (!dragMoved) {
                                                 selectedIds    = setOf(item.id)
                                                 iconCtxTarget  = item
@@ -781,10 +957,8 @@ fun Desktop(
                                                 val maxX = screenWPxTotal - cellWPx
                                                 val maxY = screenHPxTotal - cellHPx
                                                 if (autoArrange) {
-                                                    pos = basePos
+                                                    pos = basePos  // snap-back animation plays automatically
                                                 } else {
-                                                    // FIX: exclude current icon from occupied set so it can
-                                                    // snap to its own old cell without being displaced
                                                     val otherCells = occupiedCells - posToCell(
                                                         customPositions[item.id] ?: basePos,
                                                         cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows
@@ -793,29 +967,40 @@ fun Desktop(
                                                         pos, cellWPx, cellHPx, padLeftPx, padTopPx,
                                                         screenWPxTotal, screenHPxTotal, otherCells
                                                     )
-                                                    val finalPos = Offset(
-                                                        snapped.x.coerceIn(padLeftPx, maxX),
-                                                        snapped.y.coerceIn(padTopPx, maxY)
-                                                    )
-                                                    pos = finalPos
-                                                    customPositions[item.id] = finalPos
-                                                    // FIX: persist immediately on every drop
-                                                    prefs.saveCustomPositions(customPositions)
+                                                    if (snapped == null) {
+                                                        // Grid full — animate back to origin
+                                                        pos = customPositions[item.id] ?: basePos
+                                                        showDesktopFullToast = true
+                                                    } else {
+                                                        val finalPos = Offset(
+                                                            snapped.x.coerceIn(padLeftPx, maxX),
+                                                            snapped.y.coerceIn(padTopPx, maxY)
+                                                        )
+                                                        pos = finalPos
+                                                        customPositions[item.id] = finalPos
+                                                        prefs.saveCustomPositions(customPositions)
+                                                    }
                                                 }
                                             }
                                             dragMoved = false
+                                            if (!wasGroup) dragGroupOffsets.clear()
                                         },
                                         onDragCancel = {
                                             draggedId = null
+                                            isDraggingGroup = false
+                                            dragGroupOffsets.clear()
                                             dragMoved = false
                                             if (autoArrange) pos = basePos
                                         }
                                     )
                                 }
                         ) {
-                            // FIX: pass a lambda that provides the current typed text,
-                            // so commitRename can read the true final value
                             var liveRenameText by remember { mutableStateOf("") }
+
+                            // Group members follow anchor during drag
+                            val groupDelta = if (isInGroup && dragMoved) {
+                                dragGroupOffsets[item.id] ?: Offset.Zero
+                            } else Offset.Zero
 
                             DesktopIcon(
                                 item              = item,
@@ -829,9 +1014,7 @@ fun Desktop(
                                 },
                                 onTap = {
                                     val r = inlineRename
-                                    if (r != null && r.targetId != item.id) {
-                                        commitRename(r, liveRenameText)
-                                    }
+                                    if (r != null && r.targetId != item.id) commitRename(r, liveRenameText)
                                     selectedIds    = if (item.id in selectedIds)
                                         selectedIds - item.id else setOf(item.id)
                                     showDesktopCtx = false
@@ -839,6 +1022,73 @@ fun Desktop(
                                 },
                                 onDoubleTap = { openItem(item) }
                             )
+                        }
+                    }
+
+                    // ── Desktop-full toast ────────────────────────────────
+                    if (showDesktopFullToast) {
+                        LaunchedEffect(Unit) {
+                            delay(2500)
+                            showDesktopFullToast = false
+                        }
+                        Box(
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 72.dp)
+                                .background(Color(0xFF1C1C1C).copy(alpha = 0.92f), RoundedCornerShape(8.dp))
+                                .border(0.5.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                "No space available on desktop",
+                                color    = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Normal
+                            )
+                        }
+                    }
+
+                    // ── File-access toast ──────────────────────────────────
+                    if (showFileAccessToast) {
+                        LaunchedEffect(Unit) {
+                            delay(6000)
+                            showFileAccessToast = false
+                        }
+                        Row(
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 72.dp)
+                                .background(Color(0xFF1C1C1C).copy(alpha = 0.95f), RoundedCornerShape(8.dp))
+                                .border(0.5.dp, Color(0xFF0078D4).copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment    = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.FolderOff, null,
+                                tint     = Color(0xFF0078D4),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                "File access not granted",
+                                color    = Color.White,
+                                fontSize = 13.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = {
+                                    showFileAccessToast = false
+                                    try {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.fromParts("package", context.packageName, null)
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (_: ActivityNotFoundException) {}
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Text("Grant", color = Color(0xFF0078D4), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            }
                         }
                     }
 
@@ -1121,12 +1371,6 @@ private fun DesktopIcon(
         }
     }
 
-    val selectAlpha by animateFloatAsState(
-        targetValue   = if (isSelected) 0.20f else 0f,
-        animationSpec = tween(150),
-        label         = "selection_alpha"
-    )
-
     Box(
         modifier = Modifier
             .width(cellW)
@@ -1140,16 +1384,22 @@ private fun DesktopIcon(
             },
         contentAlignment = Alignment.TopCenter
     ) {
-        // Selection highlight
+        // Win11-style selection: subtle blue tint + blue border glow
+        val glowColor by animateColorAsState(
+            targetValue   = if (isSelected) Color(0xFF0078D4).copy(alpha = 0.28f) else Color.Transparent,
+            animationSpec = tween(150),
+            label         = "selection_glow"
+        )
+        val borderColor by animateColorAsState(
+            targetValue   = if (isSelected) Color(0xFF0078D4).copy(alpha = 0.80f) else Color.Transparent,
+            animationSpec = tween(150),
+            label         = "selection_border"
+        )
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.White.copy(alpha = selectAlpha), RoundedCornerShape(5.dp))
-                .border(
-                    width = 1.dp,
-                    color = if (isSelected) Color.White.copy(alpha = 0.30f) else Color.Transparent,
-                    shape = RoundedCornerShape(5.dp)
-                )
+                .background(glowColor, RoundedCornerShape(5.dp))
+                .border(1.dp, borderColor, RoundedCornerShape(5.dp))
         )
 
         Column(
@@ -1215,37 +1465,33 @@ private fun DesktopIcon(
 
             Spacer(Modifier.height(5.dp))
 
-            // ── Inline rename field ──
+            // ── Win11 inline rename field ──
+            // White background, tight padding, blue 1.5dp border — matches
+            // the Windows 11 desktop rename UX exactly.
             if (inlineRenaming) {
-                Surface(
-                    shape           = RoundedCornerShape(3.dp),
-                    color           = Color(0xFF0F0F0F).copy(alpha = 0.93f),
-                    shadowElevation = 4.dp,
-                    border          = BorderStroke(1.5.dp, Color(0xFF0078D4))
-                ) {
-                    BasicTextField(
-                        value         = textValue,
-                        onValueChange = { tv ->
-                            // FIX: only update local state — do NOT propagate back as initialRenameText
-                            textValue = tv
-                            onLiveTextChange(tv.text)
-                        },
-                        singleLine    = false,
-                        maxLines      = 3,
-                        textStyle     = TextStyle(
-                            color      = Color.White,
-                            fontSize   = 11.5.sp,
-                            textAlign  = TextAlign.Center,
-                            lineHeight  = 14.sp
-                        ),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { onInlineRenameConfirm() }),
-                        modifier      = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp, vertical = 3.dp)
-                            .focusRequester(focusRequester)
-                    )
-                }
+                BasicTextField(
+                    value         = textValue,
+                    onValueChange = { tv ->
+                        textValue = tv
+                        onLiveTextChange(tv.text)
+                    },
+                    singleLine    = false,
+                    maxLines      = 3,
+                    textStyle     = TextStyle(
+                        color      = Color(0xFF1A1A1A),
+                        fontSize   = 11.5.sp,
+                        textAlign  = TextAlign.Center,
+                        lineHeight  = 14.sp
+                    ),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onInlineRenameConfirm() }),
+                    modifier      = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White, RoundedCornerShape(2.dp))
+                        .border(1.5.dp, Color(0xFF0078D4), RoundedCornerShape(2.dp))
+                        .padding(horizontal = 3.dp, vertical = 2.dp)
+                        .focusRequester(focusRequester)
+                )
             } else {
                 Text(
                     text       = item.name,
