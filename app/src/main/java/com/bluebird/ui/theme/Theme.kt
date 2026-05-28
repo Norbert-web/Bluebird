@@ -2,7 +2,11 @@ package com.bluebird.ui.theme
 
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 
 object Win11Colors {
     val GlassLight = Color(0xFF0078D4)
@@ -82,15 +86,60 @@ private val LightColorScheme = lightColorScheme(
     onSurface = Win11Colors.TextPrimaryLight,
 )
 
+// ─── Scaled Typography ────────────────────────────────────────────────────────
+// Reads LocalTextScale and returns a full Typography where every style's
+// fontSize and lineHeight are multiplied by the scale factor.
+// Because Win11Theme wraps the entire app, every screen — browser, settings,
+// file manager, everything — automatically respects the user's text size choice
+// without any per-screen changes needed.
+
+private fun TextUnit.scale(factor: Float): TextUnit =
+    if (this == TextUnit.Unspecified) this else (this.value * factor).sp
+
+private fun TextStyle.scale(factor: Float): TextStyle = copy(
+    fontSize   = fontSize.scale(factor),
+    lineHeight = lineHeight.scale(factor)
+)
+
+@Composable
+private fun scaledTypography(scale: Float): Typography {
+    val base = Typography()
+    return remember(scale) {
+        Typography(
+            displayLarge   = base.displayLarge.scale(scale),
+            displayMedium  = base.displayMedium.scale(scale),
+            displaySmall   = base.displaySmall.scale(scale),
+            headlineLarge  = base.headlineLarge.scale(scale),
+            headlineMedium = base.headlineMedium.scale(scale),
+            headlineSmall  = base.headlineSmall.scale(scale),
+            titleLarge     = base.titleLarge.scale(scale),
+            titleMedium    = base.titleMedium.scale(scale),
+            titleSmall     = base.titleSmall.scale(scale),
+            bodyLarge      = base.bodyLarge.scale(scale),
+            bodyMedium     = base.bodyMedium.scale(scale),
+            bodySmall      = base.bodySmall.scale(scale),
+            labelLarge     = base.labelLarge.scale(scale),
+            labelMedium    = base.labelMedium.scale(scale),
+            labelSmall     = base.labelSmall.scale(scale),
+        )
+    }
+}
+
 @Composable
 fun Win11Theme(
     darkTheme: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    // LocalTextScale is provided by MainActivity's CompositionLocalProvider.
+    // Win11Theme reads it here so the scaled Typography flows into every
+    // Composable in the tree via MaterialTheme.typography.
+    val scale      = LocalTextScale.current
+    val typography = scaledTypography(scale)
+
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography(),
-        content = content
+        typography  = typography,
+        content     = content
     )
 }

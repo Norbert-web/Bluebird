@@ -20,8 +20,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow // Crucial import for .shadow() modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -31,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.bluebird.LauncherViewModel
 import com.bluebird.WallpaperTarget
+import com.bluebird.PowerAction // Imported enum type safely
 import com.bluebird.ui.components.*
 import com.bluebird.ui.components.wallpaperGradients
 import com.bluebird.ui.theme.Win11Colors
@@ -75,7 +78,7 @@ fun DesktopScreen(viewModel: LauncherViewModel) {
                 )
             }
     ) {
-        // ── 1. Desktop (updated call, no desktopItems/desktopShortcuts) ──
+        // ── 1. Desktop ──
         Desktop(
             wallpaper = uiState.wallpaper,
             viewModel = viewModel,
@@ -208,7 +211,7 @@ fun DesktopScreen(viewModel: LauncherViewModel) {
             Win11Taskbar(
                 uiState = uiState,
                 viewModel = viewModel,
-                modifier = Modifier.fillMaxWidth().height(44.dp)  // updated to 44dp from 48dp
+                modifier = Modifier.fillMaxWidth().height(44.dp)
             )
         }
 
@@ -223,6 +226,80 @@ fun DesktopScreen(viewModel: LauncherViewModel) {
                 onDismiss = { viewModel.closeWallpaperPicker() }
             )
         }
+    }
+}
+
+// ── 11. Custom Windows 11 Power Menu Layout ──
+@Composable
+fun PowerMenu(
+    isDark: Boolean,
+    onAction: (PowerAction) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val bgColor = if (isDark) Color(0xFF252B32) else Color(0xFFE8ECF0)
+    val borderColor = if (isDark) Color(0xFF373E47) else Color(0xFFCDD5DF)
+    val textColor = if (isDark) Color.White else Color.Black
+
+    Surface(
+        modifier = modifier
+            .width(140.dp)
+            .shadow(elevation = 12.dp, shape = RoundedCornerShape(8.dp)), // Resolved with explicit import
+        shape = RoundedCornerShape(8.dp),
+        color = bgColor,
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 4.dp)
+        ) {
+            PowerMenuItem(
+                label = "Sleep",
+                icon = Icons.Default.BedtimeOff,
+                textColor = textColor,
+                onClick = { onAction(PowerAction.SLEEP) }
+            )
+            PowerMenuItem(
+                label = "Shut down",
+                icon = Icons.Default.PowerSettingsNew,
+                textColor = textColor,
+                onClick = { onAction(PowerAction.SHUTDOWN) } // Corrected enum variable mapping name
+            )
+            PowerMenuItem(
+                label = "Restart",
+                icon = Icons.Default.RestartAlt,
+                textColor = textColor,
+                onClick = { onAction(PowerAction.RESTART) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun PowerMenuItem(
+    label: String,
+    icon: ImageVector,
+    textColor: Color,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = textColor.copy(alpha = 0.7f),
+            modifier = Modifier.size(16.dp)
+        )
+        Text(
+            text = label,
+            color = textColor,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Normal
+        )
     }
 }
 

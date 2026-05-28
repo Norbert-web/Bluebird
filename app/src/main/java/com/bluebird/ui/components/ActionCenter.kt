@@ -85,7 +85,7 @@ fun ActionCenter(
     LaunchedEffect(Unit) {
         scope.launch(Dispatchers.IO) {
             try {
-                val raw  = URL("https://raw.githubusercontent.com/YourUsername/YourRepo/main/notify.json")
+                val raw  = URL("https://raw.githubusercontent.com/Norbert-web/bluebird-releases/main/assets/bluebird/notify.json")
                     .readText(Charsets.UTF_8)
                 val root = JSONObject(raw)
                 val arr  = root.getJSONArray("notifications")

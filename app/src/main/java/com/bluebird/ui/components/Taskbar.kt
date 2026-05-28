@@ -320,7 +320,8 @@ fun Win11Taskbar(
                     .fillMaxWidth()
                     .height(4.dp)
                     .align(Alignment.BottomCenter)
-                    .background(Win11Colors.AccentBlue.copy(alpha = 0.6f))
+                  //  .background(Win11Colors.AccentBlue.copy(alpha = 0.6f))
+                    // I  think invisible peek strip will be much better LAMN-NOBERT
                     .pointerInput(Unit) { detectTapGestures(onTap = { isTaskbarHidden = false }) }
             )
         }
