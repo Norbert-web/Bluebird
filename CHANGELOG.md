@@ -11,11 +11,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 - Resizable floating windows with drag handles
-- Snap layouts (Windows 11–style window grouping)
 - Remote Schools learning app (Uganda curriculum P1–S6)
-- In-launcher text editor for `.txt` files
 - Taskbar auto-hide mode
 - Multiple virtual desktops
+
+---
+
+## [1.5.0] - 2026-05-27
+
+### Added
+- Advanced window management system with smoother interactions
+- Snap layout picker (Windows 11–style)
+- Scrollable desktop when the screen becomes full
+
+### Changed
+- Replaced macOS-style traffic light window controls with a more native experience
+- Modernized overall desktop interaction and appearance
+- Default wallpaper mode now automatically appears on first app launch
+
+### Fixed
+- Desktop mode handling for large numbers of desktop items
+
+### Better
+- More stable desktop environment
+- Smoother multitasking and dragging behavior
+- Improved first-launch appearance
+
+---
+
+## [1.4.0] - 2026-05-27
+
+### Fixed
+- App update system HTTPS 404 errors
+- Invisible desktop "dead zones" where icons could not be dragged
+- Icon movement limitations across certain screen areas
+- Icon overlapping when adding many icons to the desktop
+
+### Improved
+- Desktop stability and responsiveness
+- Drag-and-drop experience and icon placement handling
+- Update checking reliability and handling of GitHub-hosted update files
+- Overall UI consistency
+
+---
+
+## [1.3.0] - 2026-05-27
+
+### Added
+- Complete in-app update system — Bluebird can now check for and download updates directly from GitHub
+- Automatic update availability detection
+- Post notifications for update availability, download completion, and update status feedback
+- Expanded settings and app management options
+
+### Improved
+- Start menu polished for a more formal and professional appearance
+- Settings layout and interaction feedback
+- Background task handling and update checking process
+- Overall app stability
+
+---
+
+## [1.2.0] - 2026-05-27
+
+### Added
+- Brand-new Start Menu with a cleaner, more modern design
+- Syntax / code highlighting support in the text editor
+- Enhanced text editing capabilities
+
+### Improved
+- Overall app appearance and visual consistency
+- Navigation experience
+- Editor responsiveness and rendering performance
+- Smoother transitions and interactions
+
+### Fixed
+- Minor UI inconsistencies and stability issues
+
+---
+
+## [1.1.0] - 2026-05-27
+
+### Added
+- Multiple wallpaper modes (Default, 5 built-in wallpapers, Automatic cycling)
+
+### Improved
+- Stability and responsiveness across Android devices
+- Overall user experience and visual consistency
+
+### Fixed
+- App icons going off-screen on some devices
+- Minor UI rendering issues
 
 ---
 
@@ -175,6 +260,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/norbert-web/bluebird/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/norbert-web/bluebird/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/norbert-web/bluebird/releases/tag/v1.5.0
+[1.4.0]: https://github.com/norbert-web/bluebird/releases/tag/v1.4.0
+[1.3.0]: https://github.com/norbert-web/bluebird/releases/tag/v1.3.0
+[1.2.0]: https://github.com/norbert-web/bluebird/releases/tag/v1.2.0
+[1.1.0]: https://github.com/norbert-web/bluebird/releases/tag/v1.1.0
 [1.0.0]: https://github.com/norbert-web/bluebird/releases/tag/v1.0.0
 [0.9.0-beta]: https://github.com/norbert-web/bluebird/releases/tag/v0.9.0-beta
