@@ -535,6 +535,27 @@ fun Desktop(
         }
         val maxRows = remember(screenH, iconSize) { rows }
 
+        // FIX: Re-clamp all saved custom positions whenever screen dimensions change
+        // (e.g. on orientation flip).  Without this, icons whose saved pixel X/Y
+        // are larger than the new screen size stay off-screen after rotation.
+        LaunchedEffect(screenWPxTotal, screenHPxTotal) {
+            val maxX = screenWPxTotal - cellWPx
+            val maxY = screenHPxTotal - cellHPx
+            var changed = false
+            customPositions.keys.toList().forEach { id ->
+                val old = customPositions[id] ?: return@forEach
+                val clamped = Offset(
+                    old.x.coerceIn(padLeftPx, maxX),
+                    old.y.coerceIn(padTopPx, maxY)
+                )
+                if (clamped != old) {
+                    customPositions[id] = clamped
+                    changed = true
+                }
+            }
+            if (changed) prefs.saveCustomPositions(customPositions)
+        }
+
         // ── Debounced refresh ──
         var refreshPending by remember { mutableStateOf(false) }
 
@@ -868,11 +889,11 @@ fun Desktop(
                                 ?: return@forEachIndexed
                         }
 
-                        var pos by remember(item.id, rows, maxCols, iconSize, autoArrange) {
+                        var pos by remember(item.id, rows, maxCols, iconSize, autoArrange, screenWPxTotal, screenHPxTotal) {
                             mutableStateOf(if (autoArrange) basePos else customPositions[item.id] ?: basePos)
                         }
 
-                        LaunchedEffect(autoArrange, idx, rows, maxCols, iconSize) {
+                        LaunchedEffect(autoArrange, idx, rows, maxCols, iconSize, screenWPxTotal, screenHPxTotal) {
                             if (autoArrange) pos = basePos
                         }
 

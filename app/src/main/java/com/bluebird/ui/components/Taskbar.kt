@@ -320,7 +320,7 @@ fun Win11Taskbar(
                     .fillMaxWidth()
                     .height(4.dp)
                     .align(Alignment.BottomCenter)
-                  //  .background(Win11Colors.AccentBlue.copy(alpha = 0.6f))
+                    //  .background(Win11Colors.AccentBlue.copy(alpha = 0.6f))
                     // I  think invisible peek strip will be much better LAMN-NOBERT
                     .pointerInput(Unit) { detectTapGestures(onTap = { isTaskbarHidden = false }) }
             )
@@ -516,10 +516,23 @@ private fun ClassicTaskbarLayout(
             }
         }
 
+        // Calculate how wide the right-side tray is so the center cluster never overlaps it.
+        val trayEndPadding = 30.dp +  // Show Desktop button
+                26.dp +                   // Hidden icons chevron
+                (if (settings.showNetwork) 18.dp else 0.dp) +
+                (if (settings.showVolume)  18.dp else 0.dp) +
+                (if (settings.showBattery) 18.dp else 0.dp) +
+                (if (settings.showClock)   54.dp else 0.dp) +
+                12.dp                     // padding buffer
+
         TaskbarCenterCluster(
-            modifier = if (settings.centerIcons) Modifier.align(Alignment.Center)
-            else Modifier.align(Alignment.CenterStart)
-                .padding(start = if (settings.showWidgets) 42.dp else 6.dp),
+            modifier = if (settings.centerIcons)
+                Modifier.align(Alignment.Center).padding(end = trayEndPadding)
+            else
+                Modifier.align(Alignment.CenterStart).padding(
+                    start = if (settings.showWidgets) 42.dp else 6.dp,
+                    end   = trayEndPadding
+                ),
             uiState = uiState,
             viewModel = viewModel,
             settings = settings,
@@ -1493,7 +1506,7 @@ private fun TaskbarWindowIcon(
                         }
                     }
                 }
-                if (showLabel || windowState.title.length <= 12) {
+                if (showLabel) {
                     Text(text = windowState.title,
                         color = if (isActive) Color.White else Color.White.copy(alpha = 0.8f),
                         fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

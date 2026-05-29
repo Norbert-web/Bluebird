@@ -125,7 +125,7 @@ fun DesktopScreen(viewModel: LauncherViewModel) {
                     .padding(bottom = if (uiState.isTaskbarVisible) 48.dp else 0.dp)
                     .pointerInput(Unit) { detectTapGestures { /* consume */ } }
             ) {
-                WidgetsPanel(uiState = uiState)
+                WidgetsPanel(uiState = uiState, viewModel = viewModel)
             }
         }
 
