@@ -17,6 +17,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.0] - 2026-05-28
+
+### Added
+- Official Bluebird Software Team notification system
+- New media player features and expanded functionality
+- Improved start menu capabilities and interactions
+- Text scaling system for better accessibility
+
+### Changed
+- Removed taskbar peek strips
+- Redesigned parts of the start menu with improved layouts and visuals
+- Polished action center interface for cleaner appearance
+
+### Fixed
+- Start menu duplicate entries and bugs
+- Multiple media player playback issues
+- Improved reliability of desktop interactions
+- Resolved minor UI inconsistencies
+- Setup screen now properly saves before closing
+
+### Improved
+- Action bar design for more professional appearance
+- Overall interface consistency and polish
+- Media player stability and responsiveness
+- App responsiveness and multitasking behavior
+- Setup screen to meet App Store requirements
+
+---
+
 ## [1.5.0] - 2026-05-27
 
 ### Added
@@ -32,30 +61,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Desktop mode handling for large numbers of desktop items
 
-### Better
+### Improved
 - More stable desktop environment
 - Smoother multitasking and dragging behavior
 - Improved first-launch appearance
+- Window responsiveness and layout handling under heavy usage
 
 ---
 
-## [1.4.0] - 2026-05-27
+## [1.4.0] - 2026-05-26
 
 ### Fixed
 - App update system HTTPS 404 errors
 - Invisible desktop "dead zones" where icons could not be dragged
 - Icon movement limitations across certain screen areas
 - Icon overlapping when adding many icons to the desktop
+- Corrected desktop pixel dimension calculations in BoxWithConstraints
 
 ### Improved
 - Desktop stability and responsiveness
 - Drag-and-drop experience and icon placement handling
 - Update checking reliability and handling of GitHub-hosted update files
 - Overall UI consistency
+- Default wallpaper on first install
 
 ---
 
-## [1.3.0] - 2026-05-27
+## [1.3.0] - 2026-05-24
 
 ### Added
 - Complete in-app update system — Bluebird can now check for and download updates directly from GitHub
@@ -71,25 +103,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.2.0] - 2026-05-27
+## [1.2.0] - 2026-05-24
 
 ### Added
 - Brand-new Start Menu with a cleaner, more modern design
 - Syntax / code highlighting support in the text editor
 - Enhanced text editing capabilities
+- Multi-tab text editor support
+- Undo/redo history with debounce functionality
+- Auto-save feature for text files
 
 ### Improved
 - Overall app appearance and visual consistency
 - Navigation experience
 - Editor responsiveness and rendering performance
 - Smoother transitions and interactions
+- Wallpaper storage efficiency (converted PNG assets to WebP format)
 
 ### Fixed
 - Minor UI inconsistencies and stability issues
+- Text editor scrollbar thumb calculation mismatch
+- Undo/redo menu items now functional (were previously stubs)
 
 ---
 
-## [1.1.0] - 2026-05-27
+## [1.1.0] - 2026-05-24
 
 ### Added
 - Multiple wallpaper modes (Default, 5 built-in wallpapers, Automatic cycling)
@@ -104,7 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.0.0] - 2025-05-10
+## [1.0.0] - 2026-05-23
 
 ### 🎉 Initial Release
 
@@ -242,7 +280,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.9.0-beta] - 2025-04-15
+## [0.9.0-beta] - 2026-04-15
 
 ### Added
 - Initial beta with basic desktop, taskbar, and Start Menu
@@ -260,11 +298,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/norbert-web/bluebird/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/norbert-web/bluebird/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/norbert-web/bluebird/releases/tag/v1.6
 [1.5.0]: https://github.com/norbert-web/bluebird/releases/tag/v1.5.0
 [1.4.0]: https://github.com/norbert-web/bluebird/releases/tag/v1.4.0
 [1.3.0]: https://github.com/norbert-web/bluebird/releases/tag/v1.3.0
 [1.2.0]: https://github.com/norbert-web/bluebird/releases/tag/v1.2.0
-[1.1.0]: https://github.com/norbert-web/bluebird/releases/tag/v1.1.0
+[1.1.0]: https://github.com/norbert-web/bluebird/releases/tag/V1.1
 [1.0.0]: https://github.com/norbert-web/bluebird/releases/tag/v1.0.0
 [0.9.0-beta]: https://github.com/norbert-web/bluebird/releases/tag/v0.9.0-beta

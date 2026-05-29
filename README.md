@@ -9,16 +9,16 @@
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2024.08-4285F4?style=flat-square&logo=jetpackcompose)](https://developer.android.com/jetpack/compose)
 [![API](https://img.shields.io/badge/Min%20API-26%20(Android%208.0)-orange?style=flat-square)](https://developer.android.com/studio/releases/platforms)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v1.5.0-success?style=flat-square)](https://github.com/norbert-web/bluebird/releases)
+[![Release](https://img.shields.io/badge/Release-v1.6.0-success?style=flat-square)](https://github.com/norbert-web/bluebird/releases)
 [![Build](https://img.shields.io/badge/Build-Passing-brightgreen?style=flat-square)](https://github.com/norbert-web/bluebird/actions)
 
 <br/>
 
-> **Bluebird** is an open-source Android home screen replacement that recreates the Windows 11 desktop environment pixel-perfectly — complete with a floating windowed app system, real file explorer, live notifications, media player, phone dialer, SMS messaging, wallpaper engine, and a full first-launch setup experience.
+> **Bluebird** is an open-source Android home screen replacement that recreates the Windows 11 desktop environment pixel-perfectly — complete with a floating windowed app system, real file explorer, and live notifications.
 
 <br/>
 
-**[📦 Download APK](#-download--releases) · [📸 Screenshots](#-screenshots) · [✨ Features](#-features) · [🏗️ Architecture](#-architecture) · [🚀 Getting Started](#-getting-started) · [🤝 Contributing](#-contributing)**
+**[📦 Download APK](#-download--releases) · [📸 Screenshots](#-screenshots) · [✨ Features](#-features) · [🏗️ Architecture](#-architecture) · [🚀 Getting Started](#-getting-started)**
 
 </div>
 
@@ -48,7 +48,7 @@
 
 ## 🔭 Overview
 
-**Bluebird** transforms your Android device into a Windows 11 desktop. It is a fully functional **home screen launcher** — set it as your default launcher and your phone becomes a PC-style productivity environment, complete with:
+**Bluebird** transforms your Android device into a Windows 11 desktop. It is a fully functional **home screen launcher** — set it as your default launcher and your phone becomes a PC-style productivity device.
 
 - A **floating windowed app system** where every app opens in a draggable, resizable window
 - A **real Windows 11 taskbar** with clock, pinned apps, system tray, and Action Center
@@ -295,36 +295,36 @@ Bluebird uses a single-ViewModel, unidirectional data flow architecture:
 │                             │  └──────────────────────┘   │ │
 │                             └─────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
-                              │
-                   ┌──────────▼──────────┐
-                   │  LauncherViewModel   │
-                   │                      │
-                   │  LauncherUiState     │
-                   │  ┌─────────────────┐ │
-                   │  │ wallpaper       │ │
-                   │  │ userProfile     │ │
-                   │  │ installedApps   │ │
-                   │  │ pinnedApps      │ │
-                   │  │ openWindows     │ │
-                   │  │ notifications   │ │
-                   │  │ desktopShortcuts│ │
-                   │  │ recycleBinItems │ │
-                   │  │ overlayStates   │ │
-                   │  └─────────────────┘ │
-                   └──────────┬──────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              │               │               │
-    ┌─────────▼──────┐  ┌─────▼──────┐  ┌────▼────────┐
-    │  SharedPrefs   │  │ Android    │  │ System      │
-    │  (persistence) │  │ APIs       │  │ Services    │
-    │                │  │ File, SMS  │  │ Wallpaper   │
-    │  - wallpaper   │  │ Contacts   │  │ AudioManager│
-    │  - username    │  │ CallLog    │  │ Notification│
-    │  - pinned apps │  │ PackageMgr │  │ Listener    │
-    │  - shortcuts   │  │ MediaPlayer│  │ BatteryMgr  │
-    │  - recycle bin │  └────────────┘  └─────────────┘
-    └────────────────┘
+                               │
+                    ┌──────────▼──────────┐
+                    │  LauncherViewModel   │
+                    │                      │
+                    │  LauncherUiState     │
+                    │  ┌─────────────────┐ │
+                    │  │ wallpaper       │ │
+                    │  │ userProfile     │ │
+                    │  │ installedApps   │ │
+                    │  │ pinnedApps      │ │
+                    │  │ openWindows     │ │
+                    │  │ notifications   │ │
+                    │  │ desktopShortcuts│ │
+                    │  │ recycleBinItems │ │
+                    │  │ overlayStates   │ │
+                    │  └─────────────────┘ │
+                    └──────────┬──────────┘
+                               │
+               ┌───────────────┼───────────────┐
+               │               │               │
+     ┌─────────▼──────┐  ┌─────▼──────┐  ┌────▼────────┐
+     │  SharedPrefs   │  │ Android    │  │ System      │
+     │  (persistence) │  │ APIs       │  │ Services    │
+     │                │  │ File, SMS  │  │ Wallpaper   │
+     │  - wallpaper   │  │ Contacts   │  │ AudioManager│
+     │  - username    │  │ CallLog    │  │ Notification│
+     │  - pinned apps │  │ PackageMgr │  │ Listener    │
+     │  - shortcuts   │  │ MediaPlayer│  │ BatteryMgr  │
+     │  - recycle bin │  └────────────┘  └─────────────┘
+     └────────────────┘
 ```
 
 ### Data Flow
@@ -611,7 +611,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 📦 Download & Releases
 
-### Latest Release: v1.5.0
+### Latest Release: v1.6.0
 
 **[⬇️ Download from GitHub Releases →](https://github.com/norbert-web/bluebird/releases/latest)**
 
