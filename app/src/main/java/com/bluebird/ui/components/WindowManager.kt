@@ -70,6 +70,7 @@ import com.bluebird.LauncherScreen
 import com.bluebird.LauncherViewModel
 import com.bluebird.WindowIconKey
 import com.bluebird.WindowState
+import com.bluebird.editor.ui.screens.PremiumTextEditorScreen
 import com.bluebird.ui.screens.CalculatorScreen
 import com.bluebird.ui.screens.CalendarScreen
 import com.bluebird.ui.screens.FileExplorerScreen
@@ -81,10 +82,8 @@ import com.bluebird.ui.screens.PhotosScreen
 import com.bluebird.ui.screens.RecycleBinScreen
 import com.bluebird.ui.screens.SettingsScreen
 import com.bluebird.ui.screens.TaskManagerScreen
-import com.bluebird.editor.ui.screens.PremiumTextEditorScreen
 import com.bluebird.ui.theme.Win11Colors
 import com.win11launcher.ui.screens.BrowserScreen
-import kotlinx.coroutines.delay
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Window size constraints (dp)
@@ -1019,7 +1018,7 @@ fun WindowContent(
                 LauncherScreen.MESSAGES   -> MessagesScreen(isDark)
                 LauncherScreen.RECYCLE_BIN -> RecycleBinScreen(isDark, viewModel)
                 LauncherScreen.TERMINAL    -> TerminalScreen(isDark)
-                LauncherScreen.WEB_APP_VIEWER -> {
+                LauncherScreen.WEB_APP_MANAGER -> {
                     WebAppManagerScreen(
                         isDark      = isDark,
                         onLaunchApp = { app ->
@@ -1035,7 +1034,7 @@ fun WindowContent(
                         }
                     )
                 }
-                LauncherScreen.WEB_APP_MANAGER -> {
+                LauncherScreen.WEB_APP_VIEWER -> {
                     val app = remember(windowState.id) {
                         com.bluebird.ui.components.InstalledWebApp(
                             id          = extras["webAppId"] ?: "",

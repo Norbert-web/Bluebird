@@ -256,6 +256,7 @@ private val builtInApps = listOf(
     Triple("Terminal", Icons.Default.Terminal,             LauncherScreen.TERMINAL),
     Triple("Web App Manager",  Icons.Default.Language,        LauncherScreen.WEB_APP_MANAGER)
 
+
 )
 
 // ─────────────────────────────────────────────────────────
