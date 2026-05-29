@@ -225,7 +225,8 @@ private fun autoGridPos(
     // scan columns left-to-right and rows top-to-bottom for the first free cell.
     // When taken is empty (simple index-based placement), fall straight through
     // to the fast idx-based formula so existing call sites are unaffected.
-    if (taken.isNotEmpty() || idx == 0) {
+    // BUG 11 FIX: idx==0 special-case was redundant; fast path handles it correctly.
+    if (taken.isNotEmpty()) {
         // Scan every column up to maxCols for a free slot.
         for (col in 0 until maxCols) {
             for (row in 0 until safeRows) {
@@ -479,7 +480,7 @@ fun Desktop(
                         defaultImageIndex = (defaultImageIndex + 1) % DEFAULT_WALLPAPERS.size
                         prefs.wallpaperImageIndex = defaultImageIndex
                     }
-                    DesktopWallpaperMode.CUSTOM -> break  // no cycling for custom
+                    DesktopWallpaperMode.CUSTOM -> return@LaunchedEffect  // BUG 9 FIX: break exits `when`, not `while`; use return instead
                 }
             }
         }
@@ -520,20 +521,22 @@ fun Desktop(
         val gridPadLeft = 10f
         val gridPadTop  = 10f
 
-        val rows = remember(screenH, iconSize) {
-            ((screenH - gridPadTop * 2) / cellHeightDp(iconSize)).toInt().coerceAtLeast(1)
-        }
-
-        // FIX: maxCols derived from screen width so auto-layout never goes off-screen
+        // FIX (landscape): Use px totals from BoxWithConstraints as the remember keys so
+        // rows/maxCols recompute on every orientation change, not just when the dp
+        // config values happen to change.
         val cellWPx   = with(density) { cellWDp.dp.toPx() }
         val cellHPx   = with(density) { cellHDp.dp.toPx() }
         val padLeftPx = with(density) { gridPadLeft.dp.toPx() }
         val padTopPx  = with(density) { gridPadTop.dp.toPx() }
 
-        val maxCols = remember(screenW, iconSize) {
+        val rows = remember(screenHPxTotal, iconSize) {
+            ((screenHPxTotal - padTopPx * 2) / cellHPx).toInt().coerceAtLeast(1)
+        }
+
+        val maxCols = remember(screenWPxTotal, iconSize) {
             ((screenWPxTotal - padLeftPx) / cellWPx).toInt().coerceAtLeast(1)
         }
-        val maxRows = remember(screenH, iconSize) { rows }
+        val maxRows = remember(screenHPxTotal, iconSize) { rows }
 
         // FIX: Re-clamp all saved custom positions whenever screen dimensions change
         // (e.g. on orientation flip).  Without this, icons whose saved pixel X/Y
@@ -847,7 +850,8 @@ fun Desktop(
                 Box(Modifier.fillMaxSize()) {
 
                     // FIX: pre-compute the set of occupied grid cells for overlap detection
-                    val occupiedCells = remember(sortedItems, customPositions, autoArrange, rows, maxCols) {
+                    // Also key on screenWPxTotal/screenHPxTotal so this recomputes on rotation.
+                    val occupiedCells = remember(sortedItems, customPositions, autoArrange, rows, maxCols, screenWPxTotal, screenHPxTotal) {
                         buildSet {
                             sortedItems.forEachIndexed { idx, item ->
                                 val pos = if (autoArrange) {
@@ -864,7 +868,7 @@ fun Desktop(
                     // ── Performance: O(n) cached auto-arrange positions ──
                     // Build positions once per recomposition key instead of
                     // recomputing from scratch for every icon (was O(n²)).
-                    val autoArrangePositions = remember(sortedItems, autoArrange, rows, maxCols, iconSize) {
+                    val autoArrangePositions = remember(sortedItems, autoArrange, rows, maxCols, iconSize, screenWPxTotal, screenHPxTotal) {
                         if (!autoArrange) return@remember emptyMap<String, Offset>()
                         val taken = mutableSetOf<Pair<Int, Int>>()
                         buildMap {
@@ -899,6 +903,14 @@ fun Desktop(
 
                         val isDragged    = draggedId == item.id
                         val isInGroup    = isDraggingGroup && item.id in selectedIds && !isDragged
+
+                        // BUG 6 FIX: apply absolute positions broadcast by the drag anchor for group members
+                        LaunchedEffect(dragGroupOffsets[item.id], isInGroup) {
+                            if (isInGroup) {
+                                val target = dragGroupOffsets[item.id]
+                                if (target != null) pos = target
+                            }
+                        }
 
                         // Snap-back animation: animates position smoothly on grid rejection
                         val animatedPos  by animateOffsetAsState(
@@ -954,13 +966,20 @@ fun Desktop(
                                                     (pos.x + amt.x).coerceIn(padLeftPx, maxX),
                                                     (pos.y + amt.y).coerceIn(padTopPx, maxY)
                                                 )
-                                                // Move group members relative to anchor
+                                                // Broadcast current anchor position so group members can follow.
+                                                // On drag start, dragGroupOffsets held relative offsets (member - anchor).
+                                                // During drag we overwrite them with the current ABSOLUTE target
+                                                // position (anchorPos + rel) so each member's LaunchedEffect can
+                                                // apply it directly to its own pos state.
                                                 if (isDraggingGroup) {
-                                                    dragGroupOffsets.keys.forEach { otherId ->
-                                                        val rel = dragGroupOffsets[otherId] ?: return@forEach
-                                                        // group member positions are updated via their own pos state
-                                                        // by broadcasting through a shared map
-                                                        dragGroupOffsets[otherId] = rel  // keep offset, pos will animate
+                                                    val anchorPos = pos
+                                                    val relOffsets = dragGroupOffsets.toMap()
+                                                    relOffsets.forEach { (otherId, rel) ->
+                                                        val target = Offset(
+                                                            (anchorPos.x + rel.x).coerceIn(padLeftPx, screenWPxTotal - cellWPx),
+                                                            (anchorPos.y + rel.y).coerceIn(padTopPx, screenHPxTotal - cellHPx)
+                                                        )
+                                                        dragGroupOffsets[otherId] = target
                                                     }
                                                 }
                                             }
@@ -988,6 +1007,9 @@ fun Desktop(
                                                         pos, cellWPx, cellHPx, padLeftPx, padTopPx,
                                                         screenWPxTotal, screenHPxTotal, otherCells
                                                     )
+                                                    // snapToGrid always returns a valid Offset (has absolute fallback),
+                                                    // but we keep the guard for safety.
+                                                    @Suppress("SENSELESS_COMPARISON")
                                                     if (snapped == null) {
                                                         // Grid full — animate back to origin
                                                         pos = customPositions[item.id] ?: basePos
@@ -1789,9 +1811,12 @@ fun Win11DesktopContextMenu(
 
     var openSub by remember { mutableStateOf<String?>(null) }
 
+    val estMenuH = 360  // approximate height of desktop context menu
     val maxX = with(density) { (screenWidthDp - menuW - 6).dp.toPx() }
+    val maxY = with(density) { (screenHeightDp - estMenuH - 6).dp.toPx() }
     val xOff = offset.x.coerceIn(6f, maxX).roundToInt()
-    val yOff = offset.y.coerceAtLeast(6f).roundToInt()
+    // BUG 7 FIX: clamp y so menu never overflows the bottom edge
+    val yOff = offset.y.coerceIn(6f, maxY.coerceAtLeast(6f)).roundToInt()
 
     Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
         Surface(
@@ -2206,7 +2231,8 @@ fun AppPickerDialog(
             Text("Add App Shortcut", color = tc, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
         },
         text = {
-            Column(modifier = Modifier.fillMaxWidth().height(360.dp)) {
+            // BUG 10 FIX: fixed 360.dp height breaks LazyColumn weight; use fillMaxHeight fraction instead
+            Column(modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 360.dp)) {
                 OutlinedTextField(
                     value = searchQuery, onValueChange = { searchQuery = it },
                     placeholder = { Text("Search apps…") }, singleLine = true,
