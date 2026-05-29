@@ -469,13 +469,67 @@ private fun WeatherWidget(isDark: Boolean, context: Context, textScale: Float, r
     var loading     by remember { mutableStateOf(true) }
     var error       by remember { mutableStateOf(false) }
 
-    LaunchedEffect(refreshTick) {
+    // ── 1. Track whether we have location permission ──────────────────────────
+    var hasLocationPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+                    == PackageManager.PERMISSION_GRANTED ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION)
+                    == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    // ── 2. Permission launcher ────────────────────────────────────────────────
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        hasLocationPermission = results[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                results[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+    }
+
+    // ── 3. Ask for permission on first composition if not granted ─────────────
+    LaunchedEffect(Unit) {
+        if (!hasLocationPermission) {
+            permissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
+    // ── 4. Fetch weather once we have permission (or on refresh) ──────────────
+    LaunchedEffect(refreshTick, hasLocationPermission) {
+        if (!hasLocationPermission) { loading = false; return@LaunchedEffect }
+
         loading = true; error = false
+
+        // Resolve current lat/lon on IO thread
+        val location: Pair<Double, Double>? = withContext(Dispatchers.IO) {
+            try {
+                val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+                val provider = when {
+                    lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)     -> android.location.LocationManager.GPS_PROVIDER
+                    lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) -> android.location.LocationManager.NETWORK_PROVIDER
+                    else -> null
+                } ?: return@withContext null
+
+                @Suppress("MissingPermission")
+                val loc = lm.getLastKnownLocation(provider) ?: return@withContext null
+                Pair(loc.latitude, loc.longitude)
+            } catch (e: Exception) { null }
+        }
+
+        if (location == null) { error = true; loading = false; return@LaunchedEffect }
+
+        val (lat, lon) = location
+
         withContext(Dispatchers.IO) {
             try {
-                // OpenWeatherMap API key
-                // Replace the lat/lon or use "q=CityName" query param
-                val url  = "https://api.openweathermap.org/data/2.5/forecast?q=London&units=imperial&cnt=5&appid=YOUR_API_KEY"
+                val apiKey = "42b87f7284bf8558f040e20a112874b9"   // ← your key
+                val url  = "https://api.openweathermap.org/data/2.5/forecast" +
+                        "?lat=$lat&lon=$lon&units=imperial&cnt=5&appid=$apiKey"
                 val raw  = URL(url).readText()
                 val json = JSONObject(raw)
                 val city = json.getJSONObject("city").getString("name")
@@ -486,19 +540,19 @@ private fun WeatherWidget(isDark: Boolean, context: Context, textScale: Float, r
                 val low     = current.getJSONObject("main").getDouble("temp_min").toInt()
                 val cond    = current.getJSONArray("weather").getJSONObject(0).getString("main")
                 val forecast = (0 until minOf(5, list.length())).map { i ->
-                    val item   = list.getJSONObject(i)
-                    val dt     = item.getLong("dt") * 1000
-                    val day    = SimpleDateFormat("EEE", Locale.getDefault()).format(Date(dt))
-                    val ic     = item.getJSONArray("weather").getJSONObject(0).getString("main")
-                    val hi     = item.getJSONObject("main").getDouble("temp_max").toInt()
-                    val lo     = item.getJSONObject("main").getDouble("temp_min").toInt()
-                    val emoji  = when {
-                        ic.contains("Clear")  -> "☀️"
-                        ic.contains("Cloud")  -> "⛅"
-                        ic.contains("Rain")   -> "🌧"
-                        ic.contains("Snow")   -> "❄️"
+                    val item  = list.getJSONObject(i)
+                    val dt    = item.getLong("dt") * 1000
+                    val day   = SimpleDateFormat("EEE", Locale.getDefault()).format(Date(dt))
+                    val ic    = item.getJSONArray("weather").getJSONObject(0).getString("main")
+                    val hi    = item.getJSONObject("main").getDouble("temp_max").toInt()
+                    val lo    = item.getJSONObject("main").getDouble("temp_min").toInt()
+                    val emoji = when {
+                        ic.contains("Clear")   -> "☀️"
+                        ic.contains("Cloud")   -> "⛅"
+                        ic.contains("Rain")    -> "🌧"
+                        ic.contains("Snow")    -> "❄️"
                         ic.contains("Thunder") -> "⛈"
-                        else                  -> "🌤"
+                        else                   -> "🌤"
                     }
                     DayForecast(day, emoji, hi, lo)
                 }
@@ -512,6 +566,7 @@ private fun WeatherWidget(isDark: Boolean, context: Context, textScale: Float, r
         }
     }
 
+    // ── 5. UI — identical to before ──────────────────────────────────────────
     val gradientColors = when {
         weatherData?.condition?.contains("Clear") == true ||
                 weatherData?.condition?.contains("Sunny") == true ->
@@ -536,6 +591,18 @@ private fun WeatherWidget(isDark: Boolean, context: Context, textScale: Float, r
                 .padding(16.dp)
         ) {
             when {
+                !hasLocationPermission -> Box(
+                    Modifier.fillMaxWidth().height(80.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.LocationOff, null,
+                            tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.height(4.dp))
+                        Text("Location permission needed",
+                            color = Color.White.copy(alpha = 0.7f), fontSize = (11 * textScale).sp)
+                    }
+                }
                 loading -> Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
                 }
@@ -543,7 +610,7 @@ private fun WeatherWidget(isDark: Boolean, context: Context, textScale: Float, r
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.CloudOff, null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(28.dp))
                         Spacer(Modifier.height(4.dp))
-                        Text("No API key found", color = Color.White.copy(alpha = 0.7f), fontSize = (11 * textScale).sp)
+                        Text("Could not load weather", color = Color.White.copy(alpha = 0.7f), fontSize = (11 * textScale).sp)
                     }
                 }
                 weatherData != null -> {
@@ -584,7 +651,6 @@ private fun WeatherWidget(isDark: Boolean, context: Context, textScale: Float, r
         }
     }
 }
-
 // ─────────────────────────────────────────────────────────
 // 3. Now Playing Widget (MediaSession) — NEW
 // ─────────────────────────────────────────────────────────
