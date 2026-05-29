@@ -83,6 +83,7 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.ViewComfy
 import androidx.compose.material.icons.filled.VolumeUp
@@ -250,7 +251,11 @@ private val builtInApps = listOf(
     Triple("Media Player", Icons.Default.PlayCircleOutline, LauncherScreen.MEDIA_PLAYER),
     Triple("Recycle Bin",  Icons.Default.Delete,            LauncherScreen.RECYCLE_BIN),
     Triple("Image Viewer", Icons.Default.Photo,             LauncherScreen.IMAGE_VIEWER),
-    Triple("Text Editor",  Icons.Default.TextFields,        LauncherScreen.PremiumTextEditorScreen)
+    Triple("Text Editor",  Icons.Default.TextFields,        LauncherScreen.PremiumTextEditorScreen),
+
+    Triple("Terminal", Icons.Default.Terminal,             LauncherScreen.TERMINAL),
+    Triple("Web App Manager",  Icons.Default.Language,        LauncherScreen.WEB_APP_MANAGER)
+
 )
 
 // ─────────────────────────────────────────────────────────

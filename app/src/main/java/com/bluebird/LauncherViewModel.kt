@@ -69,7 +69,8 @@ enum class PowerAction { SLEEP, LOCK, RESTART, SHUTDOWN }
 enum class LauncherScreen {
     DESKTOP, SETTINGS, FILE_EXPLORER, BROWSER, TASK_MANAGER,
     CALCULATOR, CALENDAR, PHOTOS, MEDIA_PLAYER, IMAGE_VIEWER,
-    PHONE, MESSAGES, RECYCLE_BIN, PremiumTextEditorScreen
+    PHONE, MESSAGES, RECYCLE_BIN, PremiumTextEditorScreen,
+    TERMINAL, WEB_APP_MANAGER, WEB_APP_VIEWER
 }
 
 // Added: iconKey so the taskbar/title-bar can show the right icon without
@@ -98,6 +99,8 @@ object WindowIconKey {
     const val MESSAGES      = "chat"
     const val RECYCLE_BIN   = "delete"
     const val PremiumTextEditorScreen = ""
+    const val TERMINAL        = "terminal"
+    const val WEB_APP_MANAGER = "language"
 }
 
 data class RealNotification(
@@ -167,6 +170,8 @@ data class LauncherUiState(
     val wallpaperPickerTarget: WallpaperTarget = WallpaperTarget.HOME,
     val recentApps: List<AppInfo> = emptyList(),
     val recentFiles: List<String> = emptyList(),
+    val installedWebApps: List<com.bluebird.ui.components.InstalledWebApp> = emptyList(),
+
 
     // ── Extended Settings ──────────────────────────────────────────────────
     // Appearance / Theme
@@ -1170,6 +1175,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
 
         val title = when (screen) {
+
             LauncherScreen.PremiumTextEditorScreen      -> "Text Editor"
             LauncherScreen.SETTINGS      -> "Settings"
             LauncherScreen.FILE_EXPLORER -> "File Explorer"
@@ -1183,10 +1189,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             LauncherScreen.PHONE         -> "Phone"
             LauncherScreen.MESSAGES      -> "Messages"
             LauncherScreen.RECYCLE_BIN   -> "Recycle Bin"
+            LauncherScreen.TERMINAL        -> "Terminal"
+            LauncherScreen.WEB_APP_MANAGER -> "Web Apps"
+            LauncherScreen.WEB_APP_VIEWER -> "Web Apps Viewer"
+
             else                         -> "Window"
         }
 
         val iconKey = when (screen) {
+            LauncherScreen.WEB_APP_VIEWER -> WindowIconKey.WEB_APP_MANAGER
             LauncherScreen.PremiumTextEditorScreen   -> WindowIconKey.PremiumTextEditorScreen
             LauncherScreen.SETTINGS      -> WindowIconKey.SETTINGS
             LauncherScreen.FILE_EXPLORER -> WindowIconKey.FILE_EXPLORER
@@ -1200,6 +1211,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             LauncherScreen.PHONE         -> WindowIconKey.PHONE
             LauncherScreen.MESSAGES      -> WindowIconKey.MESSAGES
             LauncherScreen.RECYCLE_BIN   -> WindowIconKey.RECYCLE_BIN
+            LauncherScreen.TERMINAL        -> WindowIconKey.TERMINAL
+            LauncherScreen.WEB_APP_MANAGER -> WindowIconKey.WEB_APP_MANAGER
+
 
 
             else                         -> ""

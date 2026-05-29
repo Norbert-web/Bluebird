@@ -148,11 +148,13 @@ private fun iconForKey(key: String): ImageVector = when (key) {
 // Default window sizes per screen type
 // ─────────────────────────────────────────────────────────────────────────────
 private fun defaultSizeFor(screen: LauncherScreen): Pair<Float, Float> = when (screen) {
-    LauncherScreen.CALCULATOR -> 420f to 540f
-    LauncherScreen.PHONE      -> 420f to 600f
-    LauncherScreen.MESSAGES   -> 500f to 560f
-    LauncherScreen.CALENDAR   -> 560f to 480f
-    else                      -> 750f to 520f
+    LauncherScreen.CALCULATOR      -> 420f to 540f
+    LauncherScreen.PHONE           -> 420f to 600f
+    LauncherScreen.MESSAGES        -> 500f to 560f
+    LauncherScreen.CALENDAR        -> 560f to 480f
+    LauncherScreen.TERMINAL        -> 700f to 480f
+    LauncherScreen.WEB_APP_MANAGER -> 800f to 560f
+    else                           -> 750f to 520f
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1016,7 +1018,39 @@ fun WindowContent(
                 LauncherScreen.PHONE      -> PhoneScreen(isDark)
                 LauncherScreen.MESSAGES   -> MessagesScreen(isDark)
                 LauncherScreen.RECYCLE_BIN -> RecycleBinScreen(isDark, viewModel)
+                LauncherScreen.TERMINAL    -> TerminalScreen(isDark)
+                LauncherScreen.WEB_APP_VIEWER -> {
+                    WebAppManagerScreen(
+                        isDark      = isDark,
+                        onLaunchApp = { app ->
+                            // Open a dedicated viewer window for this web app
+                            viewModel.openWindow(
+                                screen = LauncherScreen.WEB_APP_VIEWER,
+                                extras = mapOf("webAppId" to app.id, "webAppName" to app.name,
+                                    "webAppUrl" to app.url, "webAppHtml" to app.htmlContent,
+                                    "webAppCustom" to app.isCustom.toString(),
+                                    "webAppEmoji" to app.iconEmoji,
+                                    "webAppAccent" to app.accentColor.toString())
+                            )
+                        }
+                    )
+                }
+                LauncherScreen.WEB_APP_MANAGER -> {
+                    val app = remember(windowState.id) {
+                        com.bluebird.ui.components.InstalledWebApp(
+                            id          = extras["webAppId"] ?: "",
+                            name        = extras["webAppName"] ?: "Web App",
+                            url         = extras["webAppUrl"] ?: "https://example.com",
+                            iconEmoji   = extras["webAppEmoji"] ?: "🌐",
+                            accentColor = extras["webAppAccent"]?.toLongOrNull() ?: 0xFF0078D4L,
+                            isCustom    = extras["webAppCustom"] == "true",
+                            htmlContent = extras["webAppHtml"] ?: ""
+                        )
+                    }
+                    WebAppViewerScreen(isDark = isDark, app = app)
+                }
                 else -> {}
+
             }
         }
     }
