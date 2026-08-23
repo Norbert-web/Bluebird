@@ -73,8 +73,7 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Message
-import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -85,6 +84,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.TextRotationAngledown
 import androidx.compose.material.icons.filled.ViewComfy
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Wifi
@@ -238,8 +238,8 @@ private val builtInApps = listOf(
     Triple("Settings", Icons.Default.Settings, LauncherScreen.SETTINGS),
     Triple("Calculator", Icons.Default.Calculate, LauncherScreen.CALCULATOR),
     Triple("Calendar", Icons.Default.CalendarMonth, LauncherScreen.CALENDAR),
-    Triple("Messages", Icons.Default.Message, LauncherScreen.MESSAGES),
-    Triple("Phone", Icons.Default.Phone, LauncherScreen.PHONE),
+    Triple("Bluebird Store", Icons.Default.NightsStay, LauncherScreen.BLUEBIRD_STORE),
+    Triple("Word Impress", Icons.Default.TextRotationAngledown, LauncherScreen.WORD_IMPRESS),
 
     Triple("Files",        Icons.Default.Folder,            LauncherScreen.FILE_EXPLORER),
     Triple("Browser",      Icons.Default.Language,          LauncherScreen.BROWSER),

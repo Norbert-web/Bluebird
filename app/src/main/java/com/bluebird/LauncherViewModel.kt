@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.media.AudioManager
 import android.net.Uri
@@ -79,7 +78,7 @@ enum class PowerAction { SLEEP, LOCK, RESTART, SHUTDOWN }
 enum class LauncherScreen {
     DESKTOP, SETTINGS, FILE_EXPLORER, BROWSER, TASK_MANAGER,
     CALCULATOR, CALENDAR, PHOTOS, MEDIA_PLAYER, IMAGE_VIEWER,
-    PHONE, MESSAGES, RECYCLE_BIN, PremiumTextEditorScreen,
+    WORD_IMPRESS, BLUEBIRD_STORE, RECYCLE_BIN, PremiumTextEditorScreen,
     TERMINAL, WEB_APP_MANAGER, WEB_APP_VIEWER, COPY_PROGRESS
 }
 
@@ -156,8 +155,8 @@ object WindowIconKey {
     const val TASK_MANAGER  = "monitor"
     const val MEDIA_PLAYER  = "music_note"
     const val IMAGE_VIEWER  = "image"
-    const val PHONE         = "phone"
-    const val MESSAGES      = "chat"
+    const val WORD_IMPRESS         = "phone"
+    const val BLUEBIRD_STORE      = "chat"
     const val RECYCLE_BIN   = "delete"
     const val PremiumTextEditorScreen = ""
     const val TERMINAL        = "terminal"
@@ -1500,8 +1499,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             LauncherScreen.PHOTOS        -> "Photos"
             LauncherScreen.MEDIA_PLAYER  -> "Media Player"
             LauncherScreen.IMAGE_VIEWER  -> extras["fileName"] ?: "Image Viewer"
-            LauncherScreen.PHONE         -> "Phone"
-            LauncherScreen.MESSAGES      -> "Messages"
+            LauncherScreen.WORD_IMPRESS         -> "Phone"
+            LauncherScreen.BLUEBIRD_STORE      -> "Messages"
             LauncherScreen.RECYCLE_BIN   -> "Recycle Bin"
             LauncherScreen.TERMINAL        -> "Terminal"
             LauncherScreen.WEB_APP_MANAGER -> "Web Apps"
@@ -1524,8 +1523,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             LauncherScreen.TASK_MANAGER  -> WindowIconKey.TASK_MANAGER
             LauncherScreen.MEDIA_PLAYER  -> WindowIconKey.MEDIA_PLAYER
             LauncherScreen.IMAGE_VIEWER  -> WindowIconKey.IMAGE_VIEWER
-            LauncherScreen.PHONE         -> WindowIconKey.PHONE
-            LauncherScreen.MESSAGES      -> WindowIconKey.MESSAGES
+            LauncherScreen.WORD_IMPRESS         -> WindowIconKey.WORD_IMPRESS
+            LauncherScreen.BLUEBIRD_STORE      -> WindowIconKey.BLUEBIRD_STORE
             LauncherScreen.RECYCLE_BIN   -> WindowIconKey.RECYCLE_BIN
             LauncherScreen.TERMINAL        -> WindowIconKey.TERMINAL
             LauncherScreen.WEB_APP_MANAGER -> WindowIconKey.WEB_APP_MANAGER

@@ -262,8 +262,8 @@ private fun iconForKey(key: String): ImageVector = when (key) {
     WindowIconKey.TASK_MANAGER  -> Icons.Default.Monitor
     WindowIconKey.MEDIA_PLAYER  -> Icons.Default.MusicNote
     WindowIconKey.IMAGE_VIEWER  -> Icons.Default.Image
-    WindowIconKey.PHONE         -> Icons.Default.Phone
-    WindowIconKey.MESSAGES      -> Icons.Default.Chat
+    WindowIconKey.WORD_IMPRESS         -> Icons.Default.Phone
+    WindowIconKey.BLUEBIRD_STORE      -> Icons.Default.Chat
     WindowIconKey.RECYCLE_BIN   -> Icons.Default.Delete
     WindowIconKey.WEB_APP       -> Icons.Default.Public
     WindowIconKey.COPY_PROGRESS -> Icons.Default.ContentCopy

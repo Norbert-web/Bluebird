@@ -483,7 +483,7 @@ private class PlayerState {
         controller?.sendCustomCommand(SessionCommand(action, android.os.Bundle.EMPTY), bundle)
     }
 
-    fun setEqPreset(preset: EqPreset) {
+    fun applyEqPreset(preset: EqPreset) {
         eqPreset = preset
         sendEffectCommand(PlaybackService.CMD_SET_EQ_PRESET, bundleOf(PlaybackService.ARG_VALUE to preset.gains))
     }
@@ -1435,7 +1435,7 @@ private fun AnimatedEqualizer(color: Color) {
                 initialValue = 4f, targetValue = 16f,
                 animationSpec = infiniteRepeatable(
                     animation = tween(400 + i * 120, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse
+                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
                 ), label = "bar$i"
             )
             Box(Modifier.width(3.dp).height(height.dp).background(color, RoundedCornerShape(1.dp)))
@@ -1643,7 +1643,7 @@ private fun SettingsSheet(
                     Box(
                         Modifier.clip(RoundedCornerShape(16.dp))
                             .background(if (active) FTV.Accent else (if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh))
-                            .clickable { state.setEqPreset(preset) }
+                            .clickable { state.applyEqPreset(preset) }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) { Text(preset.label, color = if (active) Color.White else tc, fontSize = 12.sp) }
                 }

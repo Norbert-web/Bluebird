@@ -146,8 +146,8 @@ private fun iconForKey(key: String): ImageVector = when (key) {
     WindowIconKey.TASK_MANAGER     -> Icons.Default.Monitor
     WindowIconKey.MEDIA_PLAYER     -> Icons.Default.MusicNote
     WindowIconKey.IMAGE_VIEWER     -> Icons.Default.Image
-    WindowIconKey.PHONE            -> Icons.Default.Phone
-    WindowIconKey.MESSAGES         -> Icons.Default.Chat
+    WindowIconKey.WORD_IMPRESS            -> Icons.Default.Phone
+    WindowIconKey.BLUEBIRD_STORE         -> Icons.Default.Chat
     WindowIconKey.RECYCLE_BIN      -> Icons.Default.Delete
     else                           -> Icons.Default.Window
 }
@@ -157,8 +157,8 @@ private fun iconForKey(key: String): ImageVector = when (key) {
 // ─────────────────────────────────────────────────────────────────────────────
 private fun defaultSizeFor(screen: LauncherScreen): Pair<Float, Float> = when (screen) {
     LauncherScreen.CALCULATOR      -> 420f to 540f
-    LauncherScreen.PHONE           -> 420f to 600f
-    LauncherScreen.MESSAGES        -> 500f to 560f
+    LauncherScreen.WORD_IMPRESS           -> 420f to 600f
+    LauncherScreen.BLUEBIRD_STORE        -> 500f to 560f
     LauncherScreen.CALENDAR        -> 560f to 480f
     LauncherScreen.TERMINAL        -> 700f to 480f
     LauncherScreen.WEB_APP_MANAGER -> 800f to 560f
@@ -1027,8 +1027,8 @@ fun WindowContent(
                     val filePath = remember(windowState.id) { extras["filePath"] ?: "" }
                     ImageViewerScreen(isDark, filePath, viewModel)
                 }
-                LauncherScreen.PHONE      -> PhoneScreen(isDark)
-                LauncherScreen.MESSAGES   -> MessagesScreen(isDark)
+                LauncherScreen.WORD_IMPRESS      -> PhoneScreen(isDark)
+                LauncherScreen.BLUEBIRD_STORE   -> MessagesScreen(isDark)
                 LauncherScreen.RECYCLE_BIN -> RecycleBinScreen(isDark, viewModel)
                 LauncherScreen.TERMINAL    -> TerminalScreen(isDark)
                 LauncherScreen.WEB_APP_MANAGER -> {

@@ -1153,18 +1153,23 @@ fun Desktop(
         //    desktop whenever the shared desktopRefreshTick advances (i.e. a real change
         //    was detected and re-scanned), skipping the very first load so opening the
         //    desktop doesn't flicker. Window is long enough to cover the slowest per-icon
-        //    stagger + fade-out + gap + fade-in in DesktopIcon's own animation. ──
+        //    stagger + fade-out + gap + fade-in in DesktopIcon's own animation.
+        //
+        //    Driven off vmUiState (already collected via collectAsStateWithLifecycle, so
+        //    it's real Compose snapshot state) rather than snapshotFlow-over-StateFlow.value
+        //    — snapshotFlow only re-fires on snapshot-state reads, and a raw StateFlow.value
+        //    read doesn't count, so that version only ever fired once for the whole screen's
+        //    lifetime instead of on every refresh. ──
         var refreshFlicker by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) {
-            var lastTick = -1
-            snapshotFlow { viewModel.uiState.value.desktopRefreshTick }.collect { tick ->
-                if (lastTick != -1 && tick != lastTick) {
-                    refreshFlicker = true
-                    delay(500)
-                    refreshFlicker = false
-                }
-                lastTick = tick
+        var lastRefreshTick by remember { mutableStateOf(-1) }
+        LaunchedEffect(vmUiState.desktopRefreshTick) {
+            val tick = vmUiState.desktopRefreshTick
+            if (lastRefreshTick != -1 && tick != lastRefreshTick) {
+                refreshFlicker = true
+                delay(500)
+                refreshFlicker = false
             }
+            lastRefreshTick = tick
         }
 
         val sortedItems = remember(items, sortMode, sortAscending) {
