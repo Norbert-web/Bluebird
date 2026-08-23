@@ -1,4 +1,5 @@
 package com.bluebird.ui.components
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import android.Manifest
 import android.content.ActivityNotFoundException
@@ -14,7 +15,6 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Environment
-import android.os.FileObserver
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -42,10 +42,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -85,6 +88,325 @@ val wallpaperGradients = listOf(
 )
 
 // ─────────────────────────────────────────────────────────────────
+// Background particle animation engine — Kotlin/Compose, single Canvas +
+// single frame ticker driving any mix of active BgAnimationType values at
+// once (mix mode is just multiple types sharing one particle pool). Sits
+// between the wallpaper and the desktop icons; forced off whenever a live
+// wallpaper is active (see BackgroundEffectsState's mutual-exclusion rule).
+// ─────────────────────────────────────────────────────────────────
+private data class BgParticle(
+    var x: Float, var y: Float,
+    var vx: Float, var vy: Float,
+    var size: Float,
+    var rotation: Float,
+    var rotSpeed: Float,
+    var phase: Float,
+    var swayAmp: Float,
+    var alpha: Float,
+    var glyph: String,
+    var color: Color,
+    val type: BgAnimationType,
+    var twinkleSpeed: Float = 1f
+)
+
+private val BG_PARTICLE_BASE_COUNT = mapOf(
+    BgAnimationType.SNOW to 50, BgAnimationType.BUBBLES to 20, BgAnimationType.STARS to 100,
+    BgAnimationType.RAIN to 100, BgAnimationType.HEARTS to 15, BgAnimationType.CONFETTI to 50,
+    BgAnimationType.FIREFLIES to 30, BgAnimationType.LEAVES to 25, BgAnimationType.MATRIX to 15,
+    BgAnimationType.SAKURA to 30
+)
+private val BG_SNOW_GLYPHS     = listOf("❄", "❅", "❆")
+private val BG_HEART_GLYPHS    = listOf("❤", "💕", "💖", "💗")
+private val BG_LEAF_GLYPHS     = listOf("🍂", "🍁", "🍃")
+private val BG_CONFETTI_COLORS = listOf(
+    Color(0xFFFF6B6B), Color(0xFF4ECDC4), Color(0xFF45B7D1), Color(0xFFF7B731),
+    Color(0xFF5F27CD), Color(0xFF00D2D3), Color(0xFFFF9FF3)
+)
+private const val BG_MATRIX_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#\$%^&*()_+-=[]{}|;:,.<>?/~`"
+
+private fun spawnBgParticle(type: BgAnimationType, w: Float, h: Float, rng: kotlin.random.Random): BgParticle {
+    val x = rng.nextFloat() * w
+    return when (type) {
+        BgAnimationType.SNOW -> BgParticle(
+            x, rng.nextFloat() * -h, 0f, rng.nextFloat() * 26f + 18f, rng.nextFloat() * 16f + 10f,
+            0f, 0f, rng.nextFloat() * 6.28f, rng.nextFloat() * 40f - 20f, 1f,
+            BG_SNOW_GLYPHS.random(rng), Color.White, type
+        )
+        BgAnimationType.BUBBLES -> BgParticle(
+            x, h + rng.nextFloat() * h, 0f, -(rng.nextFloat() * 30f + 24f), rng.nextFloat() * 40f + 20f,
+            0f, 0f, rng.nextFloat() * 6.28f, 0f, 0.45f,
+            "", Color(0xFF80D8FF), type
+        )
+        BgAnimationType.STARS -> BgParticle(
+            rng.nextFloat() * w, rng.nextFloat() * h, 0f, 0f, rng.nextFloat() * 3f + 1f,
+            0f, 0f, rng.nextFloat() * 6.28f, 0f, rng.nextFloat(),
+            "", Color.White, type, twinkleSpeed = rng.nextFloat() * 2f + 1f
+        )
+        BgAnimationType.RAIN -> BgParticle(
+            x, rng.nextFloat() * -h, -24f, rng.nextFloat() * 340f + 460f, rng.nextFloat() * 14f + 16f,
+            0f, 0f, 0f, 0f, 0.55f,
+            "", Color(0xFF80C8FF), type
+        )
+        BgAnimationType.HEARTS -> BgParticle(
+            x, h + rng.nextFloat() * h, 0f, -(rng.nextFloat() * 22f + 16f), rng.nextFloat() * 12f + 16f,
+            0f, 0f, rng.nextFloat() * 6.28f, rng.nextFloat() * 30f - 15f, 1f,
+            BG_HEART_GLYPHS.random(rng), Color.Unspecified, type
+        )
+        BgAnimationType.CONFETTI -> BgParticle(
+            x, rng.nextFloat() * -h, rng.nextFloat() * 40f - 20f, rng.nextFloat() * 70f + 70f, rng.nextFloat() * 7f + 5f,
+            rng.nextFloat() * 360f, rng.nextFloat() * 220f - 110f, 0f, 0f, 1f,
+            "", BG_CONFETTI_COLORS.random(rng), type
+        )
+        BgAnimationType.FIREFLIES -> BgParticle(
+            x, rng.nextFloat() * h * 0.8f + h * 0.1f, 0f, 0f, rng.nextFloat() * 3f + 2.5f,
+            0f, 0f, rng.nextFloat() * 6.28f, 0f, rng.nextFloat() * 0.6f + 0.3f,
+            "", Color(0xFFFFEB3B), type, twinkleSpeed = rng.nextFloat() * 1.5f + 0.5f
+        )
+        BgAnimationType.LEAVES -> BgParticle(
+            x, rng.nextFloat() * -h, 0f, rng.nextFloat() * 22f + 16f, rng.nextFloat() * 12f + 16f,
+            0f, rng.nextFloat() * 140f - 70f, rng.nextFloat() * 6.28f, rng.nextFloat() * 50f - 25f, 1f,
+            BG_LEAF_GLYPHS.random(rng), Color.Unspecified, type
+        )
+        BgAnimationType.MATRIX -> BgParticle(
+            x, rng.nextFloat() * -h, 0f, rng.nextFloat() * 170f + 170f, rng.nextFloat() * 8f + 15f,
+            0f, 0f, 0f, 0f, rng.nextFloat() * 0.5f + 0.5f,
+            BG_MATRIX_CHARS.random(rng).toString(), Color(0xFF00FF41), type
+        )
+        BgAnimationType.SAKURA -> BgParticle(
+            x, rng.nextFloat() * -h, 0f, rng.nextFloat() * 20f + 14f, rng.nextFloat() * 12f + 16f,
+            0f, rng.nextFloat() * 90f - 45f, rng.nextFloat() * 6.28f, rng.nextFloat() * 40f - 20f, 1f,
+            "🌸", Color.Unspecified, type
+        )
+    }
+}
+
+private fun stepBgParticle(p: BgParticle, dt: Float, w: Float, h: Float, rng: kotlin.random.Random) {
+    p.phase += dt
+    when (p.type) {
+        BgAnimationType.SNOW, BgAnimationType.HEARTS, BgAnimationType.LEAVES, BgAnimationType.SAKURA -> {
+            p.y += p.vy * dt
+            p.x += kotlin.math.sin(p.phase) * p.swayAmp * dt
+            p.rotation += p.rotSpeed * dt
+            if (p.y > h + 40f) { p.y = -30f; p.x = rng.nextFloat() * w }
+        }
+        BgAnimationType.RAIN, BgAnimationType.MATRIX -> {
+            p.y += p.vy * dt
+            p.x += p.vx * dt
+            if (p.y > h + 40f) { p.y = -30f; p.x = rng.nextFloat() * w }
+        }
+        BgAnimationType.BUBBLES -> {
+            p.y += p.vy * dt
+            p.x += kotlin.math.sin(p.phase * 0.7f) * 22f * dt
+            if (p.y < -60f) { p.y = h + 40f; p.x = rng.nextFloat() * w }
+        }
+        BgAnimationType.STARS -> {
+            p.alpha = 0.3f + 0.7f * ((kotlin.math.sin(p.phase * p.twinkleSpeed) + 1f) / 2f)
+        }
+        BgAnimationType.FIREFLIES -> {
+            p.x += kotlin.math.sin(p.phase * 0.6f) * 26f * dt
+            p.y += kotlin.math.cos(p.phase * 0.5f) * 26f * dt
+            p.alpha = 0.2f + 0.8f * ((kotlin.math.sin(p.phase * p.twinkleSpeed) + 1f) / 2f)
+        }
+        BgAnimationType.CONFETTI -> {
+            p.y += p.vy * dt
+            p.x += p.vx * dt
+            p.rotation += p.rotSpeed * dt
+            if (p.y > h + 40f) { p.y = -30f; p.x = rng.nextFloat() * w }
+        }
+    }
+}
+
+private fun drawBgParticle(scope: DrawScope, p: BgParticle, paint: android.graphics.Paint) {
+    val canvas = scope.drawContext.canvas.nativeCanvas
+    when (p.type) {
+        BgAnimationType.SNOW -> {
+            paint.textSize = p.size * scope.density
+            paint.color = android.graphics.Color.argb((p.alpha * 255).toInt(), 255, 255, 255)
+            canvas.drawText(p.glyph, p.x, p.y, paint)
+        }
+        BgAnimationType.HEARTS -> {
+            paint.textSize = p.size * scope.density
+            paint.color = android.graphics.Color.argb((p.alpha * 255).toInt(), 255, 90, 120)
+            canvas.drawText(p.glyph, p.x, p.y, paint)
+        }
+        BgAnimationType.LEAVES, BgAnimationType.SAKURA -> {
+            paint.textSize = p.size * scope.density
+            paint.alpha = (p.alpha * 255).toInt()
+            canvas.save(); canvas.rotate(p.rotation, p.x, p.y)
+            canvas.drawText(p.glyph, p.x, p.y, paint)
+            canvas.restore()
+        }
+        BgAnimationType.MATRIX -> {
+            paint.textSize = p.size * scope.density
+            paint.color = android.graphics.Color.argb((p.alpha * 255).toInt(), 0, 255, 65)
+            canvas.drawText(p.glyph, p.x, p.y, paint)
+        }
+        BgAnimationType.BUBBLES -> scope.drawCircle(
+            color = Color(0xFF80D8FF).copy(alpha = p.alpha * 0.5f),
+            radius = p.size / 2f, center = Offset(p.x, p.y),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
+        )
+        BgAnimationType.STARS -> scope.drawCircle(
+            color = Color.White.copy(alpha = p.alpha), radius = p.size / 2f, center = Offset(p.x, p.y)
+        )
+        BgAnimationType.RAIN -> scope.drawLine(
+            color = Color(0xFF80C8FF).copy(alpha = p.alpha),
+            start = Offset(p.x, p.y), end = Offset(p.x + p.vx * 0.05f, p.y + p.size),
+            strokeWidth = 1.5f
+        )
+        BgAnimationType.CONFETTI -> {
+            canvas.save(); canvas.rotate(p.rotation, p.x, p.y)
+            scope.drawRect(
+                color = p.color,
+                topLeft = Offset(p.x - p.size / 2f, p.y - p.size * 0.3f),
+                size = androidx.compose.ui.geometry.Size(p.size, p.size * 0.6f)
+            )
+            canvas.restore()
+        }
+        BgAnimationType.FIREFLIES -> scope.drawCircle(
+            color = Color(0xFFFFEB3B).copy(alpha = p.alpha), radius = p.size, center = Offset(p.x, p.y)
+        )
+    }
+}
+
+@Composable
+private fun BackgroundAnimationLayer(
+    activeTypes: Set<BgAnimationType>,
+    intensity: Int,
+    modifier: Modifier = Modifier
+) {
+    if (activeTypes.isEmpty()) return
+    val particles = remember { mutableListOf<BgParticle>() }
+    var sizeW by remember { mutableStateOf(0f) }
+    var sizeH by remember { mutableStateOf(0f) }
+    var tick by remember { mutableStateOf(0L) }
+    val rng = remember { kotlin.random.Random(System.nanoTime()) }
+    val paint = remember {
+        android.graphics.Paint().apply { isAntiAlias = true; textAlign = android.graphics.Paint.Align.CENTER }
+    }
+
+    LaunchedEffect(activeTypes, intensity, sizeW, sizeH) {
+        if (sizeW <= 0f || sizeH <= 0f) return@LaunchedEffect
+        particles.clear()
+        activeTypes.forEach { type ->
+            val base  = BG_PARTICLE_BASE_COUNT[type] ?: 30
+            val count = ((base * intensity) / 50f).toInt().coerceAtLeast(1)
+            repeat(count) { particles.add(spawnBgParticle(type, sizeW, sizeH, rng)) }
+        }
+    }
+
+    LaunchedEffect(activeTypes, intensity) {
+        var lastFrame = withFrameNanos { it }
+        while (true) {
+            val now = withFrameNanos { it }
+            val dt  = ((now - lastFrame) / 1_000_000_000f).coerceIn(0f, 0.05f)
+            lastFrame = now
+            if (sizeW > 0f && sizeH > 0f) {
+                particles.forEach { stepBgParticle(it, dt, sizeW, sizeH, rng) }
+            }
+            tick++
+        }
+    }
+
+    Canvas(
+        modifier = modifier.onGloballyPositioned { coords ->
+            sizeW = coords.size.width.toFloat()
+            sizeH = coords.size.height.toFloat()
+        }
+    ) {
+        @Suppress("UNUSED_EXPRESSION") tick  // read to invalidate this draw scope every frame
+        particles.forEach { p -> drawBgParticle(this, p, paint) }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Live wallpapers — 4 built-in continuously-animated backgrounds, entirely
+// procedural (no video/image assets). Mutually exclusive with the particle
+// animation layer above (see BackgroundEffectsState).
+// ─────────────────────────────────────────────────────────────────
+@Composable
+private fun LiveWallpaperRenderer(type: LiveWallpaperType, modifier: Modifier = Modifier) {
+    val infinite = rememberInfiniteTransition(label = "live_wallpaper")
+    val t by infinite.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(20000, easing = LinearEasing), RepeatMode.Restart),
+        label = "live_wallpaper_t"
+    )
+    Canvas(modifier = modifier) {
+        val w = size.width; val h = size.height
+        when (type) {
+            LiveWallpaperType.AURORA -> {
+                drawRect(Color(0xFF060B1A))
+                val bands = listOf(
+                    Color(0xFF00FFA3), Color(0xFF00C2FF), Color(0xFF7A5CFF)
+                )
+                bands.forEachIndexed { i, col ->
+                    val phase = t * 6.283f + i * 2.1f
+                    val cy = h * (0.25f + 0.15f * i) + kotlin.math.sin(phase) * h * 0.08f
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            listOf(col.copy(alpha = 0.25f), Color.Transparent),
+                            startY = cy - h * 0.2f, endY = cy + h * 0.35f
+                        ),
+                        topLeft = Offset(0f, 0f), size = androidx.compose.ui.geometry.Size(w, h)
+                    )
+                }
+            }
+            LiveWallpaperType.NEBULA -> {
+                drawRect(Color(0xFF05040F))
+                val rng = kotlin.random.Random(42)
+                repeat(140) {
+                    val sx = rng.nextFloat() * w
+                    val sy = rng.nextFloat() * h
+                    val twinkle = 0.4f + 0.6f * ((kotlin.math.sin(t * 6.283f * 3f + sx) + 1f) / 2f)
+                    drawCircle(Color.White.copy(alpha = twinkle * 0.8f), radius = rng.nextFloat() * 1.6f + 0.4f, center = Offset(sx, sy))
+                }
+                drawRect(
+                    brush = Brush.radialGradient(
+                        listOf(Color(0xFF7A2CFF).copy(alpha = 0.18f), Color.Transparent),
+                        center = Offset(w * (0.3f + 0.4f * t), h * 0.4f), radius = w * 0.5f
+                    )
+                )
+            }
+            LiveWallpaperType.WAVES -> {
+                drawRect(Color(0xFF0A1930))
+                val colors = listOf(Color(0xFF0078D4), Color(0xFF00C2FF), Color(0xFF7A5CFF))
+                colors.forEachIndexed { i, col ->
+                    val path = androidx.compose.ui.graphics.Path()
+                    val amp = h * 0.05f
+                    val baseY = h * (0.5f + i * 0.15f)
+                    path.moveTo(0f, baseY)
+                    var x = 0f
+                    while (x <= w) {
+                        val y = baseY + kotlin.math.sin((x / w) * 6.283f * 2f + t * 6.283f + i) * amp
+                        path.lineTo(x, y)
+                        x += w / 60f
+                    }
+                    path.lineTo(w, h); path.lineTo(0f, h); path.close()
+                    drawPath(path, color = col.copy(alpha = 0.22f))
+                }
+            }
+            LiveWallpaperType.BOKEH -> {
+                drawRect(Color(0xFF14213D))
+                val rng = kotlin.random.Random(7)
+                repeat(18) { i ->
+                    val baseX = rng.nextFloat() * w
+                    val baseY = rng.nextFloat() * h
+                    val drift = kotlin.math.sin(t * 6.283f + i) * 30f
+                    val r = rng.nextFloat() * 50f + 30f
+                    drawCircle(
+                        Color(listOf(0xFF64B5F6, 0xFFBA68C8, 0xFF4DD0E1, 0xFFFFB74D)[i % 4].toInt())
+                            .copy(alpha = 0.12f),
+                        radius = r, center = Offset(baseX + drift, baseY + drift * 0.6f)
+                    )
+                }
+            }
+            LiveWallpaperType.NONE -> {}
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Media Extensions
 // ─────────────────────────────────────────────────────────────────
 private val MUSIC_EXTS = setOf("mp3", "wav", "ogg", "flac", "aac", "m4a", "opus", "wma")
@@ -103,12 +425,16 @@ data class DesktopFileInfo(
     val packageName: String? = null,
     val iconBitmap: Bitmap? = null,
     val position: Offset = Offset.Zero,
-    val isSelected: Boolean = false
+    val isSelected: Boolean = false,
+    // Only populated for WEB_APP_SHORTCUT items — parsed from the .webapp file
+    val webAppId: String? = null,
+    val webAppUrl: String? = null,
+    val webAppIconPath: String? = null   // path relative to context.filesDir
 )
 
 enum class DesktopItemType {
     FOLDER, TEXT_FILE, IMAGE_FILE, MUSIC_FILE, VIDEO_FILE,
-    APP_SHORTCUT, OTHER_FILE, THIS_PC, RECYCLE_BIN, SETTINGS_ICON
+    APP_SHORTCUT, WEB_APP_SHORTCUT, OTHER_FILE, THIS_PC, RECYCLE_BIN, SETTINGS_ICON
 }
 
 enum class DesktopIconSize { SMALL, MEDIUM, LARGE }
@@ -153,6 +479,8 @@ fun getFileIcon(file: File): ImageVector = when {
     file.extension.lowercase() in setOf("zip","rar","7z","tar","gz") -> Icons.Default.Archive
     file.extension.lowercase() in setOf("doc","docx") -> Icons.Default.Article
     file.extension.lowercase() in setOf("xls","xlsx") -> Icons.Default.TableChart
+    file.extension.lowercase() == "webapp" -> Icons.Default.Public
+    file.extension.lowercase() == "desktop" -> Icons.Default.Apps
     else -> Icons.Default.InsertDriveFile
 }
 
@@ -167,7 +495,210 @@ fun getFileIconColor(file: File): Color = when {
     file.extension.lowercase() in setOf("doc","docx") -> Color(0xFF0078D4)
     file.extension.lowercase() in setOf("xls","xlsx") -> Color(0xFF217346)
     file.extension.lowercase() in setOf("zip","rar","7z") -> Color(0xFF8B6914)
+    file.extension.lowercase() == "webapp" -> Color(0xFF0078D4)
+    file.extension.lowercase() == "desktop" -> Color(0xFF0078D4)
     else -> Color(0xFF9E9E9E)
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Shared shortcut-file parser
+//
+// Single source of truth for turning a file on the Desktop into a
+// DesktopFileInfo. Both the Desktop screen and LauncherViewModel
+// (which backs File Explorer's view of the same folder) call this,
+// instead of each maintaining their own parsing logic — so a format
+// change here (e.g. adding a new shortcut type) only has to happen
+// once, and Desktop / File Explorer / Recycle Bin never disagree
+// about what a given file on disk actually is.
+// ─────────────────────────────────────────────────────────────────
+private val MEDIA_THUMB_SAMPLE = BitmapFactory.Options().apply { inSampleSize = 4 }
+
+// ─────────────────────────────────────────────────────────────────
+// Unified press/tap/long-press/drag gesture detector.
+//
+// Previously, icons (and the desktop background) each stacked TWO
+// separate, independent pointerInput gesture detectors covering the
+// identical hit area — e.g. a parent doing detectDragGesturesAfterLongPress
+// while a child did its own detectTapGestures. In Compose, ancestor and
+// descendant pointerInput blocks each get their own independent pass over
+// the same pointer event stream, so they silently race each other: whichever
+// claims the gesture first can starve the other. That's what caused
+// unreliable selection, a context menu that wouldn't consistently open, and
+// twitchy drag starts.
+//
+// This single detector replaces both, so there is exactly one state machine
+// per interactive surface: tap → onTap, double-tap → onDoubleTap, long-press
+// held then released without moving → onLongPressReleased (used for context
+// menus), long-press then moved → onDragStart/onDrag/onDragEnd/onDragCancel.
+// ─────────────────────────────────────────────────────────────────
+// Kotlin's RestrictsSuspension on AwaitPointerEventScope only allows suspend calls made
+// directly within it (or within functions declared as extensions ON it) — a LOCAL suspend
+// fun declared inside the awaitEachGesture block doesn't count as such an extension, so its
+// calls to awaitPointerEvent()/drag() get rejected by the compiler. Declaring these as real
+// top-level extensions of AwaitPointerEventScope (instead of local closures) fixes that.
+private suspend fun AwaitPointerEventScope.awaitReleaseOrSlop(
+    pid: PointerId, downPos: Offset, slop: Float, timeoutMs: Long
+): String =
+    withTimeoutOrNull(timeoutMs) {
+        while (true) {
+            val event  = awaitPointerEvent()
+            val change = event.changes.firstOrNull { it.id == pid }
+                ?: return@withTimeoutOrNull "cancel"
+            if (!change.pressed) return@withTimeoutOrNull "released"
+            val d = change.position - downPos
+            if (kotlin.math.abs(d.x) > slop || kotlin.math.abs(d.y) > slop)
+                return@withTimeoutOrNull "moved"
+        }
+        @Suppress("UNREACHABLE_CODE") "cancel"
+    } ?: "timeout"
+
+private suspend fun AwaitPointerEventScope.performDrag(
+    pid: PointerId,
+    downPos: Offset,
+    onDragStart: (Offset) -> Unit,
+    onDrag: (change: PointerInputChange, dragAmount: Offset) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit
+) {
+    onDragStart(downPos)
+    val completed = drag(pid) { change ->
+        onDrag(change, change.positionChange())
+        change.consume()
+    }
+    if (completed) onDragEnd() else onDragCancel()
+}
+
+suspend fun PointerInputScope.detectPressDragGestures(
+    onTap: (Offset) -> Unit = {},
+    onDoubleTap: (Offset) -> Unit = {},
+    onLongPressReleased: (Offset) -> Unit = {},
+    onDragStart: (Offset) -> Unit = {},
+    onDrag: (change: PointerInputChange, dragAmount: Offset) -> Unit = { _, _ -> },
+    onDragEnd: () -> Unit = {},
+    onDragCancel: () -> Unit = {}
+) {
+    val longPressTimeout = viewConfiguration.longPressTimeoutMillis
+    val doubleTapTimeout  = viewConfiguration.doubleTapTimeoutMillis
+    val slop              = viewConfiguration.touchSlop
+
+    awaitEachGesture {
+        val down    = awaitFirstDown(requireUnconsumed = false)
+        val downPos = down.position
+        val pid     = down.id
+
+        when (awaitReleaseOrSlop(pid, downPos, slop, longPressTimeout)) {
+            "released" -> {
+                // Released quickly — check whether a second tap follows within the
+                // double-tap window before committing to a single tap.
+                val second = withTimeoutOrNull(doubleTapTimeout) {
+                    awaitFirstDown(requireUnconsumed = false)
+                }
+                if (second != null) {
+                    withTimeoutOrNull(longPressTimeout) { waitForUpOrCancellation() }
+                    onDoubleTap(second.position)
+                } else {
+                    onTap(downPos)
+                }
+            }
+            "timeout" -> {
+                // Long-press threshold reached while still down and unmoved.
+                when (awaitReleaseOrSlop(pid, downPos, slop, Long.MAX_VALUE / 2)) {
+                    "released" -> onLongPressReleased(downPos)
+                    "moved"    -> performDrag(pid, downPos, onDragStart, onDrag, onDragEnd, onDragCancel)
+                    else       -> onDragCancel()
+                }
+            }
+            "moved"  -> { /* moved before the long-press threshold — ignored, same as before */ }
+            "cancel" -> onDragCancel()
+        }
+    }
+}
+
+fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFileInfo? = try {
+    val ext = file.extension.lowercase()
+    when {
+        file.isDirectory -> DesktopFileInfo(
+            id = file.absolutePath, file = file, name = file.name, type = DesktopItemType.FOLDER
+        )
+
+        ext == "desktop" -> {
+            val lines = file.readLines()
+            val pkg   = lines.find { it.startsWith("package=") }?.removePrefix("package=")?.trim() ?: ""
+            val label = lines.find { it.startsWith("label=") }?.removePrefix("label=")?.trim()
+                ?: file.nameWithoutExtension
+            val iconBmp: Bitmap? = if (pkg.isNotBlank()) {
+                try { drawableToBitmap(context.packageManager.getApplicationIcon(pkg)) }
+                catch (_: Exception) { null }
+            } else null
+            DesktopFileInfo(
+                id = file.absolutePath, file = file, name = label,
+                type = DesktopItemType.APP_SHORTCUT, packageName = pkg, iconBitmap = iconBmp
+            )
+        }
+
+        ext == "webapp" -> {
+            val lines = file.readLines()
+            fun field(key: String) = lines.find { it.startsWith("$key=") }?.removePrefix("$key=")?.trim()
+            val label   = field("name") ?: file.nameWithoutExtension
+            val url     = field("url") ?: ""
+            val id      = field("id") ?: file.nameWithoutExtension
+            val iconRel = field("icon")
+            val iconBmp: Bitmap? = iconRel?.let {
+                try {
+                    val f = File(context.filesDir, it)
+                    if (f.exists()) BitmapFactory.decodeFile(f.absolutePath) else null
+                } catch (_: Exception) { null }
+            }
+            DesktopFileInfo(
+                id = file.absolutePath, file = file, name = label,
+                type = DesktopItemType.WEB_APP_SHORTCUT, iconBitmap = iconBmp,
+                webAppId = id, webAppUrl = url, webAppIconPath = iconRel
+            )
+        }
+
+        ext in MUSIC_EXTS -> DesktopFileInfo(id = file.absolutePath, file = file, name = file.name, type = DesktopItemType.MUSIC_FILE)
+        ext in VIDEO_EXTS -> DesktopFileInfo(id = file.absolutePath, file = file, name = file.name, type = DesktopItemType.VIDEO_FILE)
+        ext in IMAGE_EXTS -> {
+            val thumb = try { BitmapFactory.decodeFile(file.absolutePath, MEDIA_THUMB_SAMPLE) } catch (_: Exception) { null }
+            DesktopFileInfo(id = file.absolutePath, file = file, name = file.name, type = DesktopItemType.IMAGE_FILE, iconBitmap = thumb)
+        }
+        ext in TEXT_EXTS -> DesktopFileInfo(id = file.absolutePath, file = file, name = file.name, type = DesktopItemType.TEXT_FILE)
+
+        else -> DesktopFileInfo(id = file.absolutePath, file = file, name = file.name, type = DesktopItemType.OTHER_FILE)
+    }
+} catch (_: Exception) { null }
+
+/**
+ * Opens any desktop-backed item the same way regardless of which screen triggered it
+ * (Desktop icon double-tap, or File Explorer "Open"). Keeps open-behavior in one place.
+ */
+fun openDesktopItem(
+    item: DesktopFileInfo,
+    context: android.content.Context,
+    viewModel: LauncherViewModel
+) {
+    when (item.type) {
+        DesktopItemType.FOLDER ->
+            viewModel.openWindow(
+                LauncherScreen.FILE_EXPLORER,
+                extras = mapOf("path" to item.file.absolutePath)
+            )
+        DesktopItemType.APP_SHORTCUT ->
+            item.packageName?.let { pkg ->
+                try {
+                    val intent = context.packageManager.getLaunchIntentForPackage(pkg)
+                    if (intent != null) context.startActivity(intent)
+                } catch (_: Exception) {}
+            }
+        DesktopItemType.WEB_APP_SHORTCUT ->
+            viewModel.openWebAppWindow(
+                id = item.webAppId ?: item.id,
+                name = item.name,
+                url = item.webAppUrl ?: "",
+                iconPath = item.webAppIconPath
+            )
+        else -> viewModel.openFileWithSystem(context, item.file.absolutePath)
+    }
 }
 
 private fun formatFileSize(bytes: Long): String = when {
@@ -411,8 +942,14 @@ fun Desktop(
         // ── Persistence ───────────────────────────────────────────────
         val prefs = remember { DesktopPreferences(context) }
 
+        // Live desktop contents now come from the ViewModel's single shared file-state
+        // layer (uiState.desktopFiles) — the same list File Explorer and Recycle Bin see.
+        // Desktop no longer keeps its own separate FileObserver/scan; it just renders
+        // whatever the ViewModel currently has.
+        val vmUiState by viewModel.uiState.collectAsStateWithLifecycle()
+        val items = vmUiState.desktopFiles
+
         // ── Core state (FIX: initialised from prefs, not just remember{}) ──
-        var items               by remember { mutableStateOf(listOf<DesktopFileInfo>()) }
         var selectedIds         by remember { mutableStateOf(setOf<String>()) }
         var iconSize            by remember { mutableStateOf(prefs.iconSize) }
         var sortMode            by remember { mutableStateOf(prefs.sortMode) }
@@ -486,7 +1023,9 @@ fun Desktop(
         }
 
         // ── Clipboard ──
-        var clipboardFiles      by remember { mutableStateOf(listOf<Pair<File, Boolean>>()) }
+        // Clipboard now lives in the ViewModel — shared with File Explorer, so a cut in
+        // one and a paste in the other just works (previously each screen had its own,
+        // incompatible clipboard: Desktop held a list, File Explorer held a single file).
 
         // ── Context menus ──
         var showDesktopCtx      by remember { mutableStateOf(false) }
@@ -559,107 +1098,72 @@ fun Desktop(
             if (changed) prefs.saveCustomPositions(customPositions)
         }
 
-        // ── Debounced refresh ──
+        // ── Debounced refresh (only used for explicit user-triggered mutations —
+        //    e.g. right after a rename/delete/paste — so the UI feels instant instead
+        //    of waiting on the ViewModel's own ~120ms FileObserver debounce) ──
         var refreshPending by remember { mutableStateOf(false) }
-
-        // ── File loader ──
-        fun loadItem(file: File): DesktopFileInfo? = try {
-            val ext  = file.extension.lowercase()
-            val type = when {
-                file.isDirectory  -> DesktopItemType.FOLDER
-                ext in MUSIC_EXTS -> DesktopItemType.MUSIC_FILE
-                ext in VIDEO_EXTS -> DesktopItemType.VIDEO_FILE
-                ext in IMAGE_EXTS -> DesktopItemType.IMAGE_FILE
-                ext in TEXT_EXTS  -> DesktopItemType.TEXT_FILE
-                ext == "desktop"  -> {
-                    val lines = file.readLines()
-                    val pkg   = lines.find { it.startsWith("package=") }?.removePrefix("package=")?.trim() ?: ""
-                    val label = lines.find { it.startsWith("label=") }?.removePrefix("label=")?.trim()
-                        ?: file.nameWithoutExtension
-                    val iconBmp: Bitmap? = if (pkg.isNotBlank()) {
-                        try { drawableToBitmap(context.packageManager.getApplicationIcon(pkg)) }
-                        catch (_: Exception) { null }
-                    } else null
-                    return DesktopFileInfo(
-                        id = file.absolutePath, file = file, name = label,
-                        type = DesktopItemType.APP_SHORTCUT, packageName = pkg,
-                        iconBitmap = iconBmp
-                    )
-                }
-                else -> DesktopItemType.OTHER_FILE
-            }
-            val thumb = if (type == DesktopItemType.IMAGE_FILE) {
-                try {
-                    BitmapFactory.decodeFile(
-                        file.absolutePath,
-                        BitmapFactory.Options().apply { inSampleSize = 4 }
-                    )
-                } catch (_: Exception) { null }
-            } else null
-            DesktopFileInfo(id = file.absolutePath, file = file, name = file.name, type = type, iconBitmap = thumb)
-        } catch (_: Exception) { null }
-
-        fun refreshDesktop() {
-            scope.launch(Dispatchers.IO) {
-                // ── Check storage permission ──────────────────────────
-                val hasPermission = ContextCompat.checkSelfPermission(
-                    context, Manifest.permission.READ_EXTERNAL_STORAGE
-                ) == PackageManager.PERMISSION_GRANTED ||
-                        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
-                        android.os.Environment.isExternalStorageManager()
-
-                if (!hasPermission) {
-                    withContext(Dispatchers.Main) {
-                        showFileAccessToast = true
-                        refreshPending = false
-                    }
-                    return@launch
-                }
-
-                // ── Create default shortcuts on very first launch ─────
-                if (!prefs.defaultShortcutsCreated) {
-                    createDefaultShortcuts(desktopDir, context.packageManager)
-                    prefs.defaultShortcutsCreated = true
-                }
-
-                desktopDir.mkdirs()
-                val loaded = (desktopDir.listFiles()?.toList() ?: emptyList())
-                    .sortedBy { it.name.lowercase() }
-                    .mapNotNull { loadItem(it) }
-                withContext(Dispatchers.Main) {
-                    items = loaded
-                    customPositions.keys.retainAll(loaded.map { it.id }.toSet())
-                    prefs.saveCustomPositions(customPositions)
-                    val pendId = pendingRenameId
-                    if (pendId != null) {
-                        val newItem = loaded.find { it.id == pendId }
-                        if (newItem != null) {
-                            inlineRename = InlineRenameState(newItem.id, newItem.name)
-                            selectedIds  = setOf(newItem.id)
-                            pendingRenameId = null
-                        }
-                    }
-                    refreshPending = false
-                }
-            }
-        }
 
         fun scheduleRefresh() {
             if (refreshPending) return
             refreshPending = true
-            scope.launch { delay(120); refreshDesktop() }
+            scope.launch {
+                delay(60)
+                refreshPending = false
+                viewModel.refreshDesktopFiles()
+            }
         }
 
-        DisposableEffect(desktopDir.absolutePath) {
-            refreshDesktop()
-            val observer = object : FileObserver(
-                desktopDir.absolutePath,
-                CREATE or DELETE or MOVED_FROM or MOVED_TO or CLOSE_WRITE
-            ) {
-                override fun onEvent(event: Int, path: String?) { scheduleRefresh() }
+        // ── First-launch default shortcuts + permission check, then hand off to the
+        //    ViewModel's shared file-state layer for everything after ──
+        LaunchedEffect(desktopDir.absolutePath) {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context, Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED ||
+                    android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
+                    android.os.Environment.isExternalStorageManager()
+
+            if (!hasPermission) {
+                showFileAccessToast = true
+                return@LaunchedEffect
             }
-            observer.startWatching()
-            onDispose { observer.stopWatching() }
+            if (!prefs.defaultShortcutsCreated) {
+                withContext(Dispatchers.IO) { createDefaultShortcuts(desktopDir, context.packageManager) }
+                prefs.defaultShortcutsCreated = true
+            }
+            viewModel.refreshDesktopFiles()
+        }
+
+        // Keep customPositions in sync with whatever items currently exist, and resolve
+        // any pending inline-rename target once its freshly-created file appears.
+        LaunchedEffect(items) {
+            customPositions.keys.retainAll(items.map { it.id }.toSet())
+            prefs.saveCustomPositions(customPositions)
+            val pendId = pendingRenameId
+            if (pendId != null) {
+                val newItem = items.find { it.id == pendId }
+                if (newItem != null) {
+                    inlineRename = InlineRenameState(newItem.id, newItem.name)
+                    selectedIds  = setOf(newItem.id)
+                    pendingRenameId = null
+                }
+            }
+        }
+
+        // ── Windows-style refresh flicker — a brief pulse across all icons whenever
+        //    the shared desktopRefreshTick advances (i.e. a real change was detected
+        //    and re-scanned), skipping the very first load so opening the desktop
+        //    doesn't flicker. ──
+        var refreshFlicker by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            var lastTick = -1
+            snapshotFlow { viewModel.uiState.value.desktopRefreshTick }.collect { tick ->
+                if (lastTick != -1 && tick != lastTick) {
+                    refreshFlicker = true
+                    delay(220)
+                    refreshFlicker = false
+                }
+                lastTick = tick
+            }
         }
 
         val sortedItems = remember(items, sortMode, sortAscending) {
@@ -677,18 +1181,12 @@ fun Desktop(
         }
 
         fun openItem(item: DesktopFileInfo) {
-            when {
-                item.type == DesktopItemType.FOLDER ->
-                    viewModel.openWindow(LauncherScreen.FILE_EXPLORER)
-                item.type == DesktopItemType.APP_SHORTCUT ->
-                    item.packageName?.let { pkg ->
-                        try {
-                            val intent = context.packageManager.getLaunchIntentForPackage(pkg)
-                            if (intent != null) context.startActivity(intent)
-                        } catch (_: Exception) {}
-                    }
-                else -> viewModel.openFileWithSystem(context, item.file.absolutePath)
+            if (item.type == DesktopItemType.THIS_PC || item.type == DesktopItemType.RECYCLE_BIN ||
+                item.type == DesktopItemType.SETTINGS_ICON) {
+                // System icons keep their existing handling elsewhere; nothing to do here.
+                return
             }
+            openDesktopItem(item, context, viewModel)
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -714,6 +1212,20 @@ fun Desktop(
                 return
             }
 
+            // WEB_APP_SHORTCUT: rewrite only the display name= field — the icon and id
+            // stay put, so a rename never orphans the cached favicon.
+            if (target.type == DesktopItemType.WEB_APP_SHORTCUT) {
+                try {
+                    val lines = target.file.readLines().toMutableList()
+                    val nameIdx = lines.indexOfFirst { it.startsWith("name=") }
+                    if (nameIdx >= 0) lines[nameIdx] = "name=$base"
+                    else lines.add("name=$base")
+                    target.file.writeText(lines.joinToString("\n") + "\n")
+                    scheduleRefresh()
+                } catch (_: Exception) {}
+                return
+            }
+
             val ext = if (target.file.name.contains("."))
                 ".${target.file.name.substringAfterLast(".")}" else ""
             val finalName = if (ext.isNotEmpty() && !base.endsWith(ext, ignoreCase = true))
@@ -732,6 +1244,14 @@ fun Desktop(
         Box(modifier = modifier.fillMaxSize()) {
 
             // ── Wallpaper (FIX: mode-aware with crossfade transition) ──
+            // Live wallpaper (when active) fully replaces the static wallpaper layer —
+            // it's mutually exclusive with both the static picker and particle animations.
+            if (vmUiState.backgroundEffects.liveWallpaper != LiveWallpaperType.NONE) {
+                LiveWallpaperRenderer(
+                    type     = vmUiState.backgroundEffects.liveWallpaper,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
             Crossfade(
                 targetState = Triple(wallpaperMode, gradientIndex, defaultImageIndex),
                 animationSpec = tween(800),
@@ -780,16 +1300,27 @@ fun Desktop(
                     }
                 }
             }
+            }
 
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.02f)))
 
-            // ── Background gesture layer ──
+            // ── Background particle animation — forced off while a live wallpaper is active ──
+            if (vmUiState.backgroundEffects.liveWallpaper == LiveWallpaperType.NONE &&
+                vmUiState.backgroundEffects.activeAnimations.isNotEmpty()) {
+                BackgroundAnimationLayer(
+                    activeTypes = vmUiState.backgroundEffects.activeAnimations,
+                    intensity   = vmUiState.backgroundEffects.intensity,
+                    modifier    = Modifier.fillMaxSize()
+                )
+            }
+
+            // ── Background gesture layer — single unified detector (was two competing ones) ──
             Box(
                 Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { offset ->
+                        detectPressDragGestures(
+                            onTap = {
                                 val currentRename = inlineRename
                                 if (currentRename != null) {
                                     // The live text is held in DesktopIcon; tapping outside
@@ -801,17 +1332,13 @@ fun Desktop(
                                 showDesktopCtx = false
                                 iconCtxTarget  = null
                             },
-                            onLongPress = { off ->
+                            onLongPressReleased = { off ->
                                 if (draggedId == null) {
                                     desktopCtxOffset = off
                                     showDesktopCtx   = true
                                     iconCtxTarget    = null
                                 }
-                            }
-                        )
-                    }
-                    .pointerInput(Unit) {
-                        detectDragGesturesAfterLongPress(
+                            },
                             onDragStart = { off ->
                                 if (draggedId == null) {
                                     lassoActive = true
@@ -820,8 +1347,8 @@ fun Desktop(
                                     selEnd      = off
                                 }
                             },
-                            onDrag = { ch, amt ->
-                                if (lassoActive) { ch.consume(); selEnd += amt }
+                            onDrag = { _, amt ->
+                                if (lassoActive) selEnd += amt
                             },
                             onDragEnd = {
                                 if (lassoActive) {
@@ -926,6 +1453,9 @@ fun Desktop(
                         )
 
                         var dragMoved by remember { mutableStateOf(false) }
+                        // Lifted above the gesture block so onTap (which may need to commit an
+                        // in-progress rename on a DIFFERENT icon using its live-typed text) can see it.
+                        var liveRenameText by remember { mutableStateOf("") }
 
                         Box(
                             Modifier
@@ -933,12 +1463,31 @@ fun Desktop(
                                 .scale(dragScale)
                                 .zIndex(if (isDragged) 50f else if (isInGroup) 40f else 1f)
                                 .pointerInput(item.id, autoArrange, selectedIds) {
-                                    detectDragGesturesAfterLongPress(
+                                    detectPressDragGestures(
+                                        onTap = {
+                                            val r = inlineRename
+                                            if (r != null && r.targetId != item.id) commitRename(r, r.initialName)
+                                            selectedIds    = if (item.id in selectedIds)
+                                                selectedIds - item.id else setOf(item.id)
+                                            showDesktopCtx = false
+                                            iconCtxTarget  = null
+                                        },
+                                        onDoubleTap = { openItem(item) },
+                                        onLongPressReleased = {
+                                            val r = inlineRename
+                                            if (r != null) commitRename(r, r.initialName)
+                                            selectedIds    = setOf(item.id)
+                                            iconCtxTarget  = item
+                                            iconCtxOffset  = Offset(pos.x + cellWPx / 2, pos.y + cellHPx / 2)
+                                            showDesktopCtx = false
+                                        },
                                         onDragStart = {
                                             val r = inlineRename
                                             if (r != null) commitRename(r, r.initialName)
                                             draggedId = item.id
-                                            dragMoved = false
+                                            // The unified detector only calls onDragStart once real
+                                            // movement is confirmed, so this is already a real drag.
+                                            dragMoved = true
                                             // Multi-select drag: record relative offsets of group members
                                             if (item.id in selectedIds && selectedIds.size > 1) {
                                                 isDraggingGroup = true
@@ -954,33 +1503,27 @@ fun Desktop(
                                                 }
                                             }
                                         },
-                                        onDrag = { ch, amt ->
-                                            ch.consume()
-                                            if (!dragMoved && (abs(amt.x) > 10f || abs(amt.y) > 10f)) {
-                                                dragMoved = true
-                                            }
-                                            if (dragMoved) {
-                                                val maxX = screenWPxTotal - cellWPx
-                                                val maxY = screenHPxTotal - cellHPx
-                                                pos = Offset(
-                                                    (pos.x + amt.x).coerceIn(padLeftPx, maxX),
-                                                    (pos.y + amt.y).coerceIn(padTopPx, maxY)
-                                                )
-                                                // Broadcast current anchor position so group members can follow.
-                                                // On drag start, dragGroupOffsets held relative offsets (member - anchor).
-                                                // During drag we overwrite them with the current ABSOLUTE target
-                                                // position (anchorPos + rel) so each member's LaunchedEffect can
-                                                // apply it directly to its own pos state.
-                                                if (isDraggingGroup) {
-                                                    val anchorPos = pos
-                                                    val relOffsets = dragGroupOffsets.toMap()
-                                                    relOffsets.forEach { (otherId, rel) ->
-                                                        val target = Offset(
-                                                            (anchorPos.x + rel.x).coerceIn(padLeftPx, screenWPxTotal - cellWPx),
-                                                            (anchorPos.y + rel.y).coerceIn(padTopPx, screenHPxTotal - cellHPx)
-                                                        )
-                                                        dragGroupOffsets[otherId] = target
-                                                    }
+                                        onDrag = { _, amt ->
+                                            val maxX = screenWPxTotal - cellWPx
+                                            val maxY = screenHPxTotal - cellHPx
+                                            pos = Offset(
+                                                (pos.x + amt.x).coerceIn(padLeftPx, maxX),
+                                                (pos.y + amt.y).coerceIn(padTopPx, maxY)
+                                            )
+                                            // Broadcast current anchor position so group members can follow.
+                                            // On drag start, dragGroupOffsets held relative offsets (member - anchor).
+                                            // During drag we overwrite them with the current ABSOLUTE target
+                                            // position (anchorPos + rel) so each member's LaunchedEffect can
+                                            // apply it directly to its own pos state.
+                                            if (isDraggingGroup) {
+                                                val anchorPos = pos
+                                                val relOffsets = dragGroupOffsets.toMap()
+                                                relOffsets.forEach { (otherId, rel) ->
+                                                    val target = Offset(
+                                                        (anchorPos.x + rel.x).coerceIn(padLeftPx, screenWPxTotal - cellWPx),
+                                                        (anchorPos.y + rel.y).coerceIn(padTopPx, screenHPxTotal - cellHPx)
+                                                    )
+                                                    dragGroupOffsets[otherId] = target
                                                 }
                                             }
                                         },
@@ -988,41 +1531,32 @@ fun Desktop(
                                             draggedId = null
                                             val wasGroup = isDraggingGroup
                                             isDraggingGroup = false
-                                            if (!dragMoved) {
-                                                selectedIds    = setOf(item.id)
-                                                iconCtxTarget  = item
-                                                iconCtxOffset  = Offset(pos.x + cellWPx / 2, pos.y + cellHPx / 2)
-                                                showDesktopCtx = false
+                                            val maxX = screenWPxTotal - cellWPx
+                                            val maxY = screenHPxTotal - cellHPx
+                                            if (autoArrange) {
+                                                pos = basePos  // snap-back animation plays automatically
                                             } else {
-                                                val maxX = screenWPxTotal - cellWPx
-                                                val maxY = screenHPxTotal - cellHPx
-                                                if (autoArrange) {
-                                                    pos = basePos  // snap-back animation plays automatically
+                                                val otherCells = occupiedCells - posToCell(
+                                                    customPositions[item.id] ?: basePos,
+                                                    cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows
+                                                )
+                                                val snapped = snapToGrid(
+                                                    pos, cellWPx, cellHPx, padLeftPx, padTopPx,
+                                                    screenWPxTotal, screenHPxTotal, otherCells
+                                                )
+                                                @Suppress("SENSELESS_COMPARISON")
+                                                if (snapped == null) {
+                                                    // Grid full — animate back to origin
+                                                    pos = customPositions[item.id] ?: basePos
+                                                    showDesktopFullToast = true
                                                 } else {
-                                                    val otherCells = occupiedCells - posToCell(
-                                                        customPositions[item.id] ?: basePos,
-                                                        cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows
+                                                    val finalPos = Offset(
+                                                        snapped.x.coerceIn(padLeftPx, maxX),
+                                                        snapped.y.coerceIn(padTopPx, maxY)
                                                     )
-                                                    val snapped = snapToGrid(
-                                                        pos, cellWPx, cellHPx, padLeftPx, padTopPx,
-                                                        screenWPxTotal, screenHPxTotal, otherCells
-                                                    )
-                                                    // snapToGrid always returns a valid Offset (has absolute fallback),
-                                                    // but we keep the guard for safety.
-                                                    @Suppress("SENSELESS_COMPARISON")
-                                                    if (snapped == null) {
-                                                        // Grid full — animate back to origin
-                                                        pos = customPositions[item.id] ?: basePos
-                                                        showDesktopFullToast = true
-                                                    } else {
-                                                        val finalPos = Offset(
-                                                            snapped.x.coerceIn(padLeftPx, maxX),
-                                                            snapped.y.coerceIn(padTopPx, maxY)
-                                                        )
-                                                        pos = finalPos
-                                                        customPositions[item.id] = finalPos
-                                                        prefs.saveCustomPositions(customPositions)
-                                                    }
+                                                    pos = finalPos
+                                                    customPositions[item.id] = finalPos
+                                                    prefs.saveCustomPositions(customPositions)
                                                 }
                                             }
                                             dragMoved = false
@@ -1055,15 +1589,7 @@ fun Desktop(
                                 onInlineRenameConfirm = {
                                     inlineRename?.let { r -> commitRename(r, liveRenameText) }
                                 },
-                                onTap = {
-                                    val r = inlineRename
-                                    if (r != null && r.targetId != item.id) commitRename(r, liveRenameText)
-                                    selectedIds    = if (item.id in selectedIds)
-                                        selectedIds - item.id else setOf(item.id)
-                                    showDesktopCtx = false
-                                    iconCtxTarget  = null
-                                },
-                                onDoubleTap = { openItem(item) }
+                                refreshFlicker    = refreshFlicker
                             )
                         }
                     }
@@ -1174,16 +1700,12 @@ fun Desktop(
                     },
                     showIcons           = showIconsOnDesktop,
                     onShowIconsToggle   = { showIconsOnDesktop = it; prefs.showIconsOnDesktop = it; showDesktopCtx = false },
-                    onRefresh           = { refreshDesktop(); showDesktopCtx = false },
+                    onRefresh           = { viewModel.refreshDesktopFiles(); showDesktopCtx = false },
                     onPaste             = {
-                        clipboardFiles.forEach { (f, cut) ->
-                            val dest = File(desktopDir, uniqueName(desktopDir, f.nameWithoutExtension, f.extension))
-                            try { if (cut) f.renameTo(dest) else f.copyTo(dest, overwrite = false) } catch (_: Exception) {}
-                        }
-                        if (clipboardFiles.any { it.second }) clipboardFiles = emptyList()
-                        scheduleRefresh(); showDesktopCtx = false
+                        viewModel.pasteClipboard(desktopDir)
+                        showDesktopCtx = false
                     },
-                    hasPaste            = clipboardFiles.isNotEmpty(),
+                    hasPaste            = vmUiState.clipboardFiles.isNotEmpty(),
                     onNewFolder         = {
                         val name   = uniqueName(desktopDir, "New folder")
                         val newDir = File(desktopDir, name)
@@ -1236,17 +1758,17 @@ fun Desktop(
                     },
                     onOpenFileLocation = { viewModel.openWindow(LauncherScreen.FILE_EXPLORER); iconCtxTarget = null },
                     onCut = {
-                        clipboardFiles = selectedIds
+                        val files = selectedIds
                             .mapNotNull { id -> items.find { it.id == id }?.file }
-                            .map { it to true }
-                            .ifEmpty { listOf(target.file to true) }
+                            .ifEmpty { listOf(target.file) }
+                        viewModel.setClipboard(files, cut = true)
                         iconCtxTarget = null
                     },
                     onCopy = {
-                        clipboardFiles = selectedIds
+                        val files = selectedIds
                             .mapNotNull { id -> items.find { it.id == id }?.file }
-                            .map { it to false }
-                            .ifEmpty { listOf(target.file to false) }
+                            .ifEmpty { listOf(target.file) }
+                        viewModel.setClipboard(files, cut = false)
                         iconCtxTarget = null
                     },
                     onDelete = {
@@ -1254,6 +1776,10 @@ fun Desktop(
                             .mapNotNull { id -> items.find { it.id == id }?.file }
                             .ifEmpty { listOf(target.file) }
                         toDelete.forEach { viewModel.deleteToRecycleBin(it.absolutePath) }
+                        val label = if (toDelete.size == 1) "Deleted \"${toDelete[0].name}\"" else "Deleted ${toDelete.size} items"
+                        viewModel.showUndoAction(label) {
+                            toDelete.forEach { viewModel.restoreFromRecycleBinByOriginalPath(it.absolutePath) }
+                        }
                         selectedIds   = emptySet()
                         iconCtxTarget = null
                         scheduleRefresh()
@@ -1338,6 +1864,7 @@ fun Desktop(
             if (showWallpaperPanel) {
                 WallpaperPersonalisePanel(
                     isDark             = isDark,
+                    viewModel          = viewModel,
                     currentMode        = wallpaperMode,
                     currentGradientIdx = gradientIndex,
                     currentImageIdx    = defaultImageIndex,
@@ -1382,13 +1909,24 @@ private fun DesktopIcon(
     initialRenameText: String,
     onLiveTextChange: (String) -> Unit,
     onInlineRenameConfirm: () -> Unit,
-    onTap: () -> Unit,
-    onDoubleTap: () -> Unit
+    refreshFlicker: Boolean = false
 ) {
     val iconDp = iconSizeDp(iconSize).dp
     val cellW  = cellWidthDp(iconSize).dp
     val cellH  = cellHeightDp(iconSize).dp
     val focusRequester = remember { FocusRequester() }
+
+    // Windows-style refresh pulse — a quick dip in opacity with a small random
+    // per-icon stagger so the whole desktop doesn't blink in perfect unison,
+    // matching the classic "explorer.exe refresh" flicker.
+    val flickerAlpha = remember { Animatable(1f) }
+    LaunchedEffect(refreshFlicker) {
+        if (refreshFlicker) {
+            delay((0..120).random().toLong())
+            flickerAlpha.animateTo(0.35f, tween(70))
+            flickerAlpha.animateTo(1f, tween(120))
+        }
+    }
 
     // FIX: KEY is item.id only — never changes on keystroke.
     // stripping extension for display (Windows UX convention)
@@ -1419,12 +1957,7 @@ private fun DesktopIcon(
             .width(cellW)
             .height(cellH)
             .padding(1.dp)
-            .pointerInput(item.id) {
-                detectTapGestures(
-                    onTap       = { onTap() },
-                    onDoubleTap = { onDoubleTap() }
-                )
-            },
+            .graphicsLayer(alpha = flickerAlpha.value),
         contentAlignment = Alignment.TopCenter
     ) {
         // Win11-style selection: subtle blue tint + blue border glow
@@ -1477,8 +2010,8 @@ private fun DesktopIcon(
                     }
                 }
 
-                // App shortcut arrow badge
-                if (item.type == DesktopItemType.APP_SHORTCUT) {
+                // Shortcut arrow badge (native app shortcuts + web app shortcuts)
+                if (item.type == DesktopItemType.APP_SHORTCUT || item.type == DesktopItemType.WEB_APP_SHORTCUT) {
                     Box(
                         Modifier
                             .size(14.dp)
@@ -1564,9 +2097,36 @@ private fun DesktopIcon(
 // Lets the user switch between APPARENT (gradients), DEFAULT (images),
 // and pick which gradient/image is active.
 // ─────────────────────────────────────────────────────────────────
+private fun bgAnimationLabel(type: BgAnimationType): String = when (type) {
+    BgAnimationType.SNOW -> "Snow"
+    BgAnimationType.BUBBLES -> "Bubbles"
+    BgAnimationType.STARS -> "Stars"
+    BgAnimationType.RAIN -> "Rain"
+    BgAnimationType.HEARTS -> "Hearts"
+    BgAnimationType.CONFETTI -> "Confetti"
+    BgAnimationType.FIREFLIES -> "Fireflies"
+    BgAnimationType.LEAVES -> "Leaves"
+    BgAnimationType.MATRIX -> "Matrix Rain"
+    BgAnimationType.SAKURA -> "Sakura"
+}
+
+private fun bgAnimationEmoji(type: BgAnimationType): String = when (type) {
+    BgAnimationType.SNOW -> "❄"
+    BgAnimationType.BUBBLES -> "🫧"
+    BgAnimationType.STARS -> "✨"
+    BgAnimationType.RAIN -> "🌧"
+    BgAnimationType.HEARTS -> "❤"
+    BgAnimationType.CONFETTI -> "🎊"
+    BgAnimationType.FIREFLIES -> "✨"
+    BgAnimationType.LEAVES -> "🍂"
+    BgAnimationType.MATRIX -> "🟩"
+    BgAnimationType.SAKURA -> "🌸"
+}
+
 @Composable
 fun WallpaperPersonalisePanel(
     isDark: Boolean,
+    viewModel: LauncherViewModel,
     currentMode: DesktopWallpaperMode,
     currentGradientIdx: Int,
     currentImageIdx: Int,
@@ -1585,17 +2145,46 @@ fun WallpaperPersonalisePanel(
         "Ocean Depth", "Midnight Blue", "Carbon", "Sunset Tricolor", "Forest Lime"
     )
 
+    var activeTab by remember { mutableStateOf(0) }   // 0 = Background, 1 = Effects
+    val effectsState by viewModel.uiState.collectAsStateWithLifecycle()
+    val bgEffects = effectsState.backgroundEffects
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor   = bg,
         shape            = RoundedCornerShape(12.dp),
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Palette, null, tint = acc, modifier = Modifier.size(20.dp))
-                Text("Personalise Desktop", color = tc, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Palette, null, tint = acc, modifier = Modifier.size(20.dp))
+                    Text("Personalise Desktop", color = tc, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Background" to 0, "Effects" to 1).forEach { (label, idx) ->
+                        val selected = activeTab == idx
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape    = RoundedCornerShape(6.dp),
+                            color    = if (selected) acc.copy(alpha = 0.15f) else Color.Transparent
+                        ) {
+                            Box(
+                                Modifier.clickable { activeTab = idx }.padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    label, fontSize = 12.sp,
+                                    color = if (selected) acc else tcm,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
         text = {
+            if (activeTab == 0) {
             Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
 
                 // ── Mode selector ──
@@ -1758,6 +2347,140 @@ fun WallpaperPersonalisePanel(
                             Icon(Icons.Default.Image, null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
                             Text("Browse Gallery…", fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            }
+            } else {
+                // ── Effects tab: particle animations (mix-able) + live wallpapers ──
+                Column(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Background animation", color = tcm, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            "Select one or more to mix them together",
+                            color = tcm.copy(alpha = 0.7f), fontSize = 10.sp
+                        )
+                    }
+
+                    val liveActive = bgEffects.liveWallpaper != LiveWallpaperType.NONE
+                    BgAnimationType.entries.toList().chunked(2).forEach { rowTypes ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            rowTypes.forEach { type ->
+                                val active = type in bgEffects.activeAnimations
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape    = RoundedCornerShape(6.dp),
+                                    color    = if (active) acc else (if (isDark) Color(0xFF2C2C2C) else Color(0xFFEEEEEE)),
+                                    border   = if (active) null else BorderStroke(1.dp, if (isDark) Color(0xFF3A3A3A) else Color(0xFFCCCCCC))
+                                ) {
+                                    Row(
+                                        Modifier
+                                            .clickable(enabled = !liveActive) { viewModel.toggleBgAnimation(type) }
+                                            .padding(vertical = 8.dp, horizontal = 8.dp)
+                                            .alpha(if (liveActive) 0.4f else 1f),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(bgAnimationEmoji(type), fontSize = 14.sp)
+                                        Text(
+                                            bgAnimationLabel(type), fontSize = 11.5.sp,
+                                            color = if (active) Color.White else tc,
+                                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
+                                        )
+                                    }
+                                }
+                            }
+                            if (rowTypes.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+
+                    if (bgEffects.activeAnimations.isNotEmpty()) {
+                        TextButton(onClick = { viewModel.clearBgAnimations() }) {
+                            Text("Turn off all animations", fontSize = 11.sp, color = acc)
+                        }
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Intensity", color = tcm, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        Slider(
+                            value = bgEffects.intensity.toFloat(),
+                            onValueChange = { viewModel.setBgAnimationIntensity(it.toInt()) },
+                            valueRange = 10f..100f,
+                            enabled = !liveActive,
+                            colors = SliderDefaults.colors(thumbColor = acc, activeTrackColor = acc)
+                        )
+                    }
+
+                    Divider(color = tcm.copy(alpha = 0.15f))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Live wallpaper", color = tcm, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            "Replaces the static wallpaper and turns off particle animations",
+                            color = tcm.copy(alpha = 0.7f), fontSize = 10.sp
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // "Off" tile
+                        val offActive = bgEffects.liveWallpaper == LiveWallpaperType.NONE
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(72.dp, 48.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isDark) Color(0xFF2A2A2A) else Color(0xFFEEEEEE))
+                                    .border(
+                                        width = if (offActive) 2.dp else 0.dp,
+                                        color = if (offActive) acc else Color.Transparent,
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable { viewModel.setLiveWallpaper(LiveWallpaperType.NONE) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Close, null, tint = tcm, modifier = Modifier.size(16.dp))
+                            }
+                            Text("Off", fontSize = 10.sp, color = if (offActive) acc else tcm)
+                        }
+                        listOf(
+                            LiveWallpaperType.AURORA to "Aurora",
+                            LiveWallpaperType.NEBULA to "Nebula",
+                            LiveWallpaperType.WAVES  to "Waves",
+                            LiveWallpaperType.BOKEH  to "Bokeh"
+                        ).forEach { (lw, label) ->
+                            val isActive = bgEffects.liveWallpaper == lw
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(72.dp, 48.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .border(
+                                            width = if (isActive) 2.dp else 0.dp,
+                                            color = if (isActive) acc else Color.Transparent,
+                                            shape = RoundedCornerShape(6.dp)
+                                        )
+                                        .clickable { viewModel.setLiveWallpaper(lw) }
+                                ) {
+                                    LiveWallpaperRenderer(type = lw, modifier = Modifier.fillMaxSize())
+                                    if (isActive) {
+                                        Box(
+                                            Modifier.fillMaxSize().background(acc.copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+                                Text(label, fontSize = 10.sp, color = if (isActive) acc else tcm)
+                            }
                         }
                     }
                 }

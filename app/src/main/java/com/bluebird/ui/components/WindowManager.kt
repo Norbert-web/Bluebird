@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -26,6 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
@@ -37,7 +40,10 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Window
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -66,10 +72,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bluebird.CopyJobStatus
+import com.bluebird.CopyOpType
 import com.bluebird.LauncherScreen
 import com.bluebird.LauncherViewModel
 import com.bluebird.WindowIconKey
 import com.bluebird.WindowState
+import java.io.File
 import com.bluebird.editor.ui.screens.PremiumTextEditorScreen
 import com.bluebird.ui.screens.CalculatorScreen
 import com.bluebird.ui.screens.CalendarScreen
@@ -153,6 +162,7 @@ private fun defaultSizeFor(screen: LauncherScreen): Pair<Float, Float> = when (s
     LauncherScreen.CALENDAR        -> 560f to 480f
     LauncherScreen.TERMINAL        -> 700f to 480f
     LauncherScreen.WEB_APP_MANAGER -> 800f to 560f
+    LauncherScreen.COPY_PROGRESS   -> 420f to 280f
     else                           -> 750f to 520f
 }
 
@@ -410,7 +420,8 @@ fun FloatingWindow(
                                 handlePx = handlePx
                             )
 
-                            if (edge == ResizeEdge.NONE || windowState.isMaximized || isPip) continue
+                            if (edge == ResizeEdge.NONE || windowState.isMaximized || isPip ||
+                                windowState.screen == LauncherScreen.COPY_PROGRESS) continue
 
                             onFocus()
                             down.consume()
@@ -983,10 +994,12 @@ fun WindowContent(
             WindowTitleBar(
                 title              = windowState.title,
                 iconKey            = windowState.iconKey,
+                customIconPath     = windowState.customIconPath,
                 isDark             = isDark,
                 windowSize         = windowSize,
                 isMaximized        = windowState.isMaximized,
                 alwaysOnTop        = alwaysOnTop,
+                canMaximize        = windowState.screen != LauncherScreen.COPY_PROGRESS,
                 onMinimize         = onMinimize,
                 onMaximize         = onMaximize,
                 onSnapPickerToggle = onSnapPickerToggle,
@@ -1000,7 +1013,7 @@ fun WindowContent(
             when (windowState.screen) {
                 LauncherScreen.PremiumTextEditorScreen -> PremiumTextEditorScreen(isDark)
                 LauncherScreen.SETTINGS      -> SettingsScreen(isDark, viewModel)
-                LauncherScreen.FILE_EXPLORER -> FileExplorerScreen(isDark, viewModel)
+                LauncherScreen.FILE_EXPLORER -> FileExplorerScreen(isDark, viewModel, startPath = extras["path"])
                 LauncherScreen.BROWSER       -> BrowserScreen(isDark)
                 LauncherScreen.CALCULATOR    -> CalculatorScreen(isDark)
                 LauncherScreen.CALENDAR      -> CalendarScreen(isDark)
@@ -1021,15 +1034,19 @@ fun WindowContent(
                 LauncherScreen.WEB_APP_MANAGER -> {
                     WebAppManagerScreen(
                         isDark      = isDark,
+                        viewModel   = viewModel,
                         onLaunchApp = { app ->
-                            // Open a dedicated viewer window for this web app
+                            // Open a dedicated viewer window for this web app, with its
+                            // real favicon (if we have one) as the window/taskbar icon.
                             viewModel.openWindow(
                                 screen = LauncherScreen.WEB_APP_VIEWER,
                                 extras = mapOf("webAppId" to app.id, "webAppName" to app.name,
                                     "webAppUrl" to app.url, "webAppHtml" to app.htmlContent,
                                     "webAppCustom" to app.isCustom.toString(),
                                     "webAppEmoji" to app.iconEmoji,
-                                    "webAppAccent" to app.accentColor.toString())
+                                    "webAppIcon" to app.iconPath,
+                                    "webAppAccent" to app.accentColor.toString()),
+                                customIconPath = app.iconPath.ifBlank { null }
                             )
                         }
                     )
@@ -1041,6 +1058,7 @@ fun WindowContent(
                             name        = extras["webAppName"] ?: "Web App",
                             url         = extras["webAppUrl"] ?: "https://example.com",
                             iconEmoji   = extras["webAppEmoji"] ?: "🌐",
+                            iconPath    = extras["webAppIcon"] ?: "",
                             accentColor = extras["webAppAccent"]?.toLongOrNull() ?: 0xFF0078D4L,
                             isCustom    = extras["webAppCustom"] == "true",
                             htmlContent = extras["webAppHtml"] ?: ""
@@ -1048,6 +1066,7 @@ fun WindowContent(
                     }
                     WebAppViewerScreen(isDark = isDark, app = app)
                 }
+                LauncherScreen.COPY_PROGRESS -> CopyProgressScreen(isDark = isDark, viewModel = viewModel)
                 else -> {}
 
             }
@@ -1066,10 +1085,12 @@ fun WindowContent(
 fun WindowTitleBar(
     title: String,
     iconKey: String = "",
+    customIconPath: String? = null,
     isDark: Boolean,
     windowSize: WindowSize = WindowSize(750.dp, 520.dp),
     isMaximized: Boolean = false,
     alwaysOnTop: Boolean = false,
+    canMaximize: Boolean = true,
     onMinimize: () -> Unit,
     onMaximize: () -> Unit,
     onSnapPickerToggle: () -> Unit,
@@ -1078,6 +1099,7 @@ fun WindowTitleBar(
     val barBg   = if (isDark) Color(0xFF2A2A2A) else Color(0xFFE8E8E8)
     val textCol = if (isDark) Color.White else Color(0xFF1C1C1C)
     val icon    = remember(iconKey) { iconForKey(iconKey) }
+    val bmpIcon = rememberWindowBitmapIcon(customIconPath)
 
     // Show dimensions in compact mode
     val sizeLabel = if (windowSize.isCompact)
@@ -1092,13 +1114,21 @@ fun WindowTitleBar(
             .padding(start = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // ── App icon ──────────────────────────────────────────────────────────
-        Icon(
-            imageVector        = icon,
-            contentDescription = null,
-            tint               = if (isDark) Color.White.copy(0.75f) else Color(0xFF444444),
-            modifier           = Modifier.size(14.dp)
-        )
+        // ── App icon — real favicon bitmap when available, Material icon otherwise ──
+        if (bmpIcon != null) {
+            androidx.compose.foundation.Image(
+                bitmap             = bmpIcon,
+                contentDescription = null,
+                modifier           = Modifier.size(14.dp).clip(RoundedCornerShape(3.dp))
+            )
+        } else {
+            Icon(
+                imageVector        = icon,
+                contentDescription = null,
+                tint               = if (isDark) Color.White.copy(0.75f) else Color(0xFF444444),
+                modifier           = Modifier.size(14.dp)
+            )
+        }
         Spacer(Modifier.width(6.dp))
 
         // ── Title ─────────────────────────────────────────────────────────────
@@ -1125,13 +1155,17 @@ fun WindowTitleBar(
             onClick = onMinimize
         )
 
-        // Maximize / Restore □ (tap) + long-press = snap picker
-        Win11TitleButton(
-            label        = if (isMaximized) "❐" else "□",
-            hoverBg      = if (isDark) Color(0xFF3A3A3A) else Color(0xFFD0D0D0),
-            onClick      = onMaximize,
-            onLongPress  = onSnapPickerToggle   // touch-friendly snap picker
-        )
+        // Maximize / Restore □ (tap) + long-press = snap picker — hidden entirely for
+        // windows that don't support it (e.g. the copy/move progress dialog), matching
+        // real Windows 11 behavior where non-resizable dialogs simply omit this button.
+        if (canMaximize) {
+            Win11TitleButton(
+                label        = if (isMaximized) "❐" else "□",
+                hoverBg      = if (isDark) Color(0xFF3A3A3A) else Color(0xFFD0D0D0),
+                onClick      = onMaximize,
+                onLongPress  = onSnapPickerToggle   // touch-friendly snap picker
+            )
+        }
 
         // Close ✕ — red hover
         Win11TitleButton(
@@ -1203,8 +1237,132 @@ private fun Win11TitleButton(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HOW TO MAKE YOUR SCREENS RESPONSIVE
+// CopyProgressScreen — Windows-11-style file operation dialog. Lives inside a
+// window that can be dragged and minimized but not maximized or resized (see
+// FloatingWindow / WindowTitleBar's canMaximize gating for LauncherScreen.COPY_PROGRESS).
+// Shows every active/recent CopyJob from the ViewModel's shared copy engine.
 // ─────────────────────────────────────────────────────────────────────────────
+private fun formatBytesShort(bytes: Long): String = when {
+    bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
+    bytes >= 1_048_576L     -> "%.1f MB".format(bytes / 1_048_576.0)
+    bytes >= 1024L          -> "%.0f KB".format(bytes / 1024.0)
+    else                    -> "$bytes B"
+}
+
+private fun formatEta(bytesRemaining: Long, bytesPerSec: Long): String {
+    if (bytesPerSec <= 0) return "Calculating…"
+    val secs = bytesRemaining / bytesPerSec
+    return when {
+        secs < 60   -> "$secs sec remaining"
+        secs < 3600 -> "${secs / 60} min remaining"
+        else        -> "${secs / 3600} hr ${(secs % 3600) / 60} min remaining"
+    }
+}
+
+@Composable
+fun CopyProgressScreen(isDark: Boolean, viewModel: LauncherViewModel) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val jobs = uiState.copyJobs
+    val bg   = if (isDark) Color(0xFF1C1C1C) else Color(0xFFF5F5F5)
+    val tc   = if (isDark) Color(0xFFE8E8E8) else Color(0xFF1A1A1A)
+    val tcDim = if (isDark) Color(0xFF9A9A9A) else Color(0xFF6B6B6B)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bg)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        if (jobs.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No file operations in progress", color = tcDim, fontSize = 13.sp)
+            }
+            return@Column
+        }
+        jobs.forEach { job ->
+            key(job.id) {
+                val verb = if (job.operation == CopyOpType.MOVE) "Moving" else "Copying"
+                val destName = File(job.destDir).name.ifBlank { "Desktop" }
+                val progress = if (job.totalBytes > 0) (job.copiedBytes.toFloat() / job.totalBytes).coerceIn(0f, 1f) else 0f
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = null,
+                            tint = Color(0xFF0078D4),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = when (job.status) {
+                                    CopyJobStatus.SCANNING  -> "Preparing to ${verb.lowercase()}…"
+                                    CopyJobStatus.RUNNING   -> "$verb ${job.sourceNames.size} item${if (job.sourceNames.size != 1) "s" else ""} to $destName"
+                                    CopyJobStatus.DONE      -> "${if (job.operation == CopyOpType.MOVE) "Moved" else "Copied"} to $destName"
+                                    CopyJobStatus.CANCELLED -> "Cancelled"
+                                    CopyJobStatus.ERROR     -> "Couldn't complete — ${job.error ?: "error"}"
+                                },
+                                color = tc, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis
+                            )
+                            if (job.status == CopyJobStatus.RUNNING && job.currentFileName.isNotBlank()) {
+                                Text(
+                                    text = job.currentFileName, color = tcDim, fontSize = 11.sp,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        if (job.status == CopyJobStatus.RUNNING || job.status == CopyJobStatus.SCANNING) {
+                            IconButton(onClick = { viewModel.cancelCopyJob(job.id) }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Cancel", tint = tcDim, modifier = Modifier.size(16.dp))
+                            }
+                        } else {
+                            IconButton(onClick = { viewModel.dismissCopyJob(job.id) }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = tcDim, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+
+                    when (job.status) {
+                        CopyJobStatus.SCANNING -> LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                            color = Color(0xFF0078D4)
+                        )
+                        CopyJobStatus.RUNNING -> {
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                color = Color(0xFF0078D4)
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "${formatBytesShort(job.copiedBytes)} of ${formatBytesShort(job.totalBytes)} " +
+                                        "(${job.filesDone}/${job.totalFiles} items)",
+                                    color = tcDim, fontSize = 10.sp
+                                )
+                                Text(
+                                    formatEta(job.totalBytes - job.copiedBytes, job.speedBytesPerSec),
+                                    color = tcDim, fontSize = 10.sp
+                                )
+                            }
+                        }
+                        else -> {}
+                    }
+                }
+                if (job != jobs.last()) {
+                    Divider(color = tcDim.copy(alpha = 0.15f))
+                }
+            }
+        }
+    }
+}
+
+
 //
 // Each screen now receives a `windowSize: WindowSize` parameter.
 // Use it like this:

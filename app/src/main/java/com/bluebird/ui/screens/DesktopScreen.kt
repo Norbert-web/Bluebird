@@ -226,6 +226,55 @@ fun DesktopScreen(viewModel: LauncherViewModel) {
                 onDismiss = { viewModel.closeWallpaperPicker() }
             )
         }
+
+        // ── 11. Undo toast — "Moved/Copied/Deleted N items · Undo", shared by
+        //    Desktop and File Explorer since both route through the same
+        //    ViewModel-level showUndoAction()/performUndo(). ──
+        AnimatedVisibility(
+            visible = uiState.undoAction != null,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = if (uiState.isTaskbarVisible) 60.dp else 16.dp),
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit  = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+        ) {
+            uiState.undoAction?.let { action ->
+                UndoToast(
+                    label   = action.label,
+                    isDark  = uiState.isDarkTheme,
+                    onUndo  = { viewModel.performUndo() },
+                    onClose = { viewModel.dismissUndo() }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UndoToast(
+    label: String,
+    isDark: Boolean,
+    onUndo: () -> Unit,
+    onClose: () -> Unit
+) {
+    val bg = if (isDark) Color(0xFF2B2B2B) else Color(0xFF323232)
+    Surface(
+        shape    = RoundedCornerShape(6.dp),
+        color    = bg,
+        shadowElevation = 8.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
+            TextButton(onClick = onUndo) {
+                Text("Undo", color = Color(0xFF66B3FF), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            }
+            IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+            }
+        }
     }
 }
 

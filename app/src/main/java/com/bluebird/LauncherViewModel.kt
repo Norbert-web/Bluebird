@@ -5,6 +5,7 @@ import android.app.WallpaperManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
@@ -12,6 +13,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Environment
+import android.os.FileObserver
 import android.provider.Settings
 import androidx.compose.ui.geometry.Offset
 import androidx.core.content.ContextCompat
@@ -70,8 +72,55 @@ enum class LauncherScreen {
     DESKTOP, SETTINGS, FILE_EXPLORER, BROWSER, TASK_MANAGER,
     CALCULATOR, CALENDAR, PHOTOS, MEDIA_PLAYER, IMAGE_VIEWER,
     PHONE, MESSAGES, RECYCLE_BIN, PremiumTextEditorScreen,
-    TERMINAL, WEB_APP_MANAGER, WEB_APP_VIEWER
+    TERMINAL, WEB_APP_MANAGER, WEB_APP_VIEWER, COPY_PROGRESS
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Copy/Move engine — single shared implementation used by both Desktop
+// and File Explorer (previously each did its own synchronous, non-
+// recursive, no-progress File.copyTo() on the main thread).
+// ─────────────────────────────────────────────────────────────────
+enum class CopyOpType { COPY, MOVE }
+enum class CopyJobStatus { SCANNING, RUNNING, DONE, ERROR, CANCELLED }
+
+data class CopyJob(
+    val id: String = UUID.randomUUID().toString(),
+    val operation: CopyOpType,
+    val sourceNames: List<String>,
+    val destDir: String,
+    val totalBytes: Long = 0L,
+    val copiedBytes: Long = 0L,
+    val totalFiles: Int = 0,
+    val filesDone: Int = 0,
+    val currentFileName: String = "",
+    val status: CopyJobStatus = CopyJobStatus.SCANNING,
+    val speedBytesPerSec: Long = 0L,
+    val error: String? = null,
+    val startTime: Long = System.currentTimeMillis()
+)
+
+// ─────────────────────────────────────────────────────────────────
+// Background effects — desktop particle animations + live wallpapers.
+// Mutually exclusive: turning on a live wallpaper clears any active
+// particle animations (both driving the same background layer at once
+// would fight visually and cost battery for no benefit).
+// ─────────────────────────────────────────────────────────────────
+enum class BgAnimationType {
+    SNOW, BUBBLES, STARS, RAIN, HEARTS, CONFETTI, FIREFLIES, LEAVES, MATRIX, SAKURA
+}
+
+enum class LiveWallpaperType { NONE, AURORA, NEBULA, WAVES, BOKEH }
+
+data class BackgroundEffectsState(
+    val activeAnimations: Set<BgAnimationType> = emptySet(),  // multiple = "mix" mode
+    val intensity: Int = 50,                                   // 10-100
+    val liveWallpaper: LiveWallpaperType = LiveWallpaperType.NONE
+)
+
+data class UndoAction(
+    val label: String,
+    val perform: suspend () -> Unit
+)
 
 // Added: iconKey so the taskbar/title-bar can show the right icon without
 // importing Compose material icons into the ViewModel layer.
@@ -82,7 +131,11 @@ data class WindowState(
     val title: String = "",
     val id: String = UUID.randomUUID().toString(),
     val extras: Map<String, String> = emptyMap(),
-    val iconKey: String = ""
+    val iconKey: String = "",
+    // Path (relative to context.filesDir) to a real bitmap icon — e.g. a fetched
+    // favicon for a web app. When present, taskbar/title-bar render this bitmap
+    // instead of looking iconKey up in the fixed Material-icon set.
+    val customIconPath: String? = null
 )
 
 object WindowIconKey {
@@ -101,6 +154,10 @@ object WindowIconKey {
     const val PremiumTextEditorScreen = ""
     const val TERMINAL        = "terminal"
     const val WEB_APP_MANAGER = "language"
+    // Fallback glyph for a web app window when it has no customIconPath yet
+    // (e.g. favicon fetch failed) — grouping key is "webapp:<id>", this is just the glyph.
+    const val WEB_APP          = "web_app"
+    const val COPY_PROGRESS    = "copy"
 }
 
 data class RealNotification(
@@ -149,6 +206,12 @@ data class LauncherUiState(
     val installedApps: List<AppInfo> = emptyList(),
     val pinnedTaskbarApps: List<AppInfo> = emptyList(),
     val desktopFiles: List<DesktopFileInfo> = emptyList(),
+    val desktopRefreshTick: Int = 0,
+    val copyJobs: List<CopyJob> = emptyList(),
+    val clipboardFiles: List<String> = emptyList(),   // absolute paths — unified across Desktop + File Explorer
+    val clipboardCut: Boolean = false,
+    val undoAction: UndoAction? = null,
+    val backgroundEffects: BackgroundEffectsState = BackgroundEffectsState(),
     val systemDesktopItems: List<DesktopFileInfo> = emptyList(),
     val openWindows: List<WindowState> = emptyList(),
     val activeWindowId: String? = null,
@@ -319,11 +382,68 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         desktopDir.mkdirs()
         loadPersistedData()
         loadInstalledApps()
+        loadInstalledWebApps()
+        loadBackgroundEffects()
         startClock()
         startBatteryMonitor()
         initSystemDesktopItems()
         refreshDesktopFiles()
+        startDesktopObserver()
         checkNotificationListenerPermission()
+    }
+
+    private fun loadInstalledWebApps() {
+        val loaded = com.bluebird.ui.components.WebAppPreferences(getApplication()).load()
+        _uiState.value = _uiState.value.copy(installedWebApps = loaded)
+    }
+
+    // ─── Background effects (particle animations + live wallpapers) ───
+
+    private fun loadBackgroundEffects() {
+        val json = prefs.getString("bg_effects", null) ?: return
+        try {
+            val loaded = gson.fromJson(json, BackgroundEffectsState::class.java)
+            if (loaded != null) _uiState.value = _uiState.value.copy(backgroundEffects = loaded)
+        } catch (_: Exception) { /* keep default */ }
+    }
+
+    private fun saveBackgroundEffects() {
+        prefs.edit().putString("bg_effects", gson.toJson(_uiState.value.backgroundEffects)).apply()
+    }
+
+    fun toggleBgAnimation(type: BgAnimationType) {
+        val current = _uiState.value.backgroundEffects
+        val updated = if (type in current.activeAnimations) current.activeAnimations - type
+                      else current.activeAnimations + type
+        _uiState.value = _uiState.value.copy(
+            backgroundEffects = current.copy(activeAnimations = updated, liveWallpaper = LiveWallpaperType.NONE)
+        )
+        saveBackgroundEffects()
+    }
+
+    fun clearBgAnimations() {
+        val current = _uiState.value.backgroundEffects
+        _uiState.value = _uiState.value.copy(backgroundEffects = current.copy(activeAnimations = emptySet()))
+        saveBackgroundEffects()
+    }
+
+    fun setBgAnimationIntensity(value: Int) {
+        val current = _uiState.value.backgroundEffects
+        _uiState.value = _uiState.value.copy(backgroundEffects = current.copy(intensity = value.coerceIn(10, 100)))
+        saveBackgroundEffects()
+    }
+
+    /** Enabling a live wallpaper (anything but NONE) clears particle animations — the two
+     *  are mutually exclusive so they never fight for the same background layer. */
+    fun setLiveWallpaper(type: LiveWallpaperType) {
+        val current = _uiState.value.backgroundEffects
+        _uiState.value = _uiState.value.copy(
+            backgroundEffects = current.copy(
+                liveWallpaper    = type,
+                activeAnimations = if (type != LiveWallpaperType.NONE) emptySet() else current.activeAnimations
+            )
+        )
+        saveBackgroundEffects()
     }
 
     // ─── Persistence ─────────────────────────────────────────────────────────
@@ -831,33 +951,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun refreshDesktopFiles() {
         viewModelScope.launch(Dispatchers.IO) {
             val files  = desktopDir.listFiles()?.toList() ?: emptyList()
+            // Delegates to the same parser the Desktop screen uses, so this list
+            // (consumed by File Explorer / anything else reading uiState.desktopFiles)
+            // can never disagree with what's actually drawn on the desktop.
             val loaded = files.mapNotNull { file ->
-                try {
-                    when {
-                        file.isDirectory -> DesktopFileInfo(
-                            id = file.absolutePath, file = file,
-                            name = file.name, type = DesktopItemType.FOLDER, iconBitmap = null
-                        )
-                        file.name.endsWith(".desktop") -> {
-                            val lines = file.readLines()
-                            val pkg   = lines.find { it.startsWith("package=") }?.removePrefix("package=") ?: ""
-                            val label = lines.find { it.startsWith("label=") }?.removePrefix("label=")
-                                ?: file.nameWithoutExtension
-                            val iconBitmap = try {
-                                val pm = getApplication<Application>().packageManager
-                                (pm.getApplicationIcon(pkg) as? BitmapDrawable)?.bitmap
-                            } catch (e: Exception) { null }
-                            DesktopFileInfo(
-                                id = file.absolutePath, file = file, name = label,
-                                type = DesktopItemType.APP_SHORTCUT, packageName = pkg, iconBitmap = iconBitmap
-                            )
-                        }
-                        else -> DesktopFileInfo(
-                            id = file.absolutePath, file = file,
-                            name = file.name, type = DesktopItemType.OTHER_FILE, iconBitmap = null
-                        )
-                    }
-                } catch (e: Exception) { null }
+                com.bluebird.ui.components.loadDesktopFileInfo(file, getApplication())
             }
 
             val positionsJson = prefs.getString("desktop_positions", "{}") ?: "{}"
@@ -871,9 +969,48 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 if (pos != null) item.copy(position = Offset(pos.first, pos.second)) else item
             }
             withContext(Dispatchers.Main) {
-                _uiState.value = _uiState.value.copy(desktopFiles = positioned)
+                _uiState.value = _uiState.value.copy(
+                    desktopFiles      = positioned,
+                    // Bumped on every completed refresh so observers (the desktop-icon
+                    // "refresh" flicker) can react to a real change without keeping their
+                    // own separate file-watching logic.
+                    desktopRefreshTick = _uiState.value.desktopRefreshTick + 1
+                )
             }
         }
+    }
+
+    private var desktopObserver: FileObserver? = null
+    private var desktopRefreshPending = false
+
+    /**
+     * Single, ViewModel-owned watcher for the Desktop folder — the one place file-system
+     * changes get detected and turned into a refreshDesktopFiles() call. Previously the
+     * Desktop screen kept its own separate FileObserver + full local file list; now it (and
+     * anything else — File Explorer, Recycle Bin) all read the same live uiState.desktopFiles.
+     */
+    private fun startDesktopObserver() {
+        desktopObserver?.stopWatching()
+        desktopDir.mkdirs()
+        desktopObserver = object : FileObserver(
+            desktopDir.absolutePath,
+            CREATE or DELETE or MOVED_FROM or MOVED_TO or CLOSE_WRITE
+        ) {
+            override fun onEvent(event: Int, path: String?) {
+                if (desktopRefreshPending) return
+                desktopRefreshPending = true
+                viewModelScope.launch {
+                    delay(120)
+                    desktopRefreshPending = false
+                    refreshDesktopFiles()
+                }
+            }
+        }.also { it.startWatching() }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        desktopObserver?.stopWatching()
     }
 
     fun createDesktopFolder(name: String) {
@@ -977,6 +1114,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 }
             } catch (e: Exception) { e.printStackTrace() }
         }
+    }
+
+    /** Restores by the file's original path — for undo, where the recycle bin's
+     *  internal UUID (assigned only after the async delete completes) isn't known
+     *  to the caller yet at the time the undo action is captured. */
+    fun restoreFromRecycleBinByOriginalPath(originalPath: String) {
+        val item = _uiState.value.recycleBinItems.find { it.originalPath == originalPath } ?: return
+        restoreFromRecycleBin(item.id)
     }
 
     fun restoreFromRecycleBin(itemId: String) {
@@ -1165,10 +1310,22 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     // ─── Windows ─────────────────────────────────────────────────────────────
-    fun openWindow(screen: LauncherScreen, extras: Map<String, String> = emptyMap()) {
+    fun openWindow(
+        screen: LauncherScreen,
+        extras: Map<String, String> = emptyMap(),
+        customIconPath: String? = null
+    ) {
         dismissAllOverlays()
-        // If a window for this screen already exists, restore + focus it (handles minimized case)
-        val existing = _uiState.value.openWindows.find { it.screen == screen && it.extras == extras }
+        // If a window for this screen already exists, restore + focus it (handles minimized case).
+        // Web apps match on webAppId specifically, since the same app can be reopened via the
+        // Desktop shortcut or the Web App Manager with slightly different extras.
+        val existing = _uiState.value.openWindows.find {
+            if (screen == LauncherScreen.WEB_APP_VIEWER && it.screen == LauncherScreen.WEB_APP_VIEWER) {
+                it.extras["webAppId"] == extras["webAppId"]
+            } else {
+                it.screen == screen && it.extras == extras
+            }
+        }
         if (existing != null) {
             restoreWindow(existing.id)
             return
@@ -1178,7 +1335,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
             LauncherScreen.PremiumTextEditorScreen      -> "Text Editor"
             LauncherScreen.SETTINGS      -> "Settings"
-            LauncherScreen.FILE_EXPLORER -> "File Explorer"
+            LauncherScreen.FILE_EXPLORER -> extras["path"]?.let { File(it).name.ifBlank { "File Explorer" } } ?: "File Explorer"
             LauncherScreen.BROWSER       -> "Bluebird Surfer Browser"
             LauncherScreen.TASK_MANAGER  -> "Task Manager"
             LauncherScreen.CALCULATOR    -> "Calculator"
@@ -1197,7 +1354,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
 
         val iconKey = when (screen) {
-            LauncherScreen.WEB_APP_VIEWER -> WindowIconKey.WEB_APP_MANAGER
+            // Unique per web app (not the generic manager icon) so each installed
+            // web app groups/stacks independently on the taskbar.
+            LauncherScreen.WEB_APP_VIEWER -> "webapp:${extras["webAppId"] ?: "unknown"}"
             LauncherScreen.PremiumTextEditorScreen   -> WindowIconKey.PremiumTextEditorScreen
             LauncherScreen.SETTINGS      -> WindowIconKey.SETTINGS
             LauncherScreen.FILE_EXPLORER -> WindowIconKey.FILE_EXPLORER
@@ -1219,7 +1378,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             else                         -> ""
         }
 
-        val window  = WindowState(screen = screen, title = title, extras = extras, iconKey = iconKey)
+        val window  = WindowState(
+            screen = screen, title = title, extras = extras,
+            iconKey = iconKey, customIconPath = customIconPath
+        )
         val current = _uiState.value.openWindows.toMutableList()
         current.add(window)
         _uiState.value = _uiState.value.copy(openWindows = current, activeWindowId = window.id)
@@ -1317,7 +1479,338 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         "txt"                                        -> "text/plain"
         "html", "htm"                                -> "text/html"
         "apk"                                        -> "application/vnd.android.package-archive"
+        "desktop"                                    -> "application/x-bluebird-shortcut"
+        "webapp"                                     -> "application/x-bluebird-webapp"
         else                                         -> "*/*"
+    }
+
+    // ─── Web Apps ──────────────────────────────────────────────────────────────
+
+    /** Opens (or focuses) a web app in its own internal window, with its own taskbar entry. */
+    fun openWebAppWindow(id: String, name: String, url: String, iconPath: String?) {
+        // Prefer the full installed-app record (has htmlContent/isCustom/emoji/accent) when
+        // it's still registered — e.g. opening via the Desktop .webapp shortcut only carries
+        // id/name/url/iconPath, but the app may still be fully known to the manager.
+        val known = _uiState.value.installedWebApps.find { it.id == id }
+        val extras = if (known != null) mapOf(
+            "webAppId" to known.id, "webAppName" to known.name, "webAppUrl" to known.url,
+            "webAppHtml" to known.htmlContent, "webAppCustom" to known.isCustom.toString(),
+            "webAppEmoji" to known.iconEmoji, "webAppIcon" to known.iconPath,
+            "webAppAccent" to known.accentColor.toString()
+        ) else mapOf(
+            "webAppId" to id, "webAppName" to name, "webAppUrl" to url,
+            "webAppIcon" to (iconPath ?: "")
+        )
+        openWindow(
+            screen = LauncherScreen.WEB_APP_VIEWER,
+            extras = extras,
+            customIconPath = (known?.iconPath ?: iconPath)?.ifBlank { null }
+        )
+    }
+
+    /**
+     * Installs a web app: saves the (already-fetched) real favicon once under a
+     * stable id-keyed filename, writes a real `.webapp` shortcut file onto the
+     * Desktop so File Explorer / Desktop / Recycle Bin all see the same object,
+     * and registers it with WebAppPreferences so it still shows in the Web App
+     * Manager grid even if the desktop shortcut gets deleted (same relationship
+     * native app shortcuts already have to their real apps).
+     */
+    fun installWebApp(
+        name: String,
+        url: String,
+        favicon: Bitmap?,
+        accentColor: Long,
+        isCustom: Boolean = false,
+        htmlContent: String = ""
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val id = UUID.randomUUID().toString()
+            var iconRelPath: String? = null
+
+            if (favicon != null) {
+                try {
+                    val iconDir = File(getApplication<Application>().filesDir, "webapp_icons")
+                    iconDir.mkdirs()
+                    val iconFile = File(iconDir, "$id.png")
+                    iconFile.outputStream().use { out ->
+                        favicon.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                    iconRelPath = "webapp_icons/${id}.png"
+                } catch (_: Exception) { /* falls back to no icon */ }
+            }
+
+            // Real shortcut file on the Desktop — what makes this a first-class,
+            // File-Explorer-visible object instead of just a preferences entry.
+            var safeLabel = name.replace("/", "_").ifBlank { "Web App" }
+            var shortcutFile = File(desktopDir, "$safeLabel.webapp")
+            var count = 1
+            while (shortcutFile.exists()) {
+                shortcutFile = File(desktopDir, "$safeLabel (${count++}).webapp")
+            }
+            try {
+                shortcutFile.writeText(
+                    buildString {
+                        append("type=webapp\n")
+                        append("id=$id\n")
+                        append("name=$name\n")
+                        append("url=$url\n")
+                        if (iconRelPath != null) append("icon=$iconRelPath\n")
+                    }
+                )
+            } catch (_: Exception) { /* non-fatal — app still installs below */ }
+
+            val app = com.bluebird.ui.components.InstalledWebApp(
+                id = id, name = name, url = url, iconPath = iconRelPath ?: "",
+                accentColor = accentColor, isCustom = isCustom, htmlContent = htmlContent
+            )
+            val webPrefs = com.bluebird.ui.components.WebAppPreferences(getApplication())
+            val updated  = webPrefs.load() + app
+            webPrefs.save(updated)
+
+            withContext(Dispatchers.Main) {
+                _uiState.value = _uiState.value.copy(installedWebApps = updated)
+                refreshDesktopFiles()
+            }
+        }
+    }
+
+    /** Removes a web app from the manager, its Desktop shortcut(s), and its cached favicon. */
+    fun uninstallWebApp(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val webPrefs = com.bluebird.ui.components.WebAppPreferences(getApplication())
+            val updated  = webPrefs.load().filter { it.id != id }
+            webPrefs.save(updated)
+
+            try {
+                desktopDir.listFiles { f -> f.extension.equals("webapp", ignoreCase = true) }
+                    ?.forEach { f ->
+                        val fileId = f.readLines().find { it.startsWith("id=") }?.removePrefix("id=")?.trim()
+                        if (fileId == id) f.delete()
+                    }
+                File(getApplication<Application>().filesDir, "webapp_icons/$id.png").delete()
+            } catch (_: Exception) { /* best-effort cleanup */ }
+
+            withContext(Dispatchers.Main) {
+                _uiState.value = _uiState.value.copy(installedWebApps = updated)
+                refreshDesktopFiles()
+            }
+        }
+    }
+
+    // ─── Unified clipboard — replaces Desktop's and File Explorer's separate,
+    //     incompatible clipboards (one held a list, the other only a single file) ───
+
+    fun setClipboard(files: List<File>, cut: Boolean) {
+        _uiState.value = _uiState.value.copy(
+            clipboardFiles = files.map { it.absolutePath },
+            clipboardCut   = cut
+        )
+    }
+
+    fun clearClipboard() {
+        _uiState.value = _uiState.value.copy(clipboardFiles = emptyList(), clipboardCut = false)
+    }
+
+    fun pasteClipboard(destDir: File) {
+        val state = _uiState.value
+        if (state.clipboardFiles.isEmpty()) return
+        val files = state.clipboardFiles.map { File(it) }.filter { it.exists() }
+        val wasCut = state.clipboardCut
+        enqueueFileOperation(files, destDir, isCut = wasCut)
+        if (wasCut) clearClipboard()
+    }
+
+    // ─── Copy/Move engine ──────────────────────────────────────────────────────
+    // Single implementation for both Desktop and File Explorer: recursive (handles
+    // folders), byte-progress reported live, cancelable, and an instant same-volume
+    // rename fast path for moves (matches real-OS behavior — no progress bar needed
+    // for a move that's really just a rename).
+
+    private val cancelledJobIds = mutableSetOf<String>()
+    private var undoDismissJob: kotlinx.coroutines.Job? = null
+
+    fun enqueueFileOperation(sources: List<File>, destDir: File, isCut: Boolean) {
+        if (sources.isEmpty()) return
+        val job = CopyJob(
+            operation   = if (isCut) CopyOpType.MOVE else CopyOpType.COPY,
+            sourceNames = sources.map { it.name },
+            destDir     = destDir.absolutePath
+        )
+        _uiState.value = _uiState.value.copy(copyJobs = _uiState.value.copyJobs + job)
+        if (_uiState.value.openWindows.none { it.screen == LauncherScreen.COPY_PROGRESS }) {
+            openWindow(LauncherScreen.COPY_PROGRESS)
+        }
+        viewModelScope.launch(Dispatchers.IO) { runCopyJob(job.id, sources, destDir, isCut) }
+    }
+
+    fun cancelCopyJob(id: String) { cancelledJobIds.add(id) }
+
+    fun dismissCopyJob(id: String) {
+        val remaining = _uiState.value.copyJobs.filter { it.id != id }
+        _uiState.value = _uiState.value.copy(copyJobs = remaining)
+        if (remaining.isEmpty()) {
+            _uiState.value.openWindows.find { it.screen == LauncherScreen.COPY_PROGRESS }
+                ?.let { closeWindow(it.id) }
+        }
+    }
+
+    private fun updateJob(id: String, transform: (CopyJob) -> CopyJob) {
+        _uiState.value = _uiState.value.copy(
+            copyJobs = _uiState.value.copyJobs.map { if (it.id == id) transform(it) else it }
+        )
+    }
+
+    private fun uniqueDestName(destDir: File, name: String): String {
+        if (!File(destDir, name).exists()) return name
+        val dot  = name.lastIndexOf('.')
+        val base = if (dot > 0) name.substring(0, dot) else name
+        val ext  = if (dot > 0) name.substring(dot) else ""
+        var i = 1
+        while (File(destDir, "$base ($i)$ext").exists()) i++
+        return "$base ($i)$ext"
+    }
+
+    private suspend fun runCopyJob(jobId: String, sources: List<File>, destDir: File, isCut: Boolean) {
+        try {
+            var totalBytes = 0L
+            var totalFiles = 0
+            sources.forEach { src ->
+                src.walkTopDown().forEach { f -> if (f.isFile) { totalBytes += f.length(); totalFiles++ } }
+            }
+            updateJob(jobId) { it.copy(totalBytes = totalBytes, totalFiles = totalFiles, status = CopyJobStatus.RUNNING) }
+
+            var copiedBytes = 0L
+            var filesDone   = 0
+            var lastUpdate  = System.currentTimeMillis()
+            var lastBytesForSpeed = 0L
+            val undoList = mutableListOf<Pair<File, File>>()  // (dest, originalSource)
+
+            fun copyFileWithProgress(from: File, to: File) {
+                to.parentFile?.mkdirs()
+                from.inputStream().use { input ->
+                    to.outputStream().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var read: Int
+                        while (input.read(buffer).also { read = it } != -1) {
+                            if (jobId in cancelledJobIds) throw java.io.IOException("cancelled")
+                            output.write(buffer, 0, read)
+                            copiedBytes += read
+                            val now = System.currentTimeMillis()
+                            if (now - lastUpdate > 150) {
+                                val speed = (copiedBytes - lastBytesForSpeed) * 1000 / (now - lastUpdate).coerceAtLeast(1)
+                                lastBytesForSpeed = copiedBytes
+                                lastUpdate = now
+                                updateJob(jobId) {
+                                    it.copy(copiedBytes = copiedBytes, currentFileName = from.name, speedBytesPerSec = speed)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            for (src in sources) {
+                if (jobId in cancelledJobIds) break
+                val destTarget = File(destDir, uniqueDestName(destDir, src.name))
+
+                // Fast path: same-volume move is a pure rename — instant, no byte copy needed.
+                if (isCut && src.renameTo(destTarget)) {
+                    undoList.add(destTarget to src)
+                    var srcBytes = 0L; var srcCount = 0
+                    destTarget.walkTopDown().forEach { f -> if (f.isFile) { srcBytes += f.length(); srcCount++ } }
+                    copiedBytes += srcBytes
+                    filesDone   += srcCount
+                    updateJob(jobId) { it.copy(copiedBytes = copiedBytes, filesDone = filesDone, currentFileName = src.name) }
+                    continue
+                }
+
+                try {
+                    if (src.isDirectory) {
+                        src.walkTopDown().forEach { f ->
+                            if (jobId in cancelledJobIds) return@forEach
+                            val rel = f.relativeTo(src)
+                            val out = File(destTarget, rel.path)
+                            if (f.isDirectory) out.mkdirs() else { copyFileWithProgress(f, out); filesDone++ }
+                        }
+                    } else {
+                        copyFileWithProgress(src, destTarget)
+                        filesDone++
+                    }
+                    if (jobId !in cancelledJobIds) {
+                        undoList.add(destTarget to src)
+                        if (isCut) src.deleteRecursively()
+                    }
+                } catch (ce: java.io.IOException) {
+                    if (jobId in cancelledJobIds) { destTarget.deleteRecursively(); break } else throw ce
+                }
+                updateJob(jobId) { it.copy(filesDone = filesDone, copiedBytes = copiedBytes) }
+            }
+
+            val cancelled = jobId in cancelledJobIds
+            cancelledJobIds.remove(jobId)
+            updateJob(jobId) {
+                it.copy(
+                    status      = if (cancelled) CopyJobStatus.CANCELLED else CopyJobStatus.DONE,
+                    copiedBytes = copiedBytes, filesDone = filesDone
+                )
+            }
+
+            if (!cancelled && undoList.isNotEmpty()) {
+                val verb  = if (isCut) "Moved" else "Copied"
+                val label = if (sources.size == 1) "$verb \"${sources[0].name}\"" else "$verb ${sources.size} items"
+                showUndoAction(label) {
+                    undoList.forEach { (dest, originalSrc) ->
+                        if (isCut) {
+                            if (!dest.renameTo(originalSrc)) {
+                                dest.copyRecursively(originalSrc, overwrite = true)
+                                dest.deleteRecursively()
+                            }
+                        } else {
+                            dest.deleteRecursively()
+                        }
+                    }
+                    refreshDesktopFiles()
+                }
+            }
+
+            withContext(Dispatchers.Main) { refreshDesktopFiles() }
+
+            delay(3000)
+            if (_uiState.value.copyJobs.any { it.id == jobId && it.status != CopyJobStatus.RUNNING }) {
+                dismissCopyJob(jobId)
+            }
+        } catch (e: Exception) {
+            updateJob(jobId) { it.copy(status = CopyJobStatus.ERROR, error = e.message ?: "Copy failed") }
+        }
+    }
+
+    // ─── Undo toast — a few seconds to reverse the last move/copy/delete ───
+
+    fun showUndoAction(label: String, action: suspend () -> Unit) {
+        undoDismissJob?.cancel()
+        _uiState.value = _uiState.value.copy(undoAction = UndoAction(label, action))
+        undoDismissJob = viewModelScope.launch {
+            delay(5000)
+            if (_uiState.value.undoAction?.label == label) {
+                _uiState.value = _uiState.value.copy(undoAction = null)
+            }
+        }
+    }
+
+    fun performUndo() {
+        val action = _uiState.value.undoAction ?: return
+        _uiState.value = _uiState.value.copy(undoAction = null)
+        undoDismissJob?.cancel()
+        viewModelScope.launch(Dispatchers.IO) {
+            action.perform()
+            withContext(Dispatchers.Main) { refreshDesktopFiles() }
+        }
+    }
+
+    fun dismissUndo() {
+        undoDismissJob?.cancel()
+        _uiState.value = _uiState.value.copy(undoAction = null)
     }
 
     // ─── Theme & Appearance ───────────────────────────────────────────────────

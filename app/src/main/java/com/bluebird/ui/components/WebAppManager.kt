@@ -3,33 +3,83 @@ package com.bluebird.ui.components
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Bitmap
-import android.webkit.*
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -39,10 +89,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.*
+import java.net.URL
+import java.util.UUID
 
 // ─────────────────────────────────────────────────────────────────
 // Data model
@@ -52,6 +106,7 @@ data class InstalledWebApp(
     val name: String,
     val url: String,            // https://… OR "file://custom" for custom apps
     val iconEmoji: String  = "🌐",
+    val iconPath: String   = "",       // real fetched favicon, relative to context.filesDir; "" = use iconEmoji
     val accentColor: Long  = 0xFF0078D4,
     val isCustom: Boolean  = false,   // written in HTML/CSS/JS
     val htmlContent: String = "",      // only used when isCustom = true
@@ -73,6 +128,7 @@ class WebAppPreferences(context: Context) {
                 put("name",         app.name)
                 put("url",          app.url)
                 put("iconEmoji",    app.iconEmoji)
+                put("iconPath",     app.iconPath)
                 put("accentColor",  app.accentColor)
                 put("isCustom",     app.isCustom)
                 put("htmlContent",  app.htmlContent)
@@ -93,6 +149,7 @@ class WebAppPreferences(context: Context) {
                     name        = o.getString("name"),
                     url         = o.getString("url"),
                     iconEmoji   = o.optString("iconEmoji", "🌐"),
+                    iconPath    = o.optString("iconPath", ""),
                     accentColor = o.optLong("accentColor", 0xFF0078D4L),
                     isCustom    = o.optBoolean("isCustom", false),
                     htmlContent = o.optString("htmlContent", ""),
@@ -148,16 +205,35 @@ private const val CUSTOM_APP_TEMPLATE = """<!DOCTYPE html>
 </html>"""
 
 // ─────────────────────────────────────────────────────────────────
+// Real favicon fetch — pulls the site's actual icon (via a favicon
+// resolver service, since parsing arbitrary HTML for <link rel=icon>
+// is unreliable) rather than ever fabricating one. Returns null on
+// any failure so callers fall back to the user-picked emoji.
+// ─────────────────────────────────────────────────────────────────
+suspend fun fetchRealFavicon(siteUrl: String): Bitmap? = withContext(Dispatchers.IO) {
+    try {
+        val host = Uri.parse(siteUrl).host ?: return@withContext null
+        val faviconUrl = "https://www.google.com/s2/favicons?sz=128&domain=$host"
+        (URL(faviconUrl).openConnection()).run {
+            connectTimeout = 6000
+            readTimeout    = 6000
+            getInputStream().use { BitmapFactory.decodeStream(it) }
+        }
+    } catch (_: Exception) { null }
+}
+
+// ─────────────────────────────────────────────────────────────────
 // WebAppManagerScreen — the "app store" / install interface
 // ─────────────────────────────────────────────────────────────────
 @Composable
 fun WebAppManagerScreen(
     isDark: Boolean,
+    viewModel: com.bluebird.LauncherViewModel,
     onLaunchApp: (InstalledWebApp) -> Unit
 ) {
-    val context  = LocalContext.current
-    val prefs    = remember { WebAppPreferences(context) }
-    val scope    = rememberCoroutineScope()
+    val context   = LocalContext.current
+    val scope     = rememberCoroutineScope()
+    val uiState   by viewModel.uiState.collectAsStateWithLifecycle()
 
     val bg       = if (isDark) Color(0xFF0F0F0F) else Color(0xFFF5F5F5)
     val surface  = if (isDark) Color(0xFF1A1A1A) else Color.White
@@ -165,12 +241,13 @@ fun WebAppManagerScreen(
     val tcDim    = if (isDark) Color(0xFF888888) else Color(0xFF666666)
     val accent   = Color(0xFF0078D4)
 
-    var apps          by remember { mutableStateOf(prefs.load()) }
+    // Single source of truth is the ViewModel (backed by WebAppPreferences +
+    // the real .webapp files on Desktop) — no separate local copy to drift.
+    val apps          = uiState.installedWebApps
     var showInstall   by remember { mutableStateOf(false) }
     var showCustom    by remember { mutableStateOf(false) }
+    var isInstalling  by remember { mutableStateOf(false) }
     var deleteTarget  by remember { mutableStateOf<InstalledWebApp?>(null) }
-
-    fun saveApps(list: List<InstalledWebApp>) { apps = list; prefs.save(list) }
 
     Column(
         modifier = Modifier
@@ -256,9 +333,24 @@ fun WebAppManagerScreen(
     // ── Install from URL dialog ──────────────────────────────────
     if (showInstall) {
         InstallFromUrlDialog(
-            isDark    = isDark,
-            onInstall = { newApp -> saveApps(apps + newApp); showInstall = false },
-            onDismiss = { showInstall = false }
+            isDark       = isDark,
+            isInstalling = isInstalling,
+            onInstall    = { newApp ->
+                isInstalling = true
+                scope.launch {
+                    val favicon = fetchRealFavicon(newApp.url)
+                    viewModel.installWebApp(
+                        name        = newApp.name,
+                        url         = newApp.url,
+                        favicon     = favicon,
+                        accentColor = newApp.accentColor,
+                        isCustom    = false
+                    )
+                    isInstalling = false
+                    showInstall  = false
+                }
+            },
+            onDismiss = { if (!isInstalling) showInstall = false }
         )
     }
 
@@ -266,7 +358,17 @@ fun WebAppManagerScreen(
     if (showCustom) {
         CustomAppEditorDialog(
             isDark    = isDark,
-            onSave    = { newApp -> saveApps(apps + newApp); showCustom = false },
+            onSave    = { newApp ->
+                viewModel.installWebApp(
+                    name        = newApp.name,
+                    url         = newApp.url,
+                    favicon     = null,
+                    accentColor = newApp.accentColor,
+                    isCustom    = true,
+                    htmlContent = newApp.htmlContent
+                )
+                showCustom = false
+            },
             onDismiss = { showCustom = false }
         )
     }
@@ -280,7 +382,7 @@ fun WebAppManagerScreen(
             text  = { Text("This will remove the app and all its data.", color = if (isDark) Color(0xFFAAAAAA) else Color(0xFF555555)) },
             confirmButton = {
                 Button(
-                    onClick = { saveApps(apps.filter { it.id != app.id }); deleteTarget = null },
+                    onClick = { viewModel.uninstallWebApp(app.id); deleteTarget = null },
                     colors  = ButtonDefaults.buttonColors(containerColor = Color(0xFFE81123))
                 ) { Text("Uninstall") }
             },
@@ -323,7 +425,7 @@ private fun WebAppTile(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Icon circle with accent colour
+                // Icon circle with accent colour — real favicon when we have one, emoji as fallback
                 Box(
                     modifier = Modifier
                         .size(52.dp)
@@ -331,7 +433,26 @@ private fun WebAppTile(
                         .border(1.dp, accent.copy(0.3f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(app.iconEmoji, fontSize = 22.sp)
+                    val context = LocalContext.current
+                    val favicon by produceState<Bitmap?>(initialValue = null, app.iconPath) {
+                        value = if (app.iconPath.isNotBlank()) {
+                            withContext(Dispatchers.IO) {
+                                try {
+                                    val f = java.io.File(context.filesDir, app.iconPath)
+                                    if (f.exists()) BitmapFactory.decodeFile(f.absolutePath) else null
+                                } catch (_: Exception) { null }
+                            }
+                        } else null
+                    }
+                    if (favicon != null) {
+                        Image(
+                            bitmap = favicon!!.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.size(30.dp).clip(RoundedCornerShape(6.dp))
+                        )
+                    } else {
+                        Text(app.iconEmoji, fontSize = 22.sp)
+                    }
                 }
 
                 Text(
@@ -397,6 +518,7 @@ private fun WebAppTile(
 @Composable
 private fun InstallFromUrlDialog(
     isDark: Boolean,
+    isInstalling: Boolean = false,
     onInstall: (InstalledWebApp) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -518,6 +640,7 @@ private fun InstallFromUrlDialog(
         },
         confirmButton = {
             Button(
+                enabled = !isInstalling,
                 onClick = {
                     if (validate()) {
                         onInstall(InstalledWebApp(
@@ -530,9 +653,17 @@ private fun InstallFromUrlDialog(
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0078D4))
-            ) { Text("Install", fontWeight = FontWeight.SemiBold) }
+            ) {
+                if (isInstalling) {
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Fetching icon…", fontWeight = FontWeight.SemiBold)
+                } else {
+                    Text("Install", fontWeight = FontWeight.SemiBold)
+                }
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(enabled = !isInstalling, onClick = onDismiss) { Text("Cancel") } }
     )
 }
 

@@ -44,6 +44,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.bluebird.LauncherViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bluebird.ui.theme.Win11Colors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -79,6 +80,8 @@ fun getFileIcon(item: RealFileItem): ImageVector = when {
     item.extension in listOf("xls", "xlsx") -> Icons.Default.TableChart
     item.extension in listOf("ppt", "pptx") -> Icons.Default.Slideshow
     item.extension in listOf("html", "htm") -> Icons.Default.Code
+    item.extension == "webapp" -> Icons.Default.Public
+    item.extension == "desktop" -> Icons.Default.Apps
     else -> Icons.Default.InsertDriveFile
 }
 
@@ -91,6 +94,8 @@ fun getFileIconColor(item: RealFileItem): Color = when {
     item.extension == "apk" -> Color(0xFF4CAF50)
     item.extension in listOf("doc", "docx") -> Color(0xFF2196F3)
     item.extension in listOf("xls", "xlsx") -> Color(0xFF4CAF50)
+    item.extension == "webapp" -> Color(0xFF0078D4)
+    item.extension == "desktop" -> Color(0xFF0078D4)
     else -> Color(0xFF9E9E9E)
 }
 
@@ -175,7 +180,7 @@ private class FileExplorerState(initialDir: File) {
     var showDeleteDialog by mutableStateOf(false)
     var renameTarget by mutableStateOf<RealFileItem?>(null)
     var showNewFolderDialog by mutableStateOf(false)
-    var clipboardFile by mutableStateOf<Pair<File, Boolean>?>(null)
+    // Clipboard now lives in the ViewModel (shared with Desktop) — see vmUiState.clipboardFiles
     var previewFile by mutableStateOf<RealFileItem?>(null)
 
     fun navigateTo(dir: File) {
@@ -202,8 +207,8 @@ private class FileExplorerState(initialDir: File) {
 }
 
 @Composable
-private fun rememberFileExplorerState(): FileExplorerState {
-    return remember { FileExplorerState(Environment.getExternalStorageDirectory()) }
+private fun rememberFileExplorerState(initialDir: File = Environment.getExternalStorageDirectory()): FileExplorerState {
+    return remember { FileExplorerState(initialDir) }
 }
 
 // ────────────────────────────────────────────────────────
@@ -213,7 +218,10 @@ private fun rememberFileExplorerState(): FileExplorerState {
 @Composable
 fun FileExplorerScreen(
     isDark: Boolean,
-    viewModel: LauncherViewModel? = null
+    viewModel: LauncherViewModel? = null,
+    // Optional starting folder — e.g. when opened by double-clicking a folder on the
+    // Desktop, this is that folder's path instead of always defaulting to the storage root.
+    startPath: String? = null
 ) {
     val context = LocalContext.current
     var hasStoragePermission by remember { mutableStateOf(hasStorageAccess(context)) }
@@ -226,7 +234,11 @@ fun FileExplorerScreen(
         return
     }
 
-    FileExplorerContent(isDark = isDark, viewModel = viewModel)
+    val startDir = remember(startPath) {
+        val f = startPath?.let { File(it) }
+        if (f != null && f.isDirectory) f else Environment.getExternalStorageDirectory()
+    }
+    FileExplorerContent(isDark = isDark, viewModel = viewModel, startDir = startDir)
 }
 
 // ────────────────────────────────────────────────────────
@@ -324,11 +336,15 @@ private fun PermissionGate(
 @Composable
 private fun FileExplorerContent(
     isDark: Boolean,
-    viewModel: LauncherViewModel?
+    viewModel: LauncherViewModel?,
+    startDir: File = Environment.getExternalStorageDirectory()
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val state = rememberFileExplorerState()
+    val state = rememberFileExplorerState(startDir)
+    // Shared clipboard state (same one Desktop reads/writes) — collected here so the
+    // Ribbon's paste button reacts live to a cut/copy made on Desktop or in another window.
+    val vmUiState = viewModel?.uiState?.collectAsStateWithLifecycle()?.value
 
     val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
     val bgColor = if (isDark) Color(0xFF1C1C1C) else Color(0xFFFAFAFA)
@@ -385,6 +401,18 @@ private fun FileExplorerContent(
         loadFiles(state.currentDir)
     }
 
+    // Auto-refresh this folder's listing once a copy/move job that targets it finishes —
+    // paste/copy now runs asynchronously in the shared engine instead of the old
+    // synchronous copyTo() that could refresh inline right after.
+    LaunchedEffect(vmUiState?.copyJobs, state.currentDir) {
+        val justFinished = vmUiState?.copyJobs?.any {
+            it.destDir == state.currentDir.absolutePath &&
+                it.status != com.bluebird.CopyJobStatus.RUNNING &&
+                it.status != com.bluebird.CopyJobStatus.SCANNING
+        } ?: false
+        if (justFinished) loadFiles(state.currentDir)
+    }
+
     // ── Layout ──
     Column(modifier = Modifier.fillMaxSize().background(bgColor)) {
 
@@ -416,26 +444,20 @@ private fun FileExplorerContent(
         Ribbon(
             onNewFolder = { state.showNewFolderDialog = true },
             onCut = {
-                state.selectedFiles.firstOrNull()?.let { path ->
-                    state.clipboardFile = Pair(File(path), true)
+                if (state.selectedFiles.isNotEmpty() && viewModel != null) {
+                    viewModel.setClipboard(state.selectedFiles.map { File(it) }, cut = true)
                 }
             },
             onCopy = {
-                state.selectedFiles.firstOrNull()?.let { path ->
-                    state.clipboardFile = Pair(File(path), false)
+                if (state.selectedFiles.isNotEmpty() && viewModel != null) {
+                    viewModel.setClipboard(state.selectedFiles.map { File(it) }, cut = false)
                 }
             },
             onPaste = {
-                state.clipboardFile?.let { (src, isCut) ->
-                    val dest = File(state.currentDir, src.name)
-                    if (isCut) src.renameTo(dest) else src.copyTo(dest, overwrite = true)
-                    state.clipboardFile = null
-                    loadFiles(state.currentDir)
-                }
+                viewModel?.pasteClipboard(state.currentDir)
             },
             onDelete = {
-                state.selectedFiles.firstOrNull()?.let { path ->
-                    state.contextMenuFile = RealFileItem(File(path))
+                if (state.selectedFiles.isNotEmpty()) {
                     state.showDeleteDialog = true
                 }
             },
@@ -444,7 +466,7 @@ private fun FileExplorerContent(
             onSortChange = { by, asc -> state.sortBy = by; state.sortAscending = asc },
             showHidden = state.showHidden,
             onToggleHidden = { state.showHidden = !state.showHidden },
-            clipboardActive = state.clipboardFile != null,
+            clipboardActive = vmUiState?.clipboardFiles?.isNotEmpty() ?: false,
             textColor = textColor,
             surfaceBg = surfaceBg,
             isDark = isDark,
@@ -613,8 +635,18 @@ private fun FileExplorerDialogs(
                 state.contextMenuFile = null
                 previewOrOpen(fileItem, context, viewModel) { state.previewFile = it }
             },
-            onCopy = { state.clipboardFile = Pair(fileItem.file, false); state.contextMenuFile = null },
-            onCut = { state.clipboardFile = Pair(fileItem.file, true); state.contextMenuFile = null },
+            onCopy = {
+                val targets = if (fileItem.file.absolutePath in state.selectedFiles && state.selectedFiles.size > 1)
+                    state.selectedFiles.map { File(it) } else listOf(fileItem.file)
+                viewModel?.setClipboard(targets, cut = false)
+                state.contextMenuFile = null
+            },
+            onCut = {
+                val targets = if (fileItem.file.absolutePath in state.selectedFiles && state.selectedFiles.size > 1)
+                    state.selectedFiles.map { File(it) } else listOf(fileItem.file)
+                viewModel?.setClipboard(targets, cut = true)
+                state.contextMenuFile = null
+            },
             onRename = { state.renameTarget = fileItem; state.showRenameDialog = true; state.contextMenuFile = null },
             onDelete = { state.showDeleteDialog = true },
             onCreateShortcut = {
@@ -641,12 +673,27 @@ private fun FileExplorerDialogs(
         )
     }
 
-    // Delete Dialog
-    if (state.showDeleteDialog && state.contextMenuFile != null) {
+    // Delete Dialog — deletes the right-clicked file (or the whole multi-selection, if
+    // the right-clicked file is part of it), matching real Explorer's selection semantics.
+    val deleteTargets: List<File> = if (state.showDeleteDialog) {
+        val ctx = state.contextMenuFile
+        if (ctx != null) {
+            if (ctx.file.absolutePath in state.selectedFiles && state.selectedFiles.size > 1)
+                state.selectedFiles.map { File(it) } else listOf(ctx.file)
+        } else {
+            state.selectedFiles.map { File(it) }
+        }
+    } else emptyList()
+
+    if (state.showDeleteDialog && deleteTargets.isNotEmpty()) {
         DeleteDialog(
-            target = state.contextMenuFile!!,
+            targets = deleteTargets,
             onConfirm = {
-                viewModel?.deleteToRecycleBin(state.contextMenuFile!!.file.absolutePath)
+                deleteTargets.forEach { viewModel?.deleteToRecycleBin(it.absolutePath) }
+                val label = if (deleteTargets.size == 1) "Deleted \"${deleteTargets[0].name}\"" else "Deleted ${deleteTargets.size} items"
+                viewModel?.showUndoAction(label) {
+                    deleteTargets.forEach { viewModel.restoreFromRecycleBinByOriginalPath(it.absolutePath) }
+                }
                 state.showDeleteDialog = false
                 state.contextMenuFile = null
                 onReload()
@@ -710,14 +757,19 @@ private fun RenameDialog(
 
 @Composable
 private fun DeleteDialog(
-    target: RealFileItem,
+    targets: List<File>,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Delete") },
-        text = { Text("Move '${target.name}' to Recycle Bin?") },
+        text = {
+            Text(
+                if (targets.size == 1) "Move '${targets[0].name}' to Recycle Bin?"
+                else "Move ${targets.size} items to Recycle Bin?"
+            )
+        },
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text("Delete", color = Win11Colors.DangerRed)
@@ -774,6 +826,16 @@ private fun previewOrOpen(
     if (item.extension in previewExtensions) {
         onPreview(item)
         return
+    }
+    // Shortcut files (native app shortcuts + installed web apps) open internally through
+    // the same shared path Desktop uses, instead of falling through to the system's
+    // "Open with" chooser — this is what makes them behave like real apps from File Explorer.
+    if (viewModel != null && item.extension.lowercase() in setOf("desktop", "webapp")) {
+        val info = com.bluebird.ui.components.loadDesktopFileInfo(item.file, context)
+        if (info != null) {
+            com.bluebird.ui.components.openDesktopItem(info, context, viewModel)
+            return
+        }
     }
     viewModel?.openFileWithSystem(context, item.file.absolutePath) ?: run {
         try {

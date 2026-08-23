@@ -16,6 +16,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DesktopWindows
@@ -100,6 +102,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -112,10 +115,13 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -259,7 +265,30 @@ private fun iconForKey(key: String): ImageVector = when (key) {
     WindowIconKey.PHONE         -> Icons.Default.Phone
     WindowIconKey.MESSAGES      -> Icons.Default.Chat
     WindowIconKey.RECYCLE_BIN   -> Icons.Default.Delete
+    WindowIconKey.WEB_APP       -> Icons.Default.Public
+    WindowIconKey.COPY_PROGRESS -> Icons.Default.ContentCopy
     else                        -> Icons.Default.Window
+}
+
+/**
+ * Resolves a window's real bitmap icon (e.g. a fetched favicon) off the main thread.
+ * Returns null while loading or on any failure/absence, so callers should keep the
+ * Material-icon fallback visible until this resolves.
+ */
+@Composable
+fun rememberWindowBitmapIcon(customIconPath: String?): androidx.compose.ui.graphics.ImageBitmap? {
+    val context = LocalContext.current
+    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, customIconPath) {
+        value = if (!customIconPath.isNullOrBlank()) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val f = java.io.File(context.filesDir, customIconPath)
+                    if (f.exists()) android.graphics.BitmapFactory.decodeFile(f.absolutePath) else null
+                } catch (_: Exception) { null }
+            }
+        } else null
+    }
+    return bitmap?.asImageBitmap()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -852,7 +881,12 @@ private fun OverflowIconsPopup(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     val icon = remember(window.iconKey) { iconForKey(window.iconKey) }
-                    Icon(icon, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    val bmpIcon = rememberWindowBitmapIcon(window.customIconPath)
+                    if (bmpIcon != null) {
+                        Image(bmpIcon, null, modifier = Modifier.size(16.dp).clip(RoundedCornerShape(3.dp)))
+                    } else {
+                        Icon(icon, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    }
                     Text(window.title, color = Color.White, fontSize = 12.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f))
@@ -1472,6 +1506,7 @@ private fun TaskbarWindowIcon(
         animationSpec = tween(200), label = "windowBg"
     )
     val icon = remember(windowState.iconKey) { iconForKey(windowState.iconKey) }
+    val bmpIcon = rememberWindowBitmapIcon(windowState.customIconPath)
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
@@ -1488,9 +1523,14 @@ private fun TaskbarWindowIcon(
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 Box {
-                    Icon(imageVector = icon, contentDescription = windowState.title,
-                        tint = if (isActive) Color.White else Color.White.copy(alpha = 0.8f),
-                        modifier = Modifier.size(15.dp))
+                    if (bmpIcon != null) {
+                        Image(bmpIcon, contentDescription = windowState.title,
+                            modifier = Modifier.size(15.dp).clip(RoundedCornerShape(3.dp)))
+                    } else {
+                        Icon(imageVector = icon, contentDescription = windowState.title,
+                            tint = if (isActive) Color.White else Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.size(15.dp))
+                    }
                     if (windowCount > 1) {
                         Box(
                             modifier = Modifier
