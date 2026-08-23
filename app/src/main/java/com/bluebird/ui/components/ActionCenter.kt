@@ -31,11 +31,6 @@ import com.bluebird.LauncherViewModel
 import com.bluebird.RealNotification
 import com.bluebird.ui.theme.LocalTextScale
 import com.bluebird.ui.theme.Win11Colors
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.net.URL
 
 // ─── Remote Notification Model ────────────────────────────────────────────────
 
@@ -73,47 +68,14 @@ fun ActionCenter(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val scope   = rememberCoroutineScope()
     val textScale = LocalTextScale.current
 
-    // Remote (Bluebird team) notifications
-    var remoteNotifications by remember { mutableStateOf<List<BluebirdRemoteNotification>>(emptyList()) }
-    var remoteError         by remember { mutableStateOf(false) }
-    var dismissedRemoteIds  by remember { mutableStateOf(setOf<String>()) }
-
-    // Fetch remote notify.json on open
-    LaunchedEffect(Unit) {
-        scope.launch(Dispatchers.IO) {
-            try {
-                val raw  = URL("https://raw.githubusercontent.com/Norbert-web/bluebird-releases/main/assets/bluebird/notify.json")
-                    .readText(Charsets.UTF_8)
-                val root = JSONObject(raw)
-                val arr  = root.getJSONArray("notifications")
-                val list = (0 until arr.length()).mapNotNull { i ->
-                    val obj = arr.getJSONObject(i)
-                    val action = if (obj.has("action") && !obj.isNull("action")) {
-                        val a = obj.getJSONObject("action")
-                        Pair(a.optString("label"), a.optString("url"))
-                    } else null
-                    BluebirdRemoteNotification(
-                        id          = obj.getString("id"),
-                        type        = obj.optString("type", "announcement"),
-                        priority    = obj.optString("priority", "normal"),
-                        title       = obj.getString("title"),
-                        body        = obj.getString("body"),
-                        timestamp   = obj.optString("timestamp", ""),
-                        expiresAt   = if (obj.has("expires_at") && !obj.isNull("expires_at")) obj.getString("expires_at") else null,
-                        actionLabel = action?.first,
-                        actionUrl   = action?.second,
-                        badgeColor  = obj.optString("badge_color", "#0078D4")
-                    )
-                }
-                withContext(Dispatchers.Main) { remoteNotifications = list }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) { remoteError = true }
-            }
-        }
-    }
+    // Remote (Bluebird team) notifications now live in the ViewModel — it
+    // polls notify.json on a timer so both this panel and the toast host
+    // (NotificationToastHost) share the exact same fetched list, and
+    // dismissing an announcement in either place dismisses it in both.
+    val remoteNotifications = uiState.remoteNotifications
+    val dismissedRemoteIds  = uiState.dismissedRemoteNotificationIds
 
     val isDark     = uiState.isDarkTheme
     val textColor  = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
@@ -316,7 +278,7 @@ fun ActionCenter(
                             notif     = notif,
                             isDark    = isDark,
                             textScale = textScale,
-                            onDismiss = { dismissedRemoteIds = dismissedRemoteIds + notif.id },
+                            onDismiss = { viewModel.dismissRemoteNotification(notif.id) },
                             onAction  = { url ->
                                 try {
                                     context.startActivity(

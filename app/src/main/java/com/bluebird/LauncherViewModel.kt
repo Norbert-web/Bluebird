@@ -21,17 +21,25 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.bluebird.ui.components.BluebirdRemoteNotification
 import com.bluebird.ui.components.DesktopFileInfo
 import com.bluebird.ui.components.DesktopItemType
+import com.bluebird.ui.components.ToastNotifData
+import com.bluebird.ui.components.toToastData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -217,6 +225,11 @@ data class LauncherUiState(
     val activeWindowId: String? = null,
     val notifications: List<RealNotification> = emptyList(),
     val isNotificationListenerEnabled: Boolean = false,
+    // Bluebird team announcements fetched from notify.json — moved here (was
+    // local state in ActionCenter) so both the panel and the toast host read
+    // the same list, and dismissing one place dismisses it everywhere.
+    val remoteNotifications: List<BluebirdRemoteNotification> = emptyList(),
+    val dismissedRemoteNotificationIds: Set<String> = emptySet(),
     val userProfile: UserProfile = UserProfile(),
     val searchQuery: String = "",
     val volume: Float = 0.5f,
@@ -386,6 +399,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         loadBackgroundEffects()
         startClock()
         startBatteryMonitor()
+        startRemoteNotificationsPoll()
         initSystemDesktopItems()
         refreshDesktopFiles()
         startDesktopObserver()
@@ -1232,15 +1246,158 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     // ─── Notifications ───────────────────────────────────────────────────────
+
+    // One-shot events for the floating Win11-style toast popup (NotificationToastHost).
+    // Separate from the persistent lists in state — this flow only fires the
+    // instant something new happens, which is what a transient toast needs.
+    private val _toastEvents = MutableSharedFlow<ToastNotifData>(extraBufferCapacity = 8)
+    val toastEvents: SharedFlow<ToastNotifData> = _toastEvents.asSharedFlow()
+
+    private fun bannersAllowed(): Boolean {
+        val state = _uiState.value
+        return state.notificationBanners && !state.dndEnabled && !state.focusAssist
+    }
+
     fun addNotification(notification: RealNotification) {
         val updated = listOf(notification) + _uiState.value.notifications.take(49)
         _uiState.value = _uiState.value.copy(notifications = updated)
+        if (bannersAllowed()) {
+            _toastEvents.tryEmit(notification.toToastData())
+        }
     }
 
     fun dismissNotification(id: String) {
         _uiState.value = _uiState.value.copy(
             notifications = _uiState.value.notifications.filter { it.id != id }
         )
+    }
+
+    fun dismissRemoteNotification(id: String) {
+        _uiState.value = _uiState.value.copy(
+            dismissedRemoteNotificationIds = _uiState.value.dismissedRemoteNotificationIds + id
+        )
+    }
+
+    // ─── Generic notification portal ──────────────────────────────────────────
+    // Any other part of the codebase (battery monitor, storage checks, update
+    // checker, background jobs, etc.) can call this to raise a toast without
+    // knowing anything about RealNotification/BluebirdRemoteNotification. Pass
+    // an `id` for things that should only ever toast once at a time (e.g.
+    // "battery_low") — a second call with the same id while it's still the
+    // active toast just gets ignored by the host's de-dupe in most cases, but
+    // callers doing repeat conditions (like a monitor loop) should still gate
+    // themselves — see startBatteryMonitor() below for the pattern.
+    fun postSystemNotification(
+        title: String,
+        body: String,
+        id: String = UUID.randomUUID().toString(),
+        appLabel: String = "Bluebird",
+        accentColor: String = "#0078D4",
+        actionLabel: String? = null,
+        actionUrl: String? = null,
+        addToHistory: Boolean = false
+    ) {
+        val accent = try {
+            androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(accentColor))
+        } catch (e: Exception) { androidx.compose.ui.graphics.Color(0xFF0078D4) }
+
+        _toastEvents.tryEmit(
+            ToastNotifData(
+                id          = id,
+                appLabel    = appLabel,
+                title       = title,
+                body        = body,
+                accent      = accent,
+                actionLabel = actionLabel,
+                actionUrl   = actionUrl
+            )
+        )
+
+        if (addToHistory) {
+            addNotification(
+                RealNotification(
+                    id          = id,
+                    packageName = "",
+                    appName     = appLabel,
+                    title       = title,
+                    body        = body
+                )
+            )
+        }
+    }
+
+    // ─── Remote (Bluebird team) announcements ─────────────────────────────────
+    // Polls notify.json periodically. Newly-seen ids get pushed as toasts;
+    // already-seen ids (persisted across restarts) are shown silently in the
+    // Action Center panel only, so reinstalling/relaunching the app doesn't
+    // replay every historical announcement as a popup.
+    private val seenRemoteIds: MutableSet<String> by lazy {
+        (prefs.getStringSet("seen_remote_notif_ids", emptySet()) ?: emptySet()).toMutableSet()
+    }
+    private var remoteBootstrapped = prefs.getBoolean("remote_notif_bootstrapped", false)
+
+    private fun saveSeenRemoteIds() {
+        prefs.edit().putStringSet("seen_remote_notif_ids", seenRemoteIds).apply()
+    }
+
+    private fun startRemoteNotificationsPoll() {
+        viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                fetchRemoteNotificationsOnce()
+                delay(15 * 60_000L) // re-check every 15 minutes
+            }
+        }
+    }
+
+    private suspend fun fetchRemoteNotificationsOnce() {
+        try {
+            val raw  = URL("https://raw.githubusercontent.com/Norbert-web/bluebird-releases/main/assets/bluebird/notify.json")
+                .readText(Charsets.UTF_8)
+            val root = JSONObject(raw)
+            val arr  = root.getJSONArray("notifications")
+            val list = (0 until arr.length()).mapNotNull { i ->
+                val obj = arr.getJSONObject(i)
+                val action = if (obj.has("action") && !obj.isNull("action")) {
+                    val a = obj.getJSONObject("action")
+                    Pair(a.optString("label"), a.optString("url"))
+                } else null
+                BluebirdRemoteNotification(
+                    id          = obj.getString("id"),
+                    type        = obj.optString("type", "announcement"),
+                    priority    = obj.optString("priority", "normal"),
+                    title       = obj.getString("title"),
+                    body        = obj.getString("body"),
+                    timestamp   = obj.optString("timestamp", ""),
+                    expiresAt   = if (obj.has("expires_at") && !obj.isNull("expires_at")) obj.getString("expires_at") else null,
+                    actionLabel = action?.first,
+                    actionUrl   = action?.second,
+                    badgeColor  = obj.optString("badge_color", "#0078D4")
+                )
+            }
+
+            val freshIds       = list.map { it.id }.filter { it !in seenRemoteIds }
+            val isFirstEverRun = !remoteBootstrapped
+
+            withContext(Dispatchers.Main) {
+                _uiState.value = _uiState.value.copy(remoteNotifications = list)
+                if (bannersAllowed() && !isFirstEverRun) {
+                    list.filter { it.id in freshIds }.forEach { notif ->
+                        _toastEvents.tryEmit(notif.toToastData())
+                    }
+                }
+            }
+
+            if (freshIds.isNotEmpty()) {
+                seenRemoteIds.addAll(freshIds)
+                saveSeenRemoteIds()
+            }
+            if (isFirstEverRun) {
+                remoteBootstrapped = true
+                prefs.edit().putBoolean("remote_notif_bootstrapped", true).apply()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun dismissAllNotifications() {
@@ -1618,7 +1775,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val files = state.clipboardFiles.map { File(it) }.filter { it.exists() }
         val wasCut = state.clipboardCut
         enqueueFileOperation(files, destDir, isCut = wasCut)
-        if (wasCut) clearClipboard()
+        // Single-use paste: clipboard clears after the first paste, whether it was a
+        // copy or a cut — pasting again without copying/cutting again does nothing.
+        clearClipboard()
     }
 
     // ─── Copy/Move engine ──────────────────────────────────────────────────────
@@ -2171,6 +2330,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // Tracks which low-battery thresholds have already toasted this charge
+    // cycle, so the monitor (which polls every 60s) doesn't re-fire the same
+    // warning on every tick while the level sits below the line.
+    private val batteryToastsFiredThisCycle = mutableSetOf<Int>()
+
     private fun startBatteryMonitor() {
         viewModelScope.launch {
             while (true) {
@@ -2178,11 +2342,32 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     val bm       = getApplication<Application>().getSystemService(Context.BATTERY_SERVICE) as BatteryManager
                     val level    = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
                     val charging = bm.isCharging
-                    if (level in 1..100)
+                    if (level in 1..100) {
                         _uiState.value = _uiState.value.copy(batteryLevel = level, isCharging = charging)
+
+                        if (charging) {
+                            batteryToastsFiredThisCycle.clear()
+                        } else {
+                            checkBatteryThreshold(level, 20, "Battery is getting low", "20% remaining. Consider plugging in.")
+                            checkBatteryThreshold(level, 10, "Battery low", "10% remaining. Save your work soon.")
+                            checkBatteryThreshold(level, 5,  "Battery critically low", "5% remaining. Plug in now to avoid losing work.")
+                        }
+                    }
                 } catch (e: Exception) { /* ignore */ }
                 delay(60_000)
             }
+        }
+    }
+
+    private fun checkBatteryThreshold(level: Int, threshold: Int, title: String, body: String) {
+        if (level <= threshold && threshold !in batteryToastsFiredThisCycle) {
+            batteryToastsFiredThisCycle.add(threshold)
+            postSystemNotification(
+                id          = "battery_low_$threshold",
+                title       = title,
+                body        = body,
+                accentColor = if (threshold <= 10) "#E81123" else "#FFB900"
+            )
         }
     }
 

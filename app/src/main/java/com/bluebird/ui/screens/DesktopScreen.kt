@@ -1,5 +1,6 @@
 package com.bluebird.ui.screens
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,12 +37,21 @@ import com.bluebird.WallpaperTarget
 import com.bluebird.PowerAction // Imported enum type safely
 import com.bluebird.ui.components.*
 import com.bluebird.ui.components.wallpaperGradients
+import com.bluebird.ui.theme.LocalTextScale
 import com.bluebird.ui.theme.Win11Colors
 
 @Composable
 fun DesktopScreen(viewModel: LauncherViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val textScale = LocalTextScale.current
+
+    // Floating Win11-style toast popups — fed by the ViewModel's one-shot
+    // toastEvents flow (fires exactly once per new device notification).
+    val activeToasts = remember { mutableStateListOf<ToastNotifData>() }
+    LaunchedEffect(Unit) {
+        viewModel.toastEvents.collect { toast -> activeToasts.add(toast) }
+    }
 
     val wallpaperPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -247,6 +257,33 @@ fun DesktopScreen(viewModel: LauncherViewModel) {
                 )
             }
         }
+
+        // ── 12. Notification Toasts — floating Win11-style popups, drawn above
+        //    everything else (windows, overlays, taskbar) so a new notification
+        //    is always visible regardless of what's currently open. ──
+        NotificationToastHost(
+            toasts    = activeToasts,
+            isDark    = uiState.isDarkTheme,
+            textScale = textScale,
+            modifier  = Modifier.padding(bottom = if (uiState.isTaskbarVisible) 48.dp else 0.dp),
+            onDismiss = { id -> activeToasts.removeAll { it.id == id } },
+            onOpen    = { toast ->
+                toast.packageName?.let { pkg ->
+                    try {
+                        context.packageManager.getLaunchIntentForPackage(pkg)
+                            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            ?.let { context.startActivity(it) }
+                    } catch (e: Exception) { e.printStackTrace() }
+                }
+            },
+            onAction  = { url ->
+                try {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } catch (e: Exception) { e.printStackTrace() }
+            }
+        )
     }
 }
 

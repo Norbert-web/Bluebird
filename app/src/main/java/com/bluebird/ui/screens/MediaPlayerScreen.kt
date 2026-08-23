@@ -1,59 +1,60 @@
 package com.bluebird.ui.screens
 
 // ─────────────────────────────────────────────────────────────────
-// MediaPlayerScreen.kt  —  Bluebird Films & TV  (rebuilt)
+// MediaPlayerScreen.kt  —  Bluebird Films & TV  (Media3 rewrite)
 //
-// FIXES applied:
-//  F-01  Track switching: DisposableEffect keys on file path, not just index/size
-//  F-02  Fullscreen restart: position saved before entering, seeked after prepare
-//  F-03  Queue persistence: SharedPreferences JSON-based save/restore on every change
-//  F-04  Library cache: file-list cached to prefs; only re-scan if files change
-//  F-05  Speed crash: PlaybackParams only applied when player is prepared & playing
-//  F-06  Position-poll loop: checks isActive for clean coroutine cancellation
-//  F-07  Audio/video separation: video never creates a MediaPlayer; clean split
-//  F-08  Volume on video: AudioManager used for video path, MediaPlayer for audio
-//  F-09  skipPrev seek: calls mediaPlayer/videoView seekTo(0) as well as state
-//  F-10  Sleep timer double-pause: timer calls pause directly, not via isPlaying flag
-//  F-11  Queue dedup / metadata: always uses latest enriched metadata path
-//  F-12  removeFromPlaylist index: decrements currentIndex when removing before it
+// Playback now lives in PlaybackService (a Media3 MediaSessionService),
+// reached here through a MediaController. This screen no longer owns a
+// MediaPlayer or VideoView. What that buys you, concretely:
 //
-// NEW PREMIUM FEATURES:
-//  P-01  Favorites (starred tracks) with persistent storage
-//  P-02  Tag editor (title / artist / album inline edit)
-//  P-03  Recently played history (last 50 tracks)
-//  P-04  Most-played counter
-//  P-05  "Play next" (insert after current) distinct from queue-end add
-//  P-06  Drag-to-reorder queue
-//  P-07  Crossfade (0–10 s configurable)
-//  P-08  Gapless playback flag (pre-prepares next track)
-//  P-09  Equalizer / bass-boost / virtualizer with presets
-//  P-10  Folder browser tab
-//  P-11  Share track (Intent.ACTION_SEND)
-//  P-12  Aspect ratio picker for video (Fit / Fill / 4:3 / 16:9 / Stretch)
-//  P-13  Subtitle (SRT) loader placeholder (wired, needs ExoPlayer for rendering)
-//  P-14  "Up next" mini card in audio area (was partial, now complete)
-//  P-15  Gesture brightness (left-half vertical drag) in video player
-//  P-16  Sleep timer countdown visible in toolbar chip
-//  P-17  Playback speed applied to VideoView via reflection
-//  P-18  Window-compatible layout (respects constraints, no mandatory fullscreen)
+//  BUG FIXES from the previous version
+//  B-01  seekTo crash: all seeks now go through the controller and are
+//        no-ops (not exceptions) if the player isn't ready — Media3
+//        handles this internally, no more manual playerPrepared flag.
+//  B-02  Disk-write storm: PlaybackService persists queue/position on a
+//        3s debounce, not on every 250ms position tick. This screen's
+//        polling loop only touches Compose state, never SharedPreferences.
+//  B-03  Drag-to-seek spam: ProgressBar now seeks in onValueChangeFinished,
+//        not onValueChange — one seek per gesture, not one per pixel.
+//  B-04  Duplicate/leaking video views: one ExoPlayer instance lives in
+//        the service; windowed and fullscreen are just two PlayerView
+//        attachments to the same player, released cleanly via onRelease.
+//  B-05  Reflection-based video speed: gone. Player.setPlaybackSpeed()
+//        is native in ExoPlayer and applies to audio AND video uniformly.
+//  B-06  Fake crossfade: crossfadeSec now actually drives a volume-fade
+//        across the (real, native) gapless transition — see PlaybackService.
+//  B-07  EQ/Bass/Virtualizer silently no-op on video: they now attach to
+//        the player's real audioSessionId regardless of media type.
+//  B-08  Gesture "brightness" permanently changed the system-wide screen
+//        brightness (and needed WRITE_SETTINGS). Now sets this window's
+//        LayoutParams.screenBrightness only — no special permission,
+//        and it reverts when you leave the screen, like every other app.
+//
+//  NEW
+//  N-01  Library scan uses MediaLibraryRepository (MediaStore query)
+//        instead of a recursive filesystem walk + per-file metadata
+//        retriever pass — this is the fix for the multi-second scan on
+//        every open.
+//  N-02  Lock-screen / notification transport controls, via Media3's
+//        default media notification (nothing to build here — it's a
+//        consequence of playback living in a proper MediaSessionService).
+//  N-03  Background playback: navigating away from this screen no longer
+//        stops playback, because the player isn't tied to this
+//        composable's lifecycle anymore.
+//  N-04  Real SRT subtitle loading, wired end to end via
+//        MediaItem.SubtitleConfiguration (file picking is done by the
+//        hosting Activity — see onPickSubtitle param below).
 // ─────────────────────────────────────────────────────────────────
 
+import android.app.Activity
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.media.AudioManager
-import android.media.MediaMetadataRetriever
-import android.media.MediaPlayer
-import android.media.PlaybackParams
-import android.media.audiofx.BassBoost
-import android.media.audiofx.Equalizer
-import android.media.audiofx.Virtualizer
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
-import android.provider.Settings
 import android.view.ViewGroup
-import android.widget.VideoView
+import android.view.WindowManager
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -74,25 +75,42 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.os.bundleOf
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.Player
+import androidx.media3.common.Timeline
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionToken
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import com.bluebird.media.MediaLibraryRepository
+import com.bluebird.media.PlaybackService
+import com.bluebird.media.ScannedTrack
+import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 // ─────────────────────────────────────────────────────────────────
-// Design tokens
+// Design tokens (unchanged)
 // ─────────────────────────────────────────────────────────────────
 
 private object FTV {
@@ -127,9 +145,6 @@ private object FTV {
 // Constants & helpers
 // ─────────────────────────────────────────────────────────────────
 
-val VIDEO_EXTS = setOf("mp4", "mkv", "avi", "mov", "webm", "3gp", "wmv", "ts", "m4v")
-val AUDIO_EXTS = setOf("mp3", "wav", "ogg", "flac", "aac", "m4a", "opus", "wma", "ape")
-
 private val SPEED_STEPS  = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 private val SLEEP_OPTIONS = listOf(15 to "15 min", 30 to "30 min", 45 to "45 min", 60 to "1 hour")
 
@@ -149,17 +164,24 @@ private fun formatTimer(sec: Long): String { val m = sec / 60; val s = sec % 60;
 
 // Equalizer preset bands (gain in millibels for 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz)
 private enum class EqPreset(val label: String, val gains: IntArray) {
-    FLAT    ("Flat",      intArrayOf(    0,    0,    0,    0,    0)),
-    BASS    ("Bass Boost",intArrayOf( 600,  400,    0, -200, -200)),
-    ROCK    ("Rock",      intArrayOf( 400,  200, -200,  200,  400)),
-    JAZZ    ("Jazz",      intArrayOf( 200,    0,  200,  200,  100)),
-    CLASSICAL("Classical",intArrayOf( 300,  200,    0,  200,  300)),
-    VOCAL   ("Vocal",     intArrayOf(-200, -100,  400,  300,  100)),
-    ELECTRONIC("Electronic",intArrayOf(400, 300, 0, 300, 400)),
+    FLAT       ("Flat",       intArrayOf(   0,    0,    0,    0,    0)),
+    BASS       ("Bass Boost", intArrayOf( 600,  400,    0, -200, -200)),
+    ROCK       ("Rock",       intArrayOf( 400,  200, -200,  200,  400)),
+    JAZZ       ("Jazz",       intArrayOf( 200,    0,  200,  200,  100)),
+    CLASSICAL  ("Classical",  intArrayOf( 300,  200,    0,  200,  300)),
+    VOCAL      ("Vocal",      intArrayOf(-200, -100,  400,  300,  100)),
+    ELECTRONIC ("Electronic", intArrayOf( 400,  300,    0,  300,  400)),
 }
 
 private enum class AspectRatio(val label: String) {
     FIT("Fit"), FILL("Fill"), RATIO_4_3("4:3"), RATIO_16_9("16:9"), STRETCH("Stretch")
+}
+
+private fun AspectRatio.toResizeMode(): Int = when (this) {
+    AspectRatio.FIT                            -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+    AspectRatio.FILL                           -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+    AspectRatio.STRETCH                        -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+    AspectRatio.RATIO_4_3, AspectRatio.RATIO_16_9 -> AspectRatioFrameLayout.RESIZE_MODE_FIT
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -167,64 +189,95 @@ private enum class AspectRatio(val label: String) {
 // ─────────────────────────────────────────────────────────────────
 
 data class MediaTrack(
-    val file          : File,
-    val title         : String     = file.nameWithoutExtension,
+    val contentUri    : Uri,
+    val file          : File?,
+    val title         : String,
     val artist        : String     = "Unknown Artist",
     val album         : String     = "Unknown Album",
     val durationMs    : Long       = 0L,
-    val albumArtBytes : ByteArray? = null,
-    val isVideo       : Boolean    = file.extension.lowercase() in VIDEO_EXTS,
+    val isVideo       : Boolean    = false,
+    val artworkUri    : Uri?       = null,
     // Mutable counters — not part of equals/hashCode intentionally
     var playCount     : Int        = 0,
     var isFavorite    : Boolean    = false,
-    // Edited metadata (null = use embedded)
+    // Edited metadata (null = use retrieved)
     var editTitle     : String?    = null,
     var editArtist    : String?    = null,
-    var editAlbum     : String?    = null
+    var editAlbum     : String?    = null,
+    // N-04: real SRT subtitle wiring
+    var subtitleUri   : Uri?       = null
 ) {
     val displayTitle  get() = editTitle  ?: title
     val displayArtist get() = editArtist ?: artist
     val displayAlbum  get() = editAlbum  ?: album
+
+    /** Stable key for prefs/meta storage and queue identity. */
+    val metaKey get() = contentUri.toString()
+
+    fun toMediaItem(): MediaItem {
+        val metadata = MediaMetadata.Builder()
+            .setTitle(displayTitle)
+            .setArtist(displayArtist)
+            .setAlbumTitle(displayAlbum)
+            .setArtworkUri(artworkUri)
+            .setIsBrowsable(false)
+            .setIsPlayable(true)
+            .build()
+        val builder = MediaItem.Builder()
+            .setUri(contentUri)
+            .setMediaId(metaKey)
+            .setMediaMetadata(metadata)
+        if (isVideo && subtitleUri != null) {
+            builder.setSubtitleConfigurations(
+                listOf(
+                    MediaItem.SubtitleConfiguration.Builder(subtitleUri!!)
+                        .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+                        .setLanguage("en")
+                        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                        .build()
+                )
+            )
+        }
+        return builder.build()
+    }
 }
+
+private fun ScannedTrack.toMediaTrack() = MediaTrack(
+    contentUri = contentUri,
+    file       = file,
+    title      = title,
+    artist     = artist,
+    album      = album,
+    durationMs = durationMs,
+    isVideo    = isVideo,
+    artworkUri = artworkUri
+)
 
 enum class RepeatMode { OFF, REPEAT_ALL, REPEAT_ONE }
 enum class MediaTab   { VIDEOS, MUSIC, PLAYLIST, FOLDERS, RECENTS, FAVORITES }
 
-// ─────────────────────────────────────────────────────────────────
-// Persistence helpers
-// ─────────────────────────────────────────────────────────────────
+private fun RepeatMode.toPlayerRepeat() = when (this) {
+    RepeatMode.OFF        -> Player.REPEAT_MODE_OFF
+    RepeatMode.REPEAT_ALL -> Player.REPEAT_MODE_ALL
+    RepeatMode.REPEAT_ONE -> Player.REPEAT_MODE_ONE
+}
+private fun Int.toRepeatMode() = when (this) {
+    Player.REPEAT_MODE_ALL -> RepeatMode.REPEAT_ALL
+    Player.REPEAT_MODE_ONE -> RepeatMode.REPEAT_ONE
+    else                   -> RepeatMode.OFF
+}
 
-private const val PREFS_NAME = "bluebird_player"
+// ─────────────────────────────────────────────────────────────────
+// Persistence helpers — favorites / tags / recents (unchanged from
+// before; these were never the slow or buggy part). Queue/position
+// persistence now lives in PlaybackService, on the same prefs file.
+// ─────────────────────────────────────────────────────────────────
 
 private fun prefs(ctx: Context): SharedPreferences =
-    ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    ctx.getSharedPreferences(PlaybackService.PREFS_NAME, Context.MODE_PRIVATE)
 
-// Save queue as JSON array of absolute paths
-private fun saveQueue(ctx: Context, playlist: List<MediaTrack>, currentIndex: Int, positionMs: Long) {
-    val arr = JSONArray().also { a -> playlist.forEach { a.put(it.file.absolutePath) } }
-    prefs(ctx).edit()
-        .putString("queue", arr.toString())
-        .putInt("queue_index", currentIndex)
-        .putLong("queue_pos", positionMs)
-        .apply()
-}
-
-private fun loadQueue(ctx: Context, allTracks: List<MediaTrack>): Triple<List<MediaTrack>, Int, Long> {
-    val p   = prefs(ctx)
-    val raw = p.getString("queue", null) ?: return Triple(emptyList(), -1, 0L)
-    val idx = p.getInt("queue_index", -1)
-    val pos = p.getLong("queue_pos", 0L)
-    return try {
-        val arr   = JSONArray(raw)
-        val byPath = allTracks.associateBy { it.file.absolutePath }
-        val queue = (0 until arr.length()).mapNotNull { byPath[arr.getString(it)] }
-        Triple(queue, idx.coerceIn(-1, queue.size - 1), pos)
-    } catch (_: Exception) { Triple(emptyList(), -1, 0L) }
-}
-
-// Persist per-track meta (favorites, playCount, edits)
 private fun saveTrackMeta(ctx: Context, track: MediaTrack) {
-    val key = "meta_${track.file.absolutePath.hashCode()}"
+    val key = "meta_${track.metaKey}"
     prefs(ctx).edit()
         .putBoolean("${key}_fav",    track.isFavorite)
         .putInt("${key}_plays",      track.playCount)
@@ -235,7 +288,7 @@ private fun saveTrackMeta(ctx: Context, track: MediaTrack) {
 }
 
 private fun loadTrackMeta(ctx: Context, track: MediaTrack) {
-    val key = "meta_${track.file.absolutePath.hashCode()}"
+    val key = "meta_${track.metaKey}"
     val p   = prefs(ctx)
     track.isFavorite = p.getBoolean("${key}_fav",   false)
     track.playCount  = p.getInt("${key}_plays",      0)
@@ -244,14 +297,13 @@ private fun loadTrackMeta(ctx: Context, track: MediaTrack) {
     track.editAlbum  = p.getString("${key}_ealbum",  "")?.takeIf { it.isNotEmpty() }
 }
 
-// Recently played — list of paths (max 50)
-private fun pushRecent(ctx: Context, path: String) {
+private fun pushRecent(ctx: Context, key: String) {
     val p   = prefs(ctx)
     val raw = p.getString("recents", "[]")!!
     val arr = try { JSONArray(raw) } catch (_: Exception) { JSONArray() }
     val list = mutableListOf<String>()
-    for (i in 0 until arr.length()) { val s = arr.getString(i); if (s != path) list.add(s) }
-    list.add(0, path)
+    for (i in 0 until arr.length()) { val s = arr.getString(i); if (s != key) list.add(s) }
+    list.add(0, key)
     if (list.size > 50) list.subList(50, list.size).clear()
     val out = JSONArray().also { a -> list.forEach { a.put(it) } }
     p.edit().putString("recents", out.toString()).apply()
@@ -265,17 +317,16 @@ private fun loadRecents(ctx: Context): List<String> {
     } catch (_: Exception) { emptyList() }
 }
 
-// File-list cache — store sorted comma-joined paths hash so we skip re-scan if unchanged
-private fun cachedPathHash(ctx: Context) = prefs(ctx).getInt("path_hash", -1)
-private fun saveCachedPathHash(ctx: Context, hash: Int) = prefs(ctx).edit().putInt("path_hash", hash).apply()
-private fun saveCachedPaths(ctx: Context, paths: List<String>) {
-    val arr = JSONArray().also { a -> paths.forEach { a.put(it) } }
-    prefs(ctx).edit().putString("path_cache", arr.toString()).apply()
-}
-private fun loadCachedPaths(ctx: Context): List<String>? {
-    val raw = prefs(ctx).getString("path_cache", null) ?: return null
-    return try { val arr = JSONArray(raw); (0 until arr.length()).map { arr.getString(it) } }
-    catch (_: Exception) { null }
+/** Reads the queue PlaybackService last persisted (mediaId list + index + position). */
+private fun loadSavedQueueIds(ctx: Context): Triple<List<String>, Int, Long> {
+    val p = prefs(ctx)
+    val raw = p.getString("queue_ids", null) ?: return Triple(emptyList(), -1, 0L)
+    val idx = p.getInt("queue_index", -1)
+    val pos = p.getLong("queue_pos", 0L)
+    return try {
+        val arr = JSONArray(raw)
+        Triple((0 until arr.length()).map { arr.getString(it) }, idx, pos)
+    } catch (_: Exception) { Triple(emptyList(), -1, 0L) }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -288,24 +339,22 @@ private class PlayerState {
     var videoTracks by mutableStateOf(listOf<MediaTrack>())
     var audioTracks by mutableStateOf(listOf<MediaTrack>())
     var isLoading   by mutableStateOf(false)
-    var showHidden  by mutableStateOf(false)
     var isLibraryReady by mutableStateOf(false)
+    var hasRestoredQueue by mutableStateOf(false)
 
-    // Playlist
+    // Playlist — mirrors the controller's timeline; controller is the
+    // source of truth, this is a display-friendly projection of it.
     var playlist     by mutableStateOf(listOf<MediaTrack>())
     var currentIndex by mutableStateOf(-1)
     var isPlaying    by mutableStateOf(false)
     var isShuffle    by mutableStateOf(false)
     var repeatMode   by mutableStateOf(RepeatMode.OFF)
 
-    // Position / duration
+    // Position / duration — polled from the controller for UI display only.
+    // No disk I/O happens as a result of these changing (B-02).
     var positionMs by mutableStateOf(0L)
     var durationMs by mutableStateOf(0L)
 
-    // Saved position for fullscreen restore (F-02)
-    var savedPositionMs by mutableStateOf(0L)
-
-    // Volume
     var volume  by mutableStateOf(1f)
     var isMuted by mutableStateOf(false)
 
@@ -317,29 +366,22 @@ private class PlayerState {
     var isBuffering   by mutableStateOf(false)
     var searchQuery   by mutableStateOf("")
 
-    // Engines
-    var mediaPlayer by mutableStateOf<MediaPlayer?>(null)
-    var videoView   by mutableStateOf<VideoView?>(null)
+    // Engine — a single controller, shared by windowed and fullscreen views
+    var controller by mutableStateOf<MediaController?>(null)
 
-    // Speed
     var playbackSpeed by mutableStateOf(1.0f)
-    var playerPrepared by mutableStateOf(false)  // F-05: only apply speed when prepared
 
     // Sleep timer
     var sleepTimerSeconds by mutableStateOf(0L)
     var sleepTimerActive  by mutableStateOf(false)
 
-    // Crossfade
-    var crossfadeSec by mutableStateOf(0)  // 0 = off, 1–10 = seconds
-    var nextMediaPlayer by mutableStateOf<MediaPlayer?>(null)
+    // Crossfade — now a real setting sent to the service (B-06)
+    var crossfadeSec by mutableStateOf(0)
 
     // Equalizer
-    var eqPreset    by mutableStateOf(EqPreset.FLAT)
-    var bassBoostOn by mutableStateOf(false)
-    var virtualizerOn by mutableStateOf(false)
-    var equalizer   by mutableStateOf<Equalizer?>(null)
-    var bassBoost   by mutableStateOf<BassBoost?>(null)
-    var virtualizer by mutableStateOf<Virtualizer?>(null)
+    var eqPreset       by mutableStateOf(EqPreset.FLAT)
+    var bassBoostOn    by mutableStateOf(false)
+    var virtualizerOn  by mutableStateOf(false)
 
     // Video aspect ratio
     var aspectRatio by mutableStateOf(AspectRatio.FIT)
@@ -347,17 +389,17 @@ private class PlayerState {
     // Recents
     var recentPaths by mutableStateOf(listOf<String>())
 
-    // Show settings panel
-    var showSettings by mutableStateOf(false)
+    // Overlays
+    var showSettings  by mutableStateOf(false)
     var showTagEditor by mutableStateOf(false)
 
     // Groupings
     val audioGroups: Map<String, List<MediaTrack>> get() =
         audioTracks.groupBy { it.displayAlbum.ifBlank { "Unknown Album" } }.toSortedMap()
     val videoGroups: Map<String, List<MediaTrack>> get() =
-        videoTracks.groupBy { it.file.parentFile?.name ?: "Unknown Folder" }.toSortedMap()
+        videoTracks.groupBy { it.file?.parentFile?.name ?: "Videos" }.toSortedMap()
     val folderGroups: Map<String, List<MediaTrack>> get() =
-        allTracks.groupBy { it.file.parentFile?.absolutePath ?: "/" }.toSortedMap()
+        allTracks.groupBy { it.file?.parentFile?.absolutePath ?: it.displayAlbum }.toSortedMap()
 
     val currentTrack get() = playlist.getOrNull(currentIndex)
 
@@ -366,146 +408,133 @@ private class PlayerState {
         MediaTab.MUSIC     -> audioTracks.filter { q -> q.displayTitle.contains(searchQuery, true) || q.displayArtist.contains(searchQuery, true) || searchQuery.isEmpty() }
         MediaTab.PLAYLIST  -> playlist.filter    { q -> q.displayTitle.contains(searchQuery, true) || searchQuery.isEmpty() }
         MediaTab.FOLDERS   -> allTracks.filter   { q -> q.displayTitle.contains(searchQuery, true) || searchQuery.isEmpty() }
-        MediaTab.RECENTS   -> recentPaths.mapNotNull { p -> allTracks.firstOrNull { it.file.absolutePath == p } }
+        MediaTab.RECENTS   -> recentPaths.mapNotNull { key -> allTracks.firstOrNull { it.metaKey == key } }
         MediaTab.FAVORITES -> allTracks.filter   { it.isFavorite }
     }
 
-    // F-01: play by path so track identity is file-based, not index-based
-    fun playTrack(index: Int) {
-        currentIndex = index
-        isPlaying    = true
-        positionMs   = 0L
-        playerPrepared = false
+    // ── Controller-backed actions ───────────────────────────────────
+    // Every one of these replaces hand-rolled index math from the old
+    // version with the controller's own (correct, tested) queue handling.
+
+    fun playQueue(tracks: List<MediaTrack>, startIndex: Int) {
+        val ctrl = controller ?: return
+        if (tracks.isEmpty()) return
+        ctrl.setMediaItems(tracks.map { it.toMediaItem() }, startIndex.coerceIn(0, tracks.size - 1), 0L)
+        ctrl.prepare()
+        ctrl.play()
     }
 
-    fun skipNext() {
-        if (playlist.isEmpty()) return
-        when {
-            isShuffle -> playlist.indices.filter { it != currentIndex }.randomOrNull()
-                ?.let { playTrack(it) }
-            repeatMode == RepeatMode.REPEAT_ALL -> playTrack((currentIndex + 1) % playlist.size)
-            currentIndex < playlist.size - 1   -> playTrack(currentIndex + 1)
-            else -> { isPlaying = false }
-        }
+    fun playTrackAt(index: Int) {
+        controller?.let { if (index in playlist.indices) { it.seekTo(index, 0L); it.play() } }
     }
+
+    fun togglePlayPause() {
+        val ctrl = controller ?: return
+        if (ctrl.isPlaying) ctrl.pause() else ctrl.play()
+    }
+
+    fun skipNext() { controller?.let { if (it.hasNextMediaItem()) it.seekToNext() } }
 
     fun skipPrev() {
-        if (positionMs > 3000) {
-            // F-09: seek both engine and state
-            mediaPlayer?.seekTo(0); videoView?.seekTo(0); positionMs = 0; return
-        }
-        when {
-            isShuffle -> playlist.indices.filter { it != currentIndex }.randomOrNull()?.let { playTrack(it) }
-            repeatMode == RepeatMode.REPEAT_ALL -> playTrack((currentIndex - 1 + playlist.size) % playlist.size)
-            currentIndex > 0 -> playTrack(currentIndex - 1)
-        }
+        val ctrl = controller ?: return
+        if (ctrl.currentPosition > 3000) { ctrl.seekTo(0); return }
+        if (ctrl.hasPreviousMediaItem()) ctrl.seekToPrevious() else ctrl.seekTo(0)
+    }
+
+    fun seekTo(ms: Long) {
+        val ctrl = controller ?: return
+        if (!ctrl.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) return
+        ctrl.seekTo(ms.coerceIn(0, ctrl.duration.takeIf { it != C.TIME_UNSET } ?: ms))
     }
 
     fun addToPlaylist(track: MediaTrack) {
-        // F-11: always use latest enriched metadata by path key
-        if (playlist.none { it.file.absolutePath == track.file.absolutePath })
-            playlist = playlist + track
+        val ctrl = controller ?: return
+        val exists = (0 until ctrl.mediaItemCount).any { ctrl.getMediaItemAt(it).mediaId == track.metaKey }
+        if (!exists) ctrl.addMediaItem(track.toMediaItem())
+        if (ctrl.mediaItemCount == 1 && !ctrl.isPlaying) { ctrl.prepare(); ctrl.play() }
     }
 
-    // P-05: insert after current index
     fun playNext(track: MediaTrack) {
-        val insertAt = (currentIndex + 1).coerceAtLeast(0)
-        val mutable  = playlist.toMutableList()
-        val existing = mutable.indexOfFirst { it.file.absolutePath == track.file.absolutePath }
-        if (existing >= 0) mutable.removeAt(existing)
-        mutable.add(insertAt.coerceAtMost(mutable.size), track)
-        playlist = mutable
+        val ctrl = controller ?: return
+        val existing = (0 until ctrl.mediaItemCount).firstOrNull { ctrl.getMediaItemAt(it).mediaId == track.metaKey }
+        existing?.let { ctrl.removeMediaItem(it) }
+        val insertAt = (ctrl.currentMediaItemIndex + 1).coerceIn(0, ctrl.mediaItemCount)
+        ctrl.addMediaItem(insertAt, track.toMediaItem())
     }
 
-    // F-12: correct index adjustment when removing before current
     fun removeFromPlaylist(index: Int) {
-        val mutable = playlist.toMutableList()
-        mutable.removeAt(index)
-        playlist = mutable
-        when {
-            index < currentIndex  -> currentIndex--
-            index == currentIndex -> {
-                currentIndex = currentIndex.coerceIn(-1, mutable.size - 1)
-                if (mutable.isNotEmpty()) isPlaying = true else { isPlaying = false; positionMs = 0 }
-            }
-        }
+        controller?.let { if (index in 0 until it.mediaItemCount) it.removeMediaItem(index) }
     }
 
-    fun applySpeedToAudio() {
-        // F-05: only when prepared and playing
-        if (!playerPrepared || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-        try {
-            mediaPlayer?.let { mp ->
-                val pp = mp.playbackParams.setSpeed(playbackSpeed)
-                mp.playbackParams = pp
-            }
-        } catch (_: Exception) {}
+    fun moveInPlaylist(from: Int, to: Int) {
+        controller?.moveMediaItem(from, to)
     }
 
-    // P-17: apply speed to VideoView via reflection
-    fun applySpeedToVideo() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-        try {
-            val vv = videoView ?: return
-            val field = VideoView::class.java.getDeclaredField("mMediaPlayer")
-            field.isAccessible = true
-            val mp = field.get(vv) as? MediaPlayer ?: return
-            mp.playbackParams = mp.playbackParams.setSpeed(playbackSpeed)
-        } catch (_: Exception) {}
+    fun clearQueue() {
+        controller?.clearMediaItems()
     }
 
-    fun attachAudioEffects(audioSessionId: Int) {
-        try {
-            equalizer?.release()
-            bassBoost?.release()
-            virtualizer?.release()
-            val eq = Equalizer(0, audioSessionId)
-            eq.enabled = true
-            applyEqPreset(eq, eqPreset)
-            equalizer = eq
-            val bb = BassBoost(0, audioSessionId)
-            bb.enabled = bassBoostOn
-            bb.setStrength(500)
-            bassBoost = bb
-            val vr = Virtualizer(0, audioSessionId)
-            vr.enabled = virtualizerOn
-            vr.setStrength(500)
-            virtualizer = vr
-        } catch (_: Exception) {}
+    fun setSpeed(speed: Float) {
+        playbackSpeed = speed
+        controller?.setPlaybackSpeed(speed) // B-05: native, no reflection, works for audio + video
     }
 
-    fun applyEqPreset(eq: Equalizer, preset: EqPreset) {
-        try {
-            val numBands = eq.numberOfBands.toInt()
-            preset.gains.take(numBands).forEachIndexed { i, gain ->
-                eq.setBandLevel(i.toShort(), gain.toShort())
-            }
-        } catch (_: Exception) {}
+    fun sendEffectCommand(action: String, bundle: android.os.Bundle) {
+        controller?.sendCustomCommand(SessionCommand(action, android.os.Bundle.EMPTY), bundle)
     }
 
-    fun releaseEffects() {
-        try { equalizer?.release(); bassBoost?.release(); virtualizer?.release() } catch (_: Exception) {}
-        equalizer = null; bassBoost = null; virtualizer = null
+    fun setEqPreset(preset: EqPreset) {
+        eqPreset = preset
+        sendEffectCommand(PlaybackService.CMD_SET_EQ_PRESET, bundleOf(PlaybackService.ARG_VALUE to preset.gains))
+    }
+
+    fun setBassBoost(on: Boolean) {
+        bassBoostOn = on
+        sendEffectCommand(PlaybackService.CMD_SET_BASS_BOOST, bundleOf(PlaybackService.ARG_VALUE to on))
+    }
+
+    fun setVirtualizer(on: Boolean) {
+        virtualizerOn = on
+        sendEffectCommand(PlaybackService.CMD_SET_VIRTUALIZER, bundleOf(PlaybackService.ARG_VALUE to on))
+    }
+
+    fun setCrossfade(seconds: Int) {
+        crossfadeSec = seconds
+        sendEffectCommand(PlaybackService.CMD_SET_CROSSFADE, bundleOf(PlaybackService.ARG_VALUE to seconds))
     }
 }
 
 @Composable
 private fun rememberPlayerState() = remember { PlayerState() }
 
+/** Rebuilds the display playlist from the controller's actual timeline (source of truth). */
+private fun rebuildPlaylistFromController(ctrl: MediaController, library: List<MediaTrack>): List<MediaTrack> {
+    val byId = library.associateBy { it.metaKey }
+    return (0 until ctrl.mediaItemCount).mapNotNull { i -> byId[ctrl.getMediaItemAt(i).mediaId] }
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Entry Point
 // ─────────────────────────────────────────────────────────────────
 
+@OptIn(UnstableApi::class)
 @Composable
 fun MediaPlayerScreen(
     isDark      : Boolean,
-    initialPath : String = ""
+    initialPath : String = "",
+    /**
+     * N-04: subtitle files require the Storage Access Framework, which
+     * needs an ActivityResultLauncher registered at the Activity level —
+     * that can't be started from inside a plain Composable. The hosting
+     * Activity passes a launcher-backed callback in; default is a no-op
+     * so this screen still compiles/works if the caller hasn't wired it.
+     */
+    onPickSubtitle: ((onPicked: (Uri) -> Unit) -> Unit)? = null
 ) {
     val ctx   = LocalContext.current
     val state = rememberPlayerState()
     val scope = rememberCoroutineScope()
 
-    // Colour scheme
     val bg      = if (isDark) FTV.Bg         else FTV.LBg
     val surface = if (isDark) FTV.Surface    else FTV.LSurface
     val surfaceH= if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh
@@ -514,175 +543,118 @@ fun MediaPlayerScreen(
     val tcs     = if (isDark) FTV.TextSec    else FTV.LTextSec
     val tcm     = if (isDark) FTV.TextMuted  else FTV.LTextMuted
 
-    // ── F-03/F-04: Library loading with path-hash cache ──────────
-    LaunchedEffect(state.showHidden) {
-        state.isLoading = true
-        val allExts = VIDEO_EXTS + AUDIO_EXTS
-        val roots   = listOf(
-            Environment.getExternalStorageDirectory(),
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-        ).filterNotNull()
-
-        withContext(Dispatchers.IO) {
-            // Collect paths on disk
-            val found = mutableListOf<File>()
-            roots.forEach { root ->
-                if (root.exists()) root.walkTopDown().maxDepth(6)
-                    .onEnter { dir -> state.showHidden || !dir.isHidden }
-                    .filter { f -> f.isFile && (state.showHidden || !f.isHidden) && f.extension.lowercase() in allExts }
-                    .forEach { found.add(it) }
-            }
-            val distinct = found.distinctBy { it.absolutePath }.sortedBy { it.nameWithoutExtension }
-            val paths    = distinct.map { it.absolutePath }
-            val newHash  = paths.hashCode()
-
-            // F-04: if paths unchanged, load from cache immediately
-            val cachedHash = cachedPathHash(ctx)
-            val cachedPaths = loadCachedPaths(ctx)
-            if (newHash == cachedHash && cachedPaths != null && !state.isLibraryReady) {
-                // Restore from disk-cached path list — fast startup
-                val cached = cachedPaths.mapNotNull { p ->
-                    val f = File(p); if (f.exists()) MediaTrack(f) else null
-                }
-                withContext(Dispatchers.Main) {
-                    applyLibrary(ctx, state, cached, initialPath)
-                    state.isLoading = false
-                    state.isLibraryReady = true
-                }
-                // Still enrich in background silently
-                enrichAndUpdate(ctx, state, distinct)
-                return@withContext
-            }
-
-            // New or changed file list — quick pass first
-            val quick = distinct.map { MediaTrack(it) }
-            withContext(Dispatchers.Main) {
-                applyLibrary(ctx, state, quick, initialPath)
-                state.isLoading = false
-                state.isLibraryReady = true
-            }
-            saveCachedPaths(ctx, paths)
-            saveCachedPathHash(ctx, newHash)
-
-            // Deep metadata pass
-            enrichAndUpdate(ctx, state, distinct)
-        }
-    }
-
-    // Load recents on start
+    // ── N-01: MediaStore-backed scan — no filesystem walk, no per-file
+    // metadata retriever pass. This is the fix for the slow-open complaint.
     LaunchedEffect(Unit) {
+        state.isLoading = true
+        val scanned = withContext(Dispatchers.IO) { MediaLibraryRepository.scan(ctx) }
+        val tracks = scanned.map { it.toMediaTrack() }
+        tracks.forEach { loadTrackMeta(ctx, it) }
+        state.allTracks   = tracks
+        state.videoTracks = tracks.filter { it.isVideo }
+        state.audioTracks = tracks.filter { !it.isVideo }
+        state.isLoading   = false
+        state.isLibraryReady = true
         state.recentPaths = loadRecents(ctx)
+
+        if (initialPath.isNotEmpty()) {
+            val i = tracks.indexOfFirst { it.file?.absolutePath == initialPath }
+            if (i >= 0) {
+                state.activeTab = if (tracks[i].isVideo) MediaTab.VIDEOS else MediaTab.MUSIC
+                state.playQueue(tracks, i)
+            }
+        }
     }
 
-    // ── F-01: Audio MediaPlayer keyed on file PATH ────────────────
-    val currentPath = state.currentTrack?.file?.absolutePath ?: ""
-    DisposableEffect(currentPath) {
-        state.mediaPlayer?.release()
-        state.mediaPlayer = null
-        state.playerPrepared = false
-        val track = state.currentTrack
-        if (track != null && !track.isVideo) {
-            val mp = MediaPlayer()
-            try {
-                mp.setDataSource(ctx, Uri.fromFile(track.file))
-                mp.prepareAsync()
-                mp.setOnPreparedListener { prepared ->
-                    state.durationMs   = prepared.duration.toLong()
-                    state.isBuffering  = false
-                    state.playerPrepared = true
-                    // Restore volume
-                    val v = if (state.isMuted) 0f else state.volume
-                    prepared.setVolume(v, v)
-                    // F-05: apply speed only now
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && state.playbackSpeed != 1.0f) {
-                        try { prepared.playbackParams = prepared.playbackParams.setSpeed(state.playbackSpeed) } catch (_: Exception) {}
-                    }
-                    // Restore position
-                    if (state.savedPositionMs > 0) {
-                        prepared.seekTo(state.savedPositionMs.toInt())
-                        state.positionMs = state.savedPositionMs
-                        state.savedPositionMs = 0L
-                    }
-                    if (state.isPlaying) prepared.start()
-                    // Attach effects
-                    state.attachAudioEffects(prepared.audioSessionId)
-                    // Push recent
-                    scope.launch { pushRecent(ctx, track.file.absolutePath); state.recentPaths = loadRecents(ctx) }
-                    // Increment play count
-                    track.playCount++
-                    scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, track) }
-                }
-                mp.setOnCompletionListener {
-                    when (state.repeatMode) {
-                        RepeatMode.REPEAT_ONE -> { mp.seekTo(0); if (state.isPlaying) mp.start() }
-                        else -> state.skipNext()
-                    }
-                }
-                mp.setOnErrorListener { _, _, _ -> state.isBuffering = false; false }
-                state.isBuffering = true
-            } catch (_: Exception) {}
-            state.mediaPlayer = mp
-        }
+    // ── Connect to PlaybackService via MediaController ───────────────
+    DisposableEffect(Unit) {
+        val token = SessionToken(ctx, ComponentName(ctx, PlaybackService::class.java))
+        val future = MediaController.Builder(ctx, token).buildAsync()
+        future.addListener({
+            state.controller = try { future.get() } catch (_: Exception) { null }
+        }, MoreExecutors.directExecutor())
         onDispose {
-            state.mediaPlayer?.release()
-            state.mediaPlayer = null
-            state.playerPrepared = false
-            state.releaseEffects()
+            MediaController.releaseFuture(future)
+            state.controller = null
         }
     }
 
-    // Volume sync
-    LaunchedEffect(state.volume, state.isMuted) {
-        val v = if (state.isMuted) 0f else state.volume
-        state.mediaPlayer?.setVolume(v, v)
-        // F-08: for video use AudioManager
-        if (state.currentTrack?.isVideo == true) {
-            val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            am.setStreamVolume(AudioManager.STREAM_MUSIC, (v * max).roundToInt().coerceIn(0, max), 0)
-        }
-    }
-
-    // Play/pause sync
-    LaunchedEffect(state.isPlaying) {
-        val mp = state.mediaPlayer ?: return@LaunchedEffect
-        try {
-            if (state.isPlaying && !mp.isPlaying) mp.start()
-            else if (!state.isPlaying && mp.isPlaying) mp.pause()
-        } catch (_: Exception) {}
-    }
-
-    // Speed sync
-    LaunchedEffect(state.playbackSpeed) {
-        state.applySpeedToAudio()
-        state.applySpeedToVideo()
-    }
-
-    // EQ preset sync
-    LaunchedEffect(state.eqPreset, state.bassBoostOn, state.virtualizerOn) {
-        state.equalizer?.let { state.applyEqPreset(it, state.eqPreset) }
-        state.bassBoost?.enabled  = state.bassBoostOn
-        state.virtualizer?.enabled = state.virtualizerOn
-    }
-
-    // F-06: position polling with isActive check
-    LaunchedEffect(state.currentIndex, state.isPlaying) {
-        while (isActive) {
-            delay(250)
-            try {
-                val mp = state.mediaPlayer
-                val vv = state.videoView
-                state.positionMs = when {
-                    mp != null && mp.isPlaying -> mp.currentPosition.toLong()
-                    vv != null && vv.isPlaying -> vv.currentPosition.toLong()
-                    else -> state.positionMs
+    // ── Mirror controller state into Compose state ───────────────────
+    DisposableEffect(state.controller) {
+        val ctrl = state.controller
+        if (ctrl == null) return@DisposableEffect onDispose {}
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) { state.isPlaying = isPlaying }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                state.isBuffering = playbackState == Player.STATE_BUFFERING
+                if (playbackState == Player.STATE_READY) {
+                    state.durationMs = ctrl.duration.takeIf { it != C.TIME_UNSET } ?: 0L
                 }
-            } catch (_: Exception) {}
+            }
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                state.currentIndex = ctrl.currentMediaItemIndex
+                state.durationMs = ctrl.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+                state.positionMs = 0L
+                val track = state.playlist.getOrNull(state.currentIndex) ?: return
+                track.playCount++
+                scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, track) }
+                scope.launch { pushRecent(ctx, track.metaKey); state.recentPaths = loadRecents(ctx) }
+            }
+            override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                state.playlist = rebuildPlaylistFromController(ctrl, state.allTracks)
+                state.currentIndex = ctrl.currentMediaItemIndex
+            }
+            override fun onShuffleModeEnabledChanged(enabled: Boolean) { state.isShuffle = enabled }
+            override fun onRepeatModeChanged(mode: Int) { state.repeatMode = mode.toRepeatMode() }
+        }
+        ctrl.addListener(listener)
+        // Prime initial state in case the controller connected with an
+        // already-active session (e.g. re-entering the screen).
+        state.isPlaying    = ctrl.isPlaying
+        state.isShuffle     = ctrl.shuffleModeEnabled
+        state.repeatMode    = ctrl.repeatMode.toRepeatMode()
+        state.currentIndex  = ctrl.currentMediaItemIndex
+        state.durationMs    = ctrl.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+        onDispose { ctrl.removeListener(listener) }
+    }
+
+    // ── Restore last queue once both library and controller are ready ─
+    LaunchedEffect(state.controller, state.isLibraryReady) {
+        val ctrl = state.controller ?: return@LaunchedEffect
+        if (!state.isLibraryReady || state.hasRestoredQueue) return@LaunchedEffect
+        state.hasRestoredQueue = true
+        if (ctrl.mediaItemCount > 0) return@LaunchedEffect // service already has an active queue
+        val (ids, idx, pos) = loadSavedQueueIds(ctx)
+        if (ids.isEmpty()) return@LaunchedEffect
+        val byId = state.allTracks.associateBy { it.metaKey }
+        val restored = ids.mapNotNull { byId[it] }
+        if (restored.isNotEmpty()) {
+            ctrl.setMediaItems(
+                restored.map { it.toMediaItem() },
+                idx.coerceIn(0, restored.size - 1),
+                pos.coerceAtLeast(0)
+            )
+            ctrl.prepare()
         }
     }
+
+    // ── Position polling for the UI progress bar only — no disk I/O (B-02)
+    LaunchedEffect(state.controller, state.isPlaying) {
+        val ctrl = state.controller ?: return@LaunchedEffect
+        while (isActive) {
+            if (state.isPlaying) state.positionMs = ctrl.currentPosition.coerceAtLeast(0)
+            delay(250)
+        }
+    }
+
+    // Volume sync — one code path for audio AND video now (was split before)
+    LaunchedEffect(state.volume, state.isMuted) {
+        state.controller?.volume = if (state.isMuted) 0f else state.volume
+    }
+
+    // Shuffle / repeat sync
+    LaunchedEffect(state.isShuffle) { state.controller?.shuffleModeEnabled = state.isShuffle }
+    LaunchedEffect(state.repeatMode) { state.controller?.repeatMode = state.repeatMode.toPlayerRepeat() }
 
     // Auto-hide controls in fullscreen
     LaunchedEffect(state.showControls, state.isFullscreen) {
@@ -692,7 +664,7 @@ fun MediaPlayerScreen(
         }
     }
 
-    // Sleep timer — F-10: pause directly, don't toggle isPlaying flag twice
+    // Sleep timer
     LaunchedEffect(state.sleepTimerActive) {
         if (!state.sleepTimerActive) return@LaunchedEffect
         while (isActive && state.sleepTimerSeconds > 0 && state.sleepTimerActive) {
@@ -701,26 +673,18 @@ fun MediaPlayerScreen(
         }
         if (state.sleepTimerActive && state.sleepTimerSeconds == 0L) {
             state.sleepTimerActive = false
-            state.isPlaying = false
-            try { state.mediaPlayer?.pause(); state.videoView?.pause() } catch (_: Exception) {}
+            state.controller?.pause()
         }
     }
 
-    // Save queue on every change
-    LaunchedEffect(state.playlist, state.currentIndex, state.positionMs) {
-        if (state.isLibraryReady)
-            saveQueue(ctx, state.playlist, state.currentIndex, state.positionMs)
-    }
-
     // ── ROOT LAYOUT ───────────────────────────────────────────────
-    // P-18: fills the composable's given constraints (works in windowed OS)
     Box(Modifier.fillMaxSize().background(bg)) {
         if (state.isFullscreen && state.currentTrack?.isVideo == true) {
             FullscreenVideoView(state, tc, tcm, isDark, ctx)
         } else {
             if (state.showQueue) {
                 Row(Modifier.fillMaxSize()) {
-                    LibraryPane(state, isDark, ctx, surface, surfaceH, border, tc, tcs, tcm)
+                    LibraryPane(state, isDark, ctx, surface, surfaceH, border, tc, tcs, tcm, onPickSubtitle)
                     Divider(Modifier.fillMaxHeight().width(1.dp), color = border)
                     PlayerPane(state, isDark, bg, surface, border, tc, tcs, tcm, ctx)
                 }
@@ -730,10 +694,8 @@ fun MediaPlayerScreen(
         }
     }
 
-    // Settings overlay
     if (state.showSettings) SettingsSheet(state, isDark, tc, tcs, tcm, surface, border) { state.showSettings = false }
 
-    // Tag editor overlay
     if (state.showTagEditor) state.currentTrack?.let { t ->
         TagEditorSheet(t, isDark, tc, tcs, surface, border,
             onSave = { newTitle, newArtist, newAlbum ->
@@ -749,69 +711,51 @@ fun MediaPlayerScreen(
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Library loading helpers (top-level to avoid lambda captures)
+// B-04: shared video surface — one PlayerView factory used by both the
+// windowed and fullscreen composables. Both just attach/detach the SAME
+// controller; there is only ever one decoder running.
 // ─────────────────────────────────────────────────────────────────
 
-private fun applyLibrary(ctx: Context, state: PlayerState, tracks: List<MediaTrack>, initialPath: String) {
-    // Load per-track meta
-    tracks.forEach { loadTrackMeta(ctx, it) }
-    state.allTracks   = tracks
-    state.videoTracks = tracks.filter { it.isVideo }
-    state.audioTracks = tracks.filter { !it.isVideo }
-    // Restore queue from prefs
-    val (queue, idx, pos) = loadQueue(ctx, tracks)
-    if (queue.isNotEmpty()) {
-        state.playlist     = queue
-        state.currentIndex = idx
-        state.positionMs   = pos
-        state.savedPositionMs = pos
+@OptIn(UnstableApi::class)
+@Composable
+private fun VideoSurface(controller: MediaController?, aspectRatio: AspectRatio, modifier: Modifier = Modifier) {
+    val boxModifier = when (aspectRatio) {
+        AspectRatio.RATIO_4_3  -> modifier.aspectRatio(4f / 3f)
+        AspectRatio.RATIO_16_9 -> modifier.aspectRatio(16f / 9f)
+        else                   -> modifier.fillMaxSize()
     }
-    // Handle deep-link open
-    if (initialPath.isNotEmpty()) {
-        val f = File(initialPath)
-        val i = tracks.indexOfFirst { it.file.absolutePath == f.absolutePath }
-        if (i >= 0) {
-            state.playlist     = tracks
-            state.currentIndex = i
-            state.isPlaying    = true
-            state.activeTab    = if (tracks[i].isVideo) MediaTab.VIDEOS else MediaTab.MUSIC
-        }
-    }
+    AndroidView(
+        factory = { cx ->
+            PlayerView(cx).apply {
+                layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                useController = false // we draw our own transport controls
+                player = controller
+                resizeMode = aspectRatio.toResizeMode()
+                subtitleView?.visibility = android.view.View.VISIBLE
+            }
+        },
+        update = { view ->
+            if (view.player !== controller) view.player = controller
+            view.resizeMode = aspectRatio.toResizeMode()
+        },
+        onRelease = { view -> view.player = null }, // B-04: explicit cleanup, was entirely absent before
+        modifier = boxModifier
+    )
 }
 
-private suspend fun enrichAndUpdate(ctx: Context, state: PlayerState, files: List<File>) {
-    val enriched = files.map { f ->
-        val r = MediaMetadataRetriever()
-        try {
-            r.setDataSource(f.absolutePath)
-            MediaTrack(
-                file          = f,
-                title         = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)    ?: f.nameWithoutExtension,
-                artist        = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)   ?: "Unknown Artist",
-                album         = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)    ?: "Unknown Album",
-                durationMs    = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L,
-                albumArtBytes = r.embeddedPicture,
-                isVideo       = f.extension.lowercase() in VIDEO_EXTS
-            ).also { loadTrackMeta(ctx, it) }
-        } catch (_: Exception) { MediaTrack(f).also { loadTrackMeta(ctx, it) } }
-        finally { r.release() }
-    }
-    withContext(Dispatchers.Main) {
-        state.allTracks   = enriched
-        state.videoTracks = enriched.filter { it.isVideo }
-        state.audioTracks = enriched.filter { !it.isVideo }
-        // F-11: update existing playlist entries with enriched metadata
-        if (state.playlist.isNotEmpty()) {
-            val map = enriched.associateBy { it.file.absolutePath }
-            state.playlist = state.playlist.map { map[it.file.absolutePath] ?: it }
-        }
-    }
+/** B-08: per-window brightness instead of a permanent system-wide Settings.System write. */
+private fun setWindowBrightness(ctx: Context, fraction: Float) {
+    val activity = ctx as? Activity ?: return
+    val lp: WindowManager.LayoutParams = activity.window.attributes
+    lp.screenBrightness = fraction.coerceIn(0.01f, 1f)
+    activity.window.attributes = lp
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Fullscreen Video (F-02: save position before entering)
+// Fullscreen Video
 // ─────────────────────────────────────────────────────────────────
 
+@OptIn(UnstableApi::class)
 @Composable
 private fun FullscreenVideoView(
     state: PlayerState,
@@ -822,86 +766,45 @@ private fun FullscreenVideoView(
     Box(
         Modifier.fillMaxSize().background(Color.Black)
             .pointerInput(Unit) {
-                var dragX = 0f; var dragY = 0f
+                var dragX = 0f; var dragY = 0f; var startX = 0f
                 detectDragGestures(
-                    onDragStart = { dragX = 0f; dragY = 0f },
+                    onDragStart = { offset -> dragX = 0f; dragY = 0f; startX = offset.x },
                     onDrag      = { _, d -> dragX += d.x; dragY += d.y },
                     onDragEnd   = {
                         if (abs(dragX) > abs(dragY) && abs(dragX) > 20f) {
                             val seekMs = (dragX / 8f * 1000).toLong()
                             val newPos = (state.positionMs + seekMs).coerceIn(0L, state.durationMs)
-                            state.videoView?.seekTo(newPos.toInt()); state.positionMs = newPos
+                            state.seekTo(newPos); state.positionMs = newPos
                         } else if (abs(dragY) > 20f) {
-                            val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                            val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                            state.volume = (state.volume + (-dragY / 300f)).coerceIn(0f, 1f)
-                            am.setStreamVolume(AudioManager.STREAM_MUSIC, (state.volume * max).roundToInt().coerceIn(0, max), 0)
+                            if (startX > size.width / 2) {
+                                state.volume = (state.volume + (-dragY / 300f)).coerceIn(0f, 1f)
+                            } else {
+                                setWindowBrightness(ctx, (state.volume).let { _ ->
+                                    // independent brightness value, not tied to volume
+                                    ((ctx as? Activity)?.window?.attributes?.screenBrightness ?: 0.5f) + (-dragY / 600f)
+                                })
+                            }
                         }
                     }
                 )
             }
             .pointerInput(Unit) { detectTapGestures(onTap = { state.showControls = !state.showControls }) }
     ) {
-        AndroidView(
-            factory = { cx ->
-                VideoView(cx).apply {
-                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                    state.currentTrack?.let { t ->
-                        tag = t.file.absolutePath
-                        setVideoURI(Uri.fromFile(t.file))
-                    }
-                    state.videoView = this
-                    setOnPreparedListener { mp ->
-                        state.durationMs  = mp.duration.toLong()
-                        state.isBuffering = false
-                        // F-02: restore saved position
-                        if (state.savedPositionMs > 0) {
-                            seekTo(state.savedPositionMs.toInt())
-                            state.positionMs  = state.savedPositionMs
-                            state.savedPositionMs = 0L
-                        }
-                        if (state.isPlaying) start()
-                        state.applySpeedToVideo()
-                    }
-                    setOnCompletionListener { state.skipNext() }
-                }
-            },
-            update = { vv ->
-                val newPath = state.currentTrack?.file?.absolutePath
-                if (newPath != null && vv.tag != newPath) {
-                    vv.tag = newPath
-                    vv.setVideoURI(Uri.fromFile(state.currentTrack!!.file))
-                    vv.setOnPreparedListener { mp ->
-                        state.durationMs  = mp.duration.toLong()
-                        state.isBuffering = false
-                        if (state.isPlaying) vv.start()
-                        state.applySpeedToVideo()
-                    }
-                    state.isBuffering = true
-                } else {
-                    if (state.isPlaying && !vv.isPlaying) vv.start()
-                    else if (!state.isPlaying && vv.isPlaying) vv.pause()
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+        VideoSurface(state.controller, state.aspectRatio, Modifier.fillMaxSize())
 
         if (state.isBuffering) CircularProgressIndicator(color = FTV.Accent, modifier = Modifier.align(Alignment.Center))
 
         AnimatedVisibility(state.showControls, enter = fadeIn(), exit = fadeOut()) {
             Box(Modifier.fillMaxSize()) {
-                // Top bar
                 Row(
                     Modifier.fillMaxWidth()
                         .background(Brush.verticalGradient(listOf(Color.Black.copy(0.85f), Color.Transparent)))
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = {
-                        // F-02: save position before exiting fullscreen
-                        state.savedPositionMs = state.positionMs
-                        state.isFullscreen = false
-                    }) { Icon(Icons.Default.FullscreenExit, null, tint = Color.White) }
+                    IconButton(onClick = { state.isFullscreen = false }) {
+                        Icon(Icons.Default.FullscreenExit, null, tint = Color.White)
+                    }
                     Spacer(Modifier.width(8.dp))
                     Text(state.currentTrack?.displayTitle ?: "", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     AspectRatioChip(state, Color.White.copy(0.7f))
@@ -910,7 +813,6 @@ private fun FullscreenVideoView(
                     Spacer(Modifier.width(8.dp))
                     SleepTimerChip(state, Color.White.copy(0.7f))
                 }
-                // Bottom controls
                 Column(
                     Modifier.fillMaxWidth().align(Alignment.BottomCenter)
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.9f))))
@@ -935,11 +837,11 @@ private fun LibraryPane(
     isDark: Boolean,
     ctx: Context,
     surface: Color, surfaceH: Color, border: Color,
-    tc: Color, tcs: Color, tcm: Color
+    tc: Color, tcs: Color, tcm: Color,
+    onPickSubtitle: ((onPicked: (Uri) -> Unit) -> Unit)?
 ) {
     val scope = rememberCoroutineScope()
     Column(Modifier.width(300.dp).fillMaxHeight().background(surface)) {
-        // Header
         Row(
             Modifier.fillMaxWidth().background(if (isDark) FTV.BgMid else FTV.LSurface)
                 .padding(horizontal = 16.dp, vertical = 14.dp),
@@ -952,22 +854,17 @@ private fun LibraryPane(
             Column {
                 Text("Films & TV", color = tc, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 if (state.isLoading)
-                    Text("Scanning…", color = FTV.Accent, fontSize = 10.sp)
+                    Text("Loading…", color = FTV.Accent, fontSize = 10.sp)
                 else
                     Text("${state.allTracks.size} items", color = tcm, fontSize = 10.sp)
             }
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = { state.showHidden = !state.showHidden }, modifier = Modifier.size(28.dp)) {
-                Icon(if (state.showHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    null, tint = if (state.showHidden) FTV.Accent else tcm, modifier = Modifier.size(16.dp))
-            }
             IconButton(onClick = { state.showSettings = true }, modifier = Modifier.size(28.dp)) {
                 Icon(Icons.Default.Settings, null, tint = tcm, modifier = Modifier.size(16.dp))
             }
         }
         Divider(color = border)
 
-        // Tab bar — scrollable
         val tabs = listOf(
             MediaTab.MUSIC to Icons.Default.MusicNote,
             MediaTab.VIDEOS to Icons.Default.Movie,
@@ -1006,7 +903,6 @@ private fun LibraryPane(
             }
         }
 
-        // Search bar
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).height(34.dp)
                 .clip(RoundedCornerShape(17.dp))
@@ -1029,7 +925,6 @@ private fun LibraryPane(
                 Icon(Icons.Default.Close, null, tint = tcm, modifier = Modifier.size(13.dp).clickable { state.searchQuery = "" })
         }
 
-        // Count row
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             val cnt = state.filteredTracks.size
             Text("$cnt ${when(state.activeTab){ MediaTab.VIDEOS->"videos"; MediaTab.MUSIC->"tracks"; else->"items" }}", color = tcm, fontSize = 10.sp)
@@ -1039,53 +934,51 @@ private fun LibraryPane(
             }
             if (state.activeTab == MediaTab.PLAYLIST && state.playlist.isNotEmpty()) {
                 Text("Clear queue", color = FTV.DangerRed, fontSize = 10.sp,
-                    modifier = Modifier.clickable { state.playlist = emptyList(); state.currentIndex = -1; state.isPlaying = false })
+                    modifier = Modifier.clickable { state.clearQueue() })
             }
         }
         Divider(color = border.copy(alpha = 0.5f))
 
-        // Track list
-        val listState  = rememberLazyListState()
-        val tracks     = state.filteredTracks
+        val listState = rememberLazyListState()
+        val tracks    = state.filteredTracks
         LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
             when (state.activeTab) {
                 MediaTab.PLAYLIST -> {
-                    // P-06: drag-to-reorder queue (simplified swap on long press handled in LibraryRow)
-                    itemsIndexed(state.playlist, key = { i, t -> "${i}_${t.file.absolutePath}" }) { idx, t ->
+                    itemsIndexed(state.playlist, key = { i, t -> "${i}_${t.metaKey}" }) { idx, t ->
                         LibraryRow(
                             track = t, isActive = state.currentIndex == idx,
                             isPlaying = state.isPlaying, isDark = isDark, tc = tc, tcs = tcs, tcm = tcm, border = border,
                             showMoveControls = true,
-                            onMoveUp   = if (idx > 0) {{ val m = state.playlist.toMutableList(); m.add(idx-1, m.removeAt(idx)); state.playlist = m; if (state.currentIndex == idx) state.currentIndex-- else if (state.currentIndex == idx-1) state.currentIndex++ }} else null,
-                            onMoveDown = if (idx < state.playlist.size-1) {{ val m = state.playlist.toMutableList(); m.add(idx+1, m.removeAt(idx)); state.playlist = m; if (state.currentIndex == idx) state.currentIndex++ else if (state.currentIndex == idx+1) state.currentIndex-- }} else null,
-                            onClick = { state.currentIndex = idx; state.isPlaying = true },
+                            onMoveUp   = if (idx > 0) {{ state.moveInPlaylist(idx, idx - 1) }} else null,
+                            onMoveDown = if (idx < state.playlist.size - 1) {{ state.moveInPlaylist(idx, idx + 1) }} else null,
+                            onClick = { state.playTrackAt(idx) },
                             onAddToQueue = {},
                             onPlayNext   = {},
                             onRemoveFromQueue = { state.removeFromPlaylist(idx) },
                             onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
                             onShare    = { shareTrack(ctx, t) },
-                            onTagEdit  = { state.showTagEditor = true }
+                            onTagEdit  = { state.showTagEditor = true },
+                            onLoadSubtitle = if (t.isVideo) { { pickSubtitleFor(t, onPickSubtitle, state) } } else null
                         )
                     }
                 }
                 MediaTab.FOLDERS -> {
                     state.folderGroups.forEach { (folderPath, groupTracks) ->
                         stickyHeader(key = "folder_$folderPath") {
-                            GroupHeader(File(folderPath).name, groupTracks.size, isDark, tc, tcm, surface, surfaceH) {
-                                groupTracks.forEach { state.addToPlaylist(it) }
-                                if (state.currentIndex < 0 && state.playlist.isNotEmpty()) state.playTrack(0)
+                            GroupHeader(File(folderPath).name.ifBlank { folderPath }, groupTracks.size, isDark, tc, tcm, surface, surfaceH) {
+                                state.playQueue(groupTracks, 0)
                             }
                         }
-                        itemsIndexed(groupTracks, key = { _, t -> t.file.absolutePath }) { idx, t ->
-                            val active = state.playlist.getOrNull(state.currentIndex)?.file?.absolutePath == t.file.absolutePath
-                            LibraryRow(t, active, state.isPlaying, isDark, tc, tcs, tcm, border,
-                                onClick = { state.playlist = groupTracks; state.playTrack(idx) },
+                        itemsIndexed(groupTracks, key = { _, t -> t.metaKey }) { idx, t ->
+                            LibraryRow(t, state.currentTrack?.metaKey == t.metaKey, state.isPlaying, isDark, tc, tcs, tcm, border,
+                                onClick = { state.playQueue(groupTracks, idx) },
                                 onAddToQueue = { state.addToPlaylist(t) },
                                 onPlayNext   = { state.playNext(t) },
                                 onRemoveFromQueue = {},
                                 onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
                                 onShare    = { shareTrack(ctx, t) },
-                                onTagEdit  = { state.currentIndex = state.playlist.indexOf(t); state.showTagEditor = true }
+                                onTagEdit  = { state.showTagEditor = true },
+                                onLoadSubtitle = if (t.isVideo) { { pickSubtitleFor(t, onPickSubtitle, state) } } else null
                             )
                         }
                     }
@@ -1093,75 +986,72 @@ private fun LibraryPane(
                 MediaTab.MUSIC -> {
                     if (state.searchQuery.isNotEmpty()) {
                         itemsIndexed(tracks) { idx, t ->
-                            val active = state.playlist.getOrNull(state.currentIndex)?.file?.absolutePath == t.file.absolutePath
-                            LibraryRow(t, active, state.isPlaying, isDark, tc, tcs, tcm, border,
-                                onClick = { state.playlist = tracks; state.playTrack(idx) },
+                            LibraryRow(t, state.currentTrack?.metaKey == t.metaKey, state.isPlaying, isDark, tc, tcs, tcm, border,
+                                onClick = { state.playQueue(tracks, idx) },
                                 onAddToQueue = { state.addToPlaylist(t) },
                                 onPlayNext   = { state.playNext(t) },
                                 onRemoveFromQueue = {},
                                 onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
                                 onShare    = { shareTrack(ctx, t) },
-                                onTagEdit  = { state.showTagEditor = true }
+                                onTagEdit  = { state.showTagEditor = true },
+                                onLoadSubtitle = null
                             )
                         }
                     } else {
                         state.audioGroups.forEach { (albumName, groupTracks) ->
                             stickyHeader(key = "album_$albumName") {
                                 GroupHeader(albumName, groupTracks.size, isDark, tc, tcm, surface, surfaceH) {
-                                    groupTracks.forEach { state.addToPlaylist(it) }
-                                    if (state.currentIndex < 0 && state.playlist.isNotEmpty()) state.playTrack(0)
+                                    state.playQueue(groupTracks, 0)
                                 }
                             }
-                            itemsIndexed(groupTracks, key = { _, t -> t.file.absolutePath }) { idx, t ->
-                                val active = state.playlist.getOrNull(state.currentIndex)?.file?.absolutePath == t.file.absolutePath
-                                LibraryRow(t, active, state.isPlaying, isDark, tc, tcs, tcm, border,
-                                    onClick = { state.playlist = groupTracks; state.playTrack(idx) },
+                            itemsIndexed(groupTracks, key = { _, t -> t.metaKey }) { idx, t ->
+                                LibraryRow(t, state.currentTrack?.metaKey == t.metaKey, state.isPlaying, isDark, tc, tcs, tcm, border,
+                                    onClick = { state.playQueue(groupTracks, idx) },
                                     onAddToQueue = { state.addToPlaylist(t) },
                                     onPlayNext   = { state.playNext(t) },
                                     onRemoveFromQueue = {},
                                     onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
                                     onShare    = { shareTrack(ctx, t) },
-                                    onTagEdit  = { state.showTagEditor = true }
+                                    onTagEdit  = { state.showTagEditor = true },
+                                    onLoadSubtitle = null
                                 )
                             }
                         }
                     }
                 }
                 else -> {
-                    // VIDEOS, RECENTS, FAVORITES — flat list
                     val isVideos = state.activeTab == MediaTab.VIDEOS
                     if (isVideos && state.searchQuery.isEmpty()) {
                         state.videoGroups.forEach { (folderName, groupTracks) ->
                             stickyHeader(key = "vid_$folderName") {
                                 GroupHeader(folderName, groupTracks.size, isDark, tc, tcm, surface, surfaceH) {
-                                    groupTracks.forEach { state.addToPlaylist(it) }
-                                    if (state.currentIndex < 0 && state.playlist.isNotEmpty()) state.playTrack(0)
+                                    state.playQueue(groupTracks, 0)
                                 }
                             }
-                            itemsIndexed(groupTracks, key = { _, t -> t.file.absolutePath }) { idx, t ->
-                                val active = state.playlist.getOrNull(state.currentIndex)?.file?.absolutePath == t.file.absolutePath
-                                LibraryRow(t, active, state.isPlaying, isDark, tc, tcs, tcm, border,
-                                    onClick = { state.playlist = groupTracks; state.playTrack(idx) },
+                            itemsIndexed(groupTracks, key = { _, t -> t.metaKey }) { idx, t ->
+                                LibraryRow(t, state.currentTrack?.metaKey == t.metaKey, state.isPlaying, isDark, tc, tcs, tcm, border,
+                                    onClick = { state.playQueue(groupTracks, idx) },
                                     onAddToQueue = { state.addToPlaylist(t) },
                                     onPlayNext   = { state.playNext(t) },
                                     onRemoveFromQueue = {},
                                     onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
                                     onShare    = { shareTrack(ctx, t) },
-                                    onTagEdit  = {}
+                                    onTagEdit  = {},
+                                    onLoadSubtitle = { pickSubtitleFor(t, onPickSubtitle, state) }
                                 )
                             }
                         }
                     } else {
                         itemsIndexed(tracks) { idx, t ->
-                            val active = state.playlist.getOrNull(state.currentIndex)?.file?.absolutePath == t.file.absolutePath
-                            LibraryRow(t, active, state.isPlaying, isDark, tc, tcs, tcm, border,
-                                onClick = { state.playlist = tracks; state.playTrack(idx) },
+                            LibraryRow(t, state.currentTrack?.metaKey == t.metaKey, state.isPlaying, isDark, tc, tcs, tcm, border,
+                                onClick = { state.playQueue(tracks, idx) },
                                 onAddToQueue = { state.addToPlaylist(t) },
                                 onPlayNext   = { state.playNext(t) },
                                 onRemoveFromQueue = {},
                                 onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
                                 onShare    = { shareTrack(ctx, t) },
-                                onTagEdit  = { state.showTagEditor = true }
+                                onTagEdit  = { state.showTagEditor = true },
+                                onLoadSubtitle = if (t.isVideo) { { pickSubtitleFor(t, onPickSubtitle, state) } } else null
                             )
                         }
                     }
@@ -1170,10 +1060,24 @@ private fun LibraryPane(
             item { Spacer(Modifier.height(80.dp)) }
         }
 
-        // Mini now-playing
         if (state.currentTrack != null) {
             Divider(color = border)
             MiniNowPlaying(state, isDark, tc, tcs, tcm)
+        }
+    }
+}
+
+private fun pickSubtitleFor(track: MediaTrack, onPickSubtitle: ((onPicked: (Uri) -> Unit) -> Unit)?, state: PlayerState) {
+    onPickSubtitle?.invoke { uri ->
+        track.subtitleUri = uri
+        // Re-queue is required for ExoPlayer to pick up the new subtitle config;
+        // this replaces the current item in place at the same position/time.
+        val ctrl = state.controller ?: return@invoke
+        val idx = state.playlist.indexOfFirst { it.metaKey == track.metaKey }
+        if (idx >= 0) {
+            val pos = if (idx == state.currentIndex) ctrl.currentPosition else 0L
+            ctrl.replaceMediaItem(idx, track.toMediaItem())
+            if (idx == state.currentIndex) ctrl.seekTo(idx, pos)
         }
     }
 }
@@ -1220,7 +1124,8 @@ private fun LibraryRow(
     onRemoveFromQueue: () -> Unit,
     onFavorite: () -> Unit,
     onShare: () -> Unit,
-    onTagEdit: () -> Unit
+    onTagEdit: () -> Unit,
+    onLoadSubtitle: (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val rowBg by animateColorAsState(if (isActive) FTV.SelectedBg else Color.Transparent, label = "rowbg")
@@ -1232,11 +1137,11 @@ private fun LibraryRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Artwork
         Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-            if (track.albumArtBytes != null) {
-                AsyncImage(model = track.albumArtBytes, contentDescription = null,
-                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(5.dp)), contentScale = ContentScale.Crop)
+            if (track.artworkUri != null) {
+                AsyncImage(model = track.artworkUri, contentDescription = null,
+                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(5.dp)), contentScale = ContentScale.Crop,
+                    error = null)
             } else {
                 Box(Modifier.size(40.dp).clip(RoundedCornerShape(5.dp))
                     .background(if (track.isVideo) FTV.VideoGreen.copy(0.15f) else FTV.AudioPurple.copy(0.15f)),
@@ -1249,7 +1154,6 @@ private fun LibraryRow(
                 }
             }
         }
-        // Info
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(track.displayTitle, color = if (isActive) FTV.Accent else tc, fontSize = 13.sp,
@@ -1266,7 +1170,6 @@ private fun LibraryRow(
             }
             if (track.playCount > 0) Text("Played ${track.playCount}×", color = tcm, fontSize = 9.sp)
         }
-        // Move controls for queue
         if (showMoveControls) {
             Column(Modifier.width(20.dp)) {
                 if (onMoveUp != null)
@@ -1275,22 +1178,22 @@ private fun LibraryRow(
                     Icon(Icons.Default.KeyboardArrowDown, null, tint = tcm, modifier = Modifier.size(16.dp).clickable { onMoveDown() })
             }
         }
-        // Context menu
         Box {
             Icon(Icons.Default.MoreVert, null, tint = tcm, modifier = Modifier.size(16.dp).clickable { showMenu = true })
             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false },
                 modifier = Modifier.background(if (isDark) FTV.Surface else FTV.LSurface)) {
-                listOf(
-                    Icons.Default.PlayArrow      to "Play now"          to onClick,
-                    Icons.Default.PlaylistAdd    to "Add to queue"      to onAddToQueue,
-                    Icons.Default.QueuePlayNext  to "Play next"         to onPlayNext,
-                    Icons.Default.Remove         to "Remove from queue" to onRemoveFromQueue,
-                    (if (track.isFavorite) Icons.Default.StarBorder else Icons.Default.Star)
-                            to (if (track.isFavorite) "Unfavorite" else "Favorite") to onFavorite,
-                    Icons.Default.Edit           to "Edit tags"         to onTagEdit,
-                    Icons.Default.Share          to "Share"             to onShare
-                ).forEach { (pair, action) ->
-                    val (icon, label) = pair
+                val items = buildList {
+                    add(Triple(Icons.Default.PlayArrow, "Play now", onClick))
+                    add(Triple(Icons.Default.PlaylistAdd, "Add to queue", onAddToQueue))
+                    add(Triple(Icons.Default.QueuePlayNext, "Play next", onPlayNext))
+                    add(Triple(Icons.Default.Remove, "Remove from queue", onRemoveFromQueue))
+                    add(Triple(if (track.isFavorite) Icons.Default.StarBorder else Icons.Default.Star,
+                        if (track.isFavorite) "Unfavorite" else "Favorite", onFavorite))
+                    add(Triple(Icons.Default.Edit, "Edit tags", onTagEdit))
+                    add(Triple(Icons.Default.Share, "Share", onShare))
+                    if (onLoadSubtitle != null) add(Triple(Icons.Default.Subtitles, "Load subtitles…", onLoadSubtitle))
+                }
+                items.forEach { (icon, label, action) ->
                     DropdownMenuItem(
                         text = { Text(label, color = if (isDark) FTV.Text else FTV.LText, fontSize = 13.sp) },
                         onClick = { action(); showMenu = false },
@@ -1320,7 +1223,7 @@ private fun MiniNowPlaying(state: PlayerState, isDark: Boolean, tc: Color, tcs: 
             .background(if (track.isVideo) FTV.VideoGreen.copy(0.2f) else FTV.AudioPurple.copy(0.2f)),
             contentAlignment = Alignment.Center
         ) {
-            if (track.albumArtBytes != null) AsyncImage(track.albumArtBytes, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (track.artworkUri != null) AsyncImage(track.artworkUri, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             else Icon(if (track.isVideo) Icons.Default.Movie else Icons.Default.MusicNote, null,
                 tint = if (track.isVideo) FTV.VideoGreen else FTV.AudioPurple, modifier = Modifier.size(16.dp))
         }
@@ -1328,10 +1231,7 @@ private fun MiniNowPlaying(state: PlayerState, isDark: Boolean, tc: Color, tcs: 
             Text(track.displayTitle,  color = tc,  fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
             Text(track.displayArtist, color = tcm, fontSize = 9.sp,  maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        IconButton(onClick = {
-            if (state.isPlaying) { state.mediaPlayer?.pause(); state.videoView?.pause(); state.isPlaying = false }
-            else { state.mediaPlayer?.start(); state.videoView?.start(); state.isPlaying = true }
-        }, modifier = Modifier.size(28.dp)) {
+        IconButton(onClick = { state.togglePlayPause() }, modifier = Modifier.size(28.dp)) {
             Icon(if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = FTV.Accent, modifier = Modifier.size(18.dp))
         }
     }
@@ -1351,7 +1251,6 @@ private fun PlayerPane(
 ) {
     val track = state.currentTrack
     Column(Modifier.fillMaxSize().background(bg)) {
-        // Toolbar
         Row(
             Modifier.fillMaxWidth().height(48.dp).background(surface).padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1370,7 +1269,7 @@ private fun PlayerPane(
             } else Text("Films & TV", color = tcs, fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
             if (track != null) {
-                IconButton(onClick = { track.isFavorite = !track.isFavorite }, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = { track.isFavorite = !track.isFavorite; saveTrackMeta(ctx, track) }, modifier = Modifier.size(32.dp)) {
                     Icon(if (track.isFavorite) Icons.Default.Star else Icons.Default.StarBorder, null,
                         tint = if (track.isFavorite) FTV.Gold else tcm, modifier = Modifier.size(18.dp))
                 }
@@ -1385,15 +1284,11 @@ private fun PlayerPane(
             VolumeControl(state, tc, tcm)
             Spacer(Modifier.width(4.dp))
             if (track?.isVideo == true) {
-                ToolbarBtn(Icons.Default.Fullscreen, tc) {
-                    state.savedPositionMs = state.positionMs  // F-02
-                    state.isFullscreen = true
-                }
+                ToolbarBtn(Icons.Default.Fullscreen, tc) { state.isFullscreen = true }
             }
         }
         Divider(color = border)
 
-        // Main area
         Box(Modifier.weight(1f).fillMaxWidth().background(if (isDark) FTV.BgMid else FTV.LBg), contentAlignment = Alignment.Center) {
             when {
                 track == null  -> EmptyState(tc, tcm)
@@ -1402,7 +1297,6 @@ private fun PlayerPane(
             }
         }
 
-        // Bottom controls
         Column(
             Modifier.fillMaxWidth()
                 .background(Brush.verticalGradient(listOf(if (isDark) FTV.Bg else FTV.LBg, surface)))
@@ -1435,9 +1329,10 @@ private fun EmptyState(tc: Color, tcm: Color) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Video Player Area
+// Video Player Area (windowed)
 // ─────────────────────────────────────────────────────────────────
 
+@OptIn(UnstableApi::class)
 @Composable
 private fun VideoPlayerArea(state: PlayerState, track: MediaTrack, tc: Color, tcm: Color, ctx: Context) {
     var gestureLabel by remember { mutableStateOf("") }
@@ -1455,25 +1350,21 @@ private fun VideoPlayerArea(state: PlayerState, track: MediaTrack, tc: Color, tc
                         if (abs(tx) > abs(ty) && abs(tx) > 20f) {
                             val seekMs = (tx / 8f * 1000).toLong()
                             val newPos = (state.positionMs + seekMs).coerceIn(0L, state.durationMs)
-                            state.videoView?.seekTo(newPos.toInt()); state.positionMs = newPos
+                            state.seekTo(newPos); state.positionMs = newPos
                             gestureLabel = if (seekMs > 0) "+${seekMs/1000}s" else "${seekMs/1000}s"
                             showGesture = true; scope.launch { delay(1000); showGesture = false }
                         } else if (abs(ty) > 20f) {
-                            val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
                             if (startX > size.width / 2) {
-                                // Right half = volume
-                                val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                                 state.volume = (state.volume + (-ty / 300f)).coerceIn(0f, 1f)
-                                am.setStreamVolume(AudioManager.STREAM_MUSIC, (state.volume * max).roundToInt().coerceIn(0, max), 0)
                                 gestureLabel = "Vol ${(state.volume * 100).roundToInt()}%"
                             } else {
-                                // P-15: left half = brightness
-                                try {
-                                    val cur = Settings.System.getInt(ctx.contentResolver, Settings.System.SCREEN_BRIGHTNESS)
-                                    val newB = (cur + (-ty * 0.5f).roundToInt()).coerceIn(0, 255)
-                                    Settings.System.putInt(ctx.contentResolver, Settings.System.SCREEN_BRIGHTNESS, newB)
-                                    gestureLabel = "Brightness ${(newB / 255f * 100).roundToInt()}%"
-                                } catch (_: Exception) { gestureLabel = "Brightness (no perm)" }
+                                // B-08: per-window brightness, no WRITE_SETTINGS permission needed
+                                val activity = ctx as? Activity
+                                val current = activity?.window?.attributes?.screenBrightness
+                                    ?.takeIf { it in 0f..1f } ?: 0.5f
+                                val newB = (current + (-ty / 600f)).coerceIn(0.01f, 1f)
+                                setWindowBrightness(ctx, newB)
+                                gestureLabel = "Brightness ${(newB * 100).roundToInt()}%"
                             }
                             showGesture = true; scope.launch { delay(1000); showGesture = false }
                         }
@@ -1482,69 +1373,13 @@ private fun VideoPlayerArea(state: PlayerState, track: MediaTrack, tc: Color, tc
             }
             .pointerInput(Unit) { detectTapGestures(onTap = { state.showControls = !state.showControls }) }
     ) {
-        // F-01/F-07: VideoView only in non-fullscreen; keyed by track path in update
-        AndroidView(
-            factory = { cx ->
-                VideoView(cx).apply {
-                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                    tag = track.file.absolutePath
-                    setVideoURI(Uri.fromFile(track.file))
-                    state.videoView = this
-                    setOnPreparedListener { mp ->
-                        state.durationMs  = mp.duration.toLong()
-                        state.isBuffering = false
-                        if (state.savedPositionMs > 0) { seekTo(state.savedPositionMs.toInt()); state.positionMs = state.savedPositionMs; state.savedPositionMs = 0L }
-                        if (state.isPlaying) start()
-                        state.applySpeedToVideo()
-                    }
-                    setOnCompletionListener { state.skipNext() }
-                }
-            },
-            update = { vv ->
-                val newPath = state.currentTrack?.file?.absolutePath
-                if (newPath != null && vv.tag != newPath) {
-                    vv.tag = newPath
-                    vv.setVideoURI(Uri.fromFile(state.currentTrack!!.file))
-                    vv.setOnPreparedListener { mp ->
-                        state.durationMs = mp.duration.toLong(); state.isBuffering = false
-                        if (state.isPlaying) vv.start(); state.applySpeedToVideo()
-                    }
-                    state.isBuffering = true
-                } else {
-                    if (state.isPlaying && !vv.isPlaying) vv.start()
-                    else if (!state.isPlaying && vv.isPlaying) vv.pause()
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+        VideoSurface(state.controller, state.aspectRatio, Modifier.fillMaxSize())
 
         if (state.isBuffering) CircularProgressIndicator(color = FTV.Accent, modifier = Modifier.align(Alignment.Center))
 
-        AnimatedVisibility(showGesture, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.Center)) {
-            Box(Modifier.background(Color.Black.copy(0.65f), RoundedCornerShape(8.dp)).padding(horizontal = 18.dp, vertical = 10.dp)) {
-                Text(gestureLabel, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
-
-        // Controls overlay (non-fullscreen)
-        AnimatedVisibility(state.showControls, enter = fadeIn(), exit = fadeOut()) {
-            Box(Modifier.fillMaxSize()) {
-                Row(
-                    Modifier.fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(Color.Black.copy(0.6f), Color.Transparent)))
-                        .padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Spacer(Modifier.weight(1f))
-                    AspectRatioChip(state, Color.White.copy(0.7f))
-                    Spacer(Modifier.width(4.dp))
-                    IconButton(onClick = {
-                        state.savedPositionMs = state.positionMs
-                        state.isFullscreen = true
-                    }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Fullscreen, null, tint = Color.White, modifier = Modifier.size(20.dp))
-                    }
-                }
+        AnimatedVisibility(showGesture, modifier = Modifier.align(Alignment.Center), enter = fadeIn(), exit = fadeOut()) {
+            Box(Modifier.clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(0.7f)).padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text(gestureLabel, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
             }
         }
     }
@@ -1556,130 +1391,87 @@ private fun VideoPlayerArea(state: PlayerState, track: MediaTrack, tc: Color, tc
 
 @Composable
 private fun AudioPlayerArea(state: PlayerState, track: MediaTrack, isDark: Boolean, tc: Color, tcs: Color, tcm: Color) {
-    Box(Modifier.fillMaxSize()) {
-        // Background art / gradient
-        if (track.albumArtBytes != null) {
-            AsyncImage(model = track.albumArtBytes, contentDescription = null,
-                modifier = Modifier.fillMaxSize().blur(80.dp).alpha(0.2f), contentScale = ContentScale.Crop)
-        } else {
-            Box(Modifier.fillMaxSize().background(Brush.radialGradient(
-                colors = listOf(FTV.AudioPurple.copy(0.3f), FTV.Accent.copy(0.15f), Color.Transparent), radius = 600f
-            )))
-        }
-
-        Column(
-            Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Box(
+            Modifier.size(220.dp).shadow(16.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp))
+                .background(Brush.linearGradient(listOf(FTV.AudioPurple.copy(0.25f), FTV.Accent.copy(0.15f)))),
+            contentAlignment = Alignment.Center
         ) {
-            // Rotating album art disc
-            val artRot by rememberInfiniteTransition(label = "rot").animateFloat(
-                0f, 360f, infiniteRepeatable(tween(30000, easing = LinearEasing)), label = "r"
-            )
-            Box(
-                Modifier.size(220.dp)
-                    .rotate(if (state.isPlaying) artRot else 0f)
-                    .shadow(24.dp, CircleShape).clip(CircleShape)
-                    .background(if (track.albumArtBytes != null) SolidColor(Color.Transparent)
-                    else Brush.sweepGradient(listOf(FTV.AudioPurple, FTV.Accent, FTV.AccentGlow, FTV.AudioPurple))),
-                contentAlignment = Alignment.Center
-            ) {
-                if (track.albumArtBytes != null)
-                    AsyncImage(track.albumArtBytes, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                else
-                    Icon(Icons.Default.MusicNote, null, tint = Color.White.copy(0.9f), modifier = Modifier.size(90.dp))
-                Box(Modifier.size(24.dp).background(if (isDark) FTV.BgMid else FTV.LBg, CircleShape))
+            if (track.artworkUri != null) {
+                AsyncImage(model = track.artworkUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            } else {
+                Icon(Icons.Default.MusicNote, null, tint = FTV.AudioPurple, modifier = Modifier.size(72.dp))
             }
-
-            Spacer(Modifier.height(32.dp))
-
-            Text(track.displayTitle,  color = tc,  fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(6.dp))
-            Text(track.displayArtist, color = tcs, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            Text(track.displayAlbum,  color = tcm, fontSize = 12.sp)
-
-            Spacer(Modifier.height(24.dp))
-            if (state.isPlaying) WaveformVisualizer() else Box(Modifier.height(32.dp))
-            Spacer(Modifier.height(8.dp))
-
-            // Up next card
-            val nextTrack = state.playlist.getOrNull(state.currentIndex + 1)
-            if (nextTrack != null) {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                        .background(if (isDark) FTV.Surface.copy(0.6f) else FTV.LSurface.copy(0.8f))
-                        .padding(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("UP NEXT", color = FTV.Accent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                    if (nextTrack.albumArtBytes != null)
-                        AsyncImage(nextTrack.albumArtBytes, null,
-                            modifier = Modifier.size(28.dp).clip(RoundedCornerShape(4.dp)), contentScale = ContentScale.Crop)
-                    Text(nextTrack.displayTitle,  color = tc,  fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text(nextTrack.displayArtist, color = tcm, fontSize = 11.sp, maxLines = 1)
-                    Text(formatDuration(nextTrack.durationMs), color = tcm, fontSize = 10.sp)
-                }
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(track.displayTitle, color = tc, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+            Text(track.displayArtist, color = tcs, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (state.playlist.size > 1 && state.currentIndex < state.playlist.size - 1) {
+            val next = state.playlist[state.currentIndex + 1]
+            Row(
+                Modifier.clip(RoundedCornerShape(10.dp)).background(if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.QueueMusic, null, tint = tcm, modifier = Modifier.size(14.dp))
+                Text("Up next: ${next.displayTitle}", color = tcs, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Animated visualizers
+// Animated equalizer bars (playing indicator)
 // ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun AnimatedEqualizer(color: Color) {
-    val inf = rememberInfiniteTransition(label = "eq")
-    val b1 by inf.animateFloat(0.3f, 1f, infiniteRepeatable(tween(400), androidx.compose.animation.core.RepeatMode.Reverse), label = "b1")
-    val b2 by inf.animateFloat(0.6f, 1f, infiniteRepeatable(tween(600), androidx.compose.animation.core.RepeatMode.Reverse), label = "b2")
-    val b3 by inf.animateFloat(0.2f, 0.9f, infiniteRepeatable(tween(500), androidx.compose.animation.core.RepeatMode.Reverse), label = "b3")
-    Row(Modifier.size(22.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
-        listOf(b1, b2, b3).forEach { h -> Box(Modifier.width(4.dp).fillMaxHeight(h).background(color, RoundedCornerShape(2.dp))) }
-    }
-}
-
-@Composable
-private fun WaveformVisualizer() {
-    val inf = rememberInfiniteTransition(label = "wave")
-    val durations = listOf(380, 440, 510, 470, 390, 530, 420, 490, 360, 540, 410, 460, 520, 430, 370, 500)
-    val heights = durations.mapIndexed { i, dur ->
-        inf.animateFloat(if (i % 3 == 0) 0.15f else if (i % 3 == 1) 0.4f else 0.25f,
-            if (i % 2 == 0) 0.9f else 1f, infiniteRepeatable(tween(dur), androidx.compose.animation.core.RepeatMode.Reverse), label = "w$i"
-        ).value
-    }
-    val allH = heights + heights.reversed()
-    val grad = Brush.verticalGradient(listOf(FTV.AccentGlow, FTV.Accent))
-    Row(Modifier.fillMaxWidth().height(32.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-        allH.forEach { h -> Box(Modifier.weight(1f).fillMaxHeight(h).background(brush = grad, shape = RoundedCornerShape(2.dp))) }
+    val transition = rememberInfiniteTransition(label = "eq")
+    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom, modifier = Modifier.size(16.dp)) {
+        repeat(3) { i ->
+            val height by transition.animateFloat(
+                initialValue = 4f, targetValue = 16f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(400 + i * 120, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ), label = "bar$i"
+            )
+            Box(Modifier.width(3.dp).height(height.dp).background(color, RoundedCornerShape(1.dp)))
+        }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Progress bar
+// Progress bar — B-03: seeks on release, not per pixel of drag
 // ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun ProgressBar(state: PlayerState, tc: Color, tcm: Color) {
-    val progress = if (state.durationMs > 0) (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f) else 0f
+    var seekPreview by remember { mutableStateOf<Float?>(null) }
+    val displayedProgress = seekPreview
+        ?: if (state.durationMs > 0) (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f) else 0f
+
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatDuration(state.positionMs), color = tcm, fontSize = 11.sp)
-            Text("-${formatDuration((state.durationMs - state.positionMs).coerceAtLeast(0))}", color = tcm, fontSize = 11.sp)
+            Text(formatDuration((displayedProgress * state.durationMs).toLong()), color = tcm, fontSize = 11.sp)
+            Text("-${formatDuration((state.durationMs - (displayedProgress * state.durationMs).toLong()).coerceAtLeast(0))}", color = tcm, fontSize = 11.sp)
             Text(formatDuration(state.durationMs), color = tcm, fontSize = 11.sp)
         }
         Spacer(Modifier.height(2.dp))
         Box(Modifier.fillMaxWidth().height(32.dp), contentAlignment = Alignment.Center) {
             Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(tc.copy(0.15f))) {
-                Box(Modifier.fillMaxWidth(progress).fillMaxHeight()
+                Box(Modifier.fillMaxWidth(displayedProgress).fillMaxHeight()
                     .background(Brush.horizontalGradient(listOf(FTV.AccentDim, FTV.Accent, FTV.AccentGlow)), RoundedCornerShape(2.dp)))
             }
             Slider(
-                value = progress,
-                onValueChange = { frac ->
-                    val newPos = (frac * state.durationMs).toLong()
-                    state.mediaPlayer?.seekTo(newPos.toInt()); state.videoView?.seekTo(newPos.toInt()); state.positionMs = newPos
+                value = displayedProgress,
+                onValueChange = { frac -> seekPreview = frac }, // B-03: preview only, no seek yet
+                onValueChangeFinished = {
+                    val frac = seekPreview ?: return@Slider
+                    state.seekTo((frac * state.durationMs).toLong())
+                    seekPreview = null
                 },
                 modifier = Modifier.fillMaxWidth(),
                 colors = SliderDefaults.colors(
@@ -1704,23 +1496,15 @@ private fun MainControls(state: PlayerState, tc: Color) {
     ) {
         ControlBtn(Icons.Default.Shuffle, if (state.isShuffle) FTV.Accent else tc.copy(0.5f), 22.dp) { state.isShuffle = !state.isShuffle }
         ControlBtn(Icons.Default.SkipPrevious, tc, 32.dp) { state.skipPrev() }
-        ControlBtn(Icons.Default.Replay10, tc, 26.dp) {
-            val p = (state.positionMs - 10000).coerceAtLeast(0)
-            state.mediaPlayer?.seekTo(p.toInt()); state.videoView?.seekTo(p.toInt()); state.positionMs = p
-        }
+        ControlBtn(Icons.Default.Replay10, tc, 26.dp) { state.seekTo((state.positionMs - 10000).coerceAtLeast(0)) }
         Box(
-            Modifier.size(56.dp).shadow(8.dp, CircleShape).background(FTV.Accent, CircleShape).clickable {
-                if (state.isPlaying) { state.mediaPlayer?.pause(); state.videoView?.pause(); state.isPlaying = false }
-                else                 { state.mediaPlayer?.start(); state.videoView?.start(); state.isPlaying = true }
-            },
+            Modifier.size(56.dp).shadow(8.dp, CircleShape).background(FTV.Accent, CircleShape)
+                .clickable { state.togglePlayPause() },
             contentAlignment = Alignment.Center
         ) {
             Icon(if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(30.dp))
         }
-        ControlBtn(Icons.Default.Forward10, tc, 26.dp) {
-            val p = (state.positionMs + 10000).coerceAtMost(state.durationMs)
-            state.mediaPlayer?.seekTo(p.toInt()); state.videoView?.seekTo(p.toInt()); state.positionMs = p
-        }
+        ControlBtn(Icons.Default.Forward10, tc, 26.dp) { state.seekTo((state.positionMs + 10000).coerceAtMost(state.durationMs)) }
         ControlBtn(Icons.Default.SkipNext, tc, 32.dp) { state.skipNext() }
         ControlBtn(
             when (state.repeatMode) { RepeatMode.REPEAT_ONE -> Icons.Default.RepeatOne; else -> Icons.Default.Repeat },
@@ -1735,19 +1519,23 @@ private fun MainControls(state: PlayerState, tc: Color) {
 
 @Composable
 private fun VolumeControl(state: PlayerState, tc: Color, tcm: Color) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        IconButton(onClick = { state.isMuted = !state.isMuted }, modifier = Modifier.size(32.dp)) {
-            Icon(
-                when { state.isMuted -> Icons.Default.VolumeOff; state.volume < 0.3f -> Icons.Default.VolumeMute; state.volume < 0.7f -> Icons.Default.VolumeDown; else -> Icons.Default.VolumeUp },
-                null, tint = tc, modifier = Modifier.size(18.dp)
-            )
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        ToolbarBtn(
+            when { state.isMuted || state.volume == 0f -> Icons.Default.VolumeOff
+                   state.volume < 0.5f -> Icons.Default.VolumeDown
+                   else -> Icons.Default.VolumeUp },
+            tc
+        ) { expanded = !expanded }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            Column(Modifier.width(160.dp).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Slider(
+                    value = if (state.isMuted) 0f else state.volume,
+                    onValueChange = { state.volume = it; state.isMuted = false },
+                    colors = SliderDefaults.colors(thumbColor = FTV.Accent, activeTrackColor = FTV.Accent)
+                )
+            }
         }
-        Slider(
-            value = if (state.isMuted) 0f else state.volume,
-            onValueChange = { state.volume = it; state.isMuted = false },
-            modifier = Modifier.width(80.dp).height(24.dp),
-            colors = SliderDefaults.colors(thumbColor = FTV.Accent, activeTrackColor = FTV.Accent, inactiveTrackColor = tc.copy(0.2f))
-        )
     }
 }
 
@@ -1757,22 +1545,16 @@ private fun VolumeControl(state: PlayerState, tc: Color, tcm: Color) {
 
 @Composable
 private fun SpeedChip(state: PlayerState, bgTint: Color, tc: Color) {
-    var showMenu by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
     Box {
-        Box(
-            Modifier.clip(RoundedCornerShape(5.dp))
-                .background(if (state.playbackSpeed != 1f) FTV.Accent.copy(0.15f) else Color.Transparent)
-                .clickable { showMenu = true }.padding(horizontal = 8.dp, vertical = 4.dp)
-        ) {
-            Text(speedLabel(state.playbackSpeed), color = if (state.playbackSpeed != 1f) FTV.Accent else bgTint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        }
-        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }, modifier = Modifier.background(FTV.Surface)) {
-            SPEED_STEPS.forEach { speed ->
-                DropdownMenuItem(
-                    text = { Text(speedLabel(speed), color = if (state.playbackSpeed == speed) FTV.Accent else FTV.Text, fontWeight = if (state.playbackSpeed == speed) FontWeight.SemiBold else FontWeight.Normal, fontSize = 13.sp) },
-                    onClick = { state.playbackSpeed = speed; showMenu = false; state.applySpeedToAudio(); state.applySpeedToVideo() },
-                    leadingIcon = { if (state.playbackSpeed == speed) Icon(Icons.Default.Check, null, tint = FTV.Accent, modifier = Modifier.size(14.dp)) else Spacer(Modifier.size(14.dp)) }
-                )
+        Row(
+            Modifier.clip(RoundedCornerShape(6.dp)).background(bgTint.copy(0.12f))
+                .clickable { expanded = true }.padding(horizontal = 8.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) { Text(speedLabel(state.playbackSpeed), color = tc, fontSize = 11.sp, fontWeight = FontWeight.Medium) }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            SPEED_STEPS.forEach { s ->
+                DropdownMenuItem(text = { Text(speedLabel(s)) }, onClick = { state.setSpeed(s); expanded = false })
             }
         }
     }
@@ -1784,75 +1566,63 @@ private fun SpeedChip(state: PlayerState, bgTint: Color, tc: Color) {
 
 @Composable
 private fun SleepTimerChip(state: PlayerState, bgTint: Color) {
-    var showMenu by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
     Box {
-        Box(
-            Modifier.clip(RoundedCornerShape(5.dp))
-                .background(if (state.sleepTimerActive) FTV.Gold.copy(0.15f) else Color.Transparent)
-                .clickable { showMenu = true }.padding(horizontal = 8.dp, vertical = 4.dp)
+        Row(
+            Modifier.clip(RoundedCornerShape(6.dp)).background(bgTint.copy(0.12f))
+                .clickable { expanded = true }.padding(horizontal = 8.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Icon(Icons.Default.Bedtime, null, tint = if (state.sleepTimerActive) FTV.Gold else bgTint, modifier = Modifier.size(14.dp))
-                if (state.sleepTimerActive)
-                    Text(formatTimer(state.sleepTimerSeconds), color = FTV.Gold, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            }
+            Icon(Icons.Default.Timer, null, tint = bgTint, modifier = Modifier.size(13.dp))
+            if (state.sleepTimerActive) Text(formatTimer(state.sleepTimerSeconds), color = bgTint, fontSize = 11.sp)
         }
-        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }, modifier = Modifier.background(FTV.Surface)) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             if (state.sleepTimerActive) {
-                DropdownMenuItem(
-                    text = { Text("Cancel timer", color = FTV.DangerRed, fontSize = 13.sp) },
-                    onClick = { state.sleepTimerActive = false; state.sleepTimerSeconds = 0L; showMenu = false },
-                    leadingIcon = { Icon(Icons.Default.Close, null, tint = FTV.DangerRed, modifier = Modifier.size(14.dp)) }
-                )
-                Divider(color = FTV.Border)
-            }
-            SLEEP_OPTIONS.forEach { (min, label) ->
-                DropdownMenuItem(
-                    text = { Text(label, color = FTV.Text, fontSize = 13.sp) },
-                    onClick = { state.sleepTimerSeconds = min * 60L; state.sleepTimerActive = true; showMenu = false },
-                    leadingIcon = { Icon(Icons.Default.Bedtime, null, tint = FTV.Gold, modifier = Modifier.size(14.dp)) }
-                )
+                DropdownMenuItem(text = { Text("Cancel timer") }, onClick = { state.sleepTimerActive = false; expanded = false })
+            } else {
+                SLEEP_OPTIONS.forEach { (min, label) ->
+                    DropdownMenuItem(text = { Text(label) }, onClick = {
+                        state.sleepTimerSeconds = min * 60L; state.sleepTimerActive = true; expanded = false
+                    })
+                }
             }
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────
-// P-12: Aspect ratio chip (video)
+// Aspect ratio chip
 // ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun AspectRatioChip(state: PlayerState, tint: Color) {
-    var showMenu by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
     Box {
-        Box(Modifier.clip(RoundedCornerShape(5.dp)).clickable { showMenu = true }.padding(horizontal = 8.dp, vertical = 4.dp)) {
-            Text(state.aspectRatio.label, color = tint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        }
-        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }, modifier = Modifier.background(FTV.Surface)) {
+        Row(
+            Modifier.clip(RoundedCornerShape(6.dp)).background(tint.copy(0.12f))
+                .clickable { expanded = true }.padding(horizontal = 8.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) { Text(state.aspectRatio.label, color = tint, fontSize = 11.sp) }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             AspectRatio.values().forEach { ar ->
-                DropdownMenuItem(
-                    text = { Text(ar.label, color = if (state.aspectRatio == ar) FTV.Accent else FTV.Text, fontSize = 13.sp) },
-                    onClick = { state.aspectRatio = ar; showMenu = false },
-                    leadingIcon = { if (state.aspectRatio == ar) Icon(Icons.Default.Check, null, tint = FTV.Accent, modifier = Modifier.size(14.dp)) else Spacer(Modifier.size(14.dp)) }
-                )
+                DropdownMenuItem(text = { Text(ar.label) }, onClick = { state.aspectRatio = ar; expanded = false })
             }
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Settings sheet (EQ, bass boost, crossfade, gapless)
+// Settings sheet (EQ, bass boost, virtualizer, crossfade)
 // ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun SettingsSheet(
-    state: PlayerState,
-    isDark: Boolean,
+    state: PlayerState, isDark: Boolean,
     tc: Color, tcs: Color, tcm: Color,
     surface: Color, border: Color,
     onDismiss: () -> Unit
 ) {
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(0.5f)).clickable(onClick = onDismiss), contentAlignment = Alignment.CenterEnd) {
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(0.4f)).clickable(onClick = onDismiss), contentAlignment = Alignment.CenterEnd) {
         Column(
             Modifier.width(320.dp).fillMaxHeight().background(if (isDark) FTV.Surface else FTV.LSurface)
                 .clickable(enabled = false) {}
@@ -1866,7 +1636,6 @@ private fun SettingsSheet(
             }
             Divider(color = border)
 
-            // Equalizer
             Text("Equalizer", color = tcs, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 EqPreset.values().forEach { preset ->
@@ -1874,35 +1643,32 @@ private fun SettingsSheet(
                     Box(
                         Modifier.clip(RoundedCornerShape(16.dp))
                             .background(if (active) FTV.Accent else (if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh))
-                            .clickable { state.eqPreset = preset }
+                            .clickable { state.setEqPreset(preset) }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) { Text(preset.label, color = if (active) Color.White else tc, fontSize = 12.sp) }
                 }
             }
 
-            // Bass boost
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     Text("Bass Boost", color = tc, fontSize = 14.sp)
-                    Text("Enhance low frequencies", color = tcm, fontSize = 11.sp)
+                    Text("Enhance low frequencies — now applies to video too", color = tcm, fontSize = 11.sp)
                 }
-                Switch(checked = state.bassBoostOn, onCheckedChange = { state.bassBoostOn = it },
+                Switch(checked = state.bassBoostOn, onCheckedChange = { state.setBassBoost(it) },
                     colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = FTV.Accent))
             }
 
-            // Virtualizer
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     Text("3D Virtualizer", color = tc, fontSize = 14.sp)
                     Text("Spacious surround sound", color = tcm, fontSize = 11.sp)
                 }
-                Switch(checked = state.virtualizerOn, onCheckedChange = { state.virtualizerOn = it },
+                Switch(checked = state.virtualizerOn, onCheckedChange = { state.setVirtualizer(it) },
                     colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = FTV.Accent))
             }
 
             Divider(color = border)
 
-            // Crossfade
             Text("Crossfade", color = tcs, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
             Column {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -1910,29 +1676,17 @@ private fun SettingsSheet(
                     Text(if (state.crossfadeSec == 0) "Off" else "${state.crossfadeSec}s", color = FTV.Accent, fontSize = 14.sp)
                 }
                 Slider(
-                    value = state.crossfadeSec.toFloat(), onValueChange = { state.crossfadeSec = it.roundToInt() },
+                    value = state.crossfadeSec.toFloat(), onValueChange = { state.setCrossfade(it.roundToInt()) },
                     valueRange = 0f..10f, steps = 9,
                     colors = SliderDefaults.colors(thumbColor = FTV.Accent, activeTrackColor = FTV.Accent)
                 )
-            }
-
-            Divider(color = border)
-
-            // Hidden files
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column {
-                    Text("Show Hidden Files", color = tc, fontSize = 14.sp)
-                    Text("Include dot-prefixed files", color = tcm, fontSize = 11.sp)
-                }
-                Switch(checked = state.showHidden, onCheckedChange = { state.showHidden = it },
-                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = FTV.Accent))
             }
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────
-// P-02: Tag editor sheet
+// Tag editor sheet
 // ─────────────────────────────────────────────────────────────────
 
 @Composable
@@ -1960,11 +1714,10 @@ private fun TagEditorSheet(
             Text("Changes are saved in-app only (does not modify the file)", color = tcs, fontSize = 11.sp)
             Divider(color = border)
             listOf(
-                "Title" to title to { v: String -> title = v },
-                "Artist" to artist to { v: String -> artist = v },
-                "Album" to album to { v: String -> album = v }
-            ).forEach { (labelVal, setter) ->
-                val (label, value) = labelVal
+                Triple("Title", title) { v: String -> title = v },
+                Triple("Artist", artist) { v: String -> artist = v },
+                Triple("Album", album) { v: String -> album = v }
+            ).forEach { (label, value, setter) ->
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(label, color = tcs, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                     OutlinedTextField(
@@ -1990,15 +1743,14 @@ private fun TagEditorSheet(
 }
 
 // ─────────────────────────────────────────────────────────────────
-// P-11: Share track
+// Share track
 // ─────────────────────────────────────────────────────────────────
 
 private fun shareTrack(ctx: Context, track: MediaTrack) {
     try {
-        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.provider", track.file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = if (track.isVideo) "video/*" else "audio/*"
-            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_STREAM, track.contentUri)
             putExtra(Intent.EXTRA_SUBJECT, track.displayTitle)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }

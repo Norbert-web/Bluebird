@@ -1149,17 +1149,18 @@ fun Desktop(
             }
         }
 
-        // ── Windows-style refresh flicker — a brief pulse across all icons whenever
-        //    the shared desktopRefreshTick advances (i.e. a real change was detected
-        //    and re-scanned), skipping the very first load so opening the desktop
-        //    doesn't flicker. ──
+        // ── Windows-style refresh effect — icons vanish then reappear across the whole
+        //    desktop whenever the shared desktopRefreshTick advances (i.e. a real change
+        //    was detected and re-scanned), skipping the very first load so opening the
+        //    desktop doesn't flicker. Window is long enough to cover the slowest per-icon
+        //    stagger + fade-out + gap + fade-in in DesktopIcon's own animation. ──
         var refreshFlicker by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
             var lastTick = -1
             snapshotFlow { viewModel.uiState.value.desktopRefreshTick }.collect { tick ->
                 if (lastTick != -1 && tick != lastTick) {
                     refreshFlicker = true
-                    delay(220)
+                    delay(500)
                     refreshFlicker = false
                 }
                 lastTick = tick
@@ -1916,15 +1917,16 @@ private fun DesktopIcon(
     val cellH  = cellHeightDp(iconSize).dp
     val focusRequester = remember { FocusRequester() }
 
-    // Windows-style refresh pulse — a quick dip in opacity with a small random
-    // per-icon stagger so the whole desktop doesn't blink in perfect unison,
-    // matching the classic "explorer.exe refresh" flicker.
+    // Windows-style refresh effect — icons briefly vanish entirely, then reappear,
+    // matching the real explorer.exe F5 behavior (not just a dip in opacity), with a
+    // small random per-icon stagger so the whole desktop doesn't blink in perfect unison.
     val flickerAlpha = remember { Animatable(1f) }
     LaunchedEffect(refreshFlicker) {
         if (refreshFlicker) {
-            delay((0..120).random().toLong())
-            flickerAlpha.animateTo(0.35f, tween(70))
-            flickerAlpha.animateTo(1f, tween(120))
+            delay((0..150).random().toLong())
+            flickerAlpha.animateTo(0f, tween(60))
+            delay((30..90).random().toLong())
+            flickerAlpha.animateTo(1f, tween(140))
         }
     }
 
