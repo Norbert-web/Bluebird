@@ -48,7 +48,9 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -62,11 +64,15 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import com.bluebird.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -327,9 +333,11 @@ private fun BackgroundAnimationLayer(
 @Composable
 private fun LiveWallpaperRenderer(type: LiveWallpaperType, modifier: Modifier = Modifier) {
     val infinite = rememberInfiniteTransition(label = "live_wallpaper")
+    // 10s cycle (was 20s) — the previous speed combined with the soft, low-opacity shapes
+    // in Aurora/Bokeh made their motion too subtle to read as animated at a glance.
     val t by infinite.animateFloat(
         initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(20000, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(tween(10000, easing = LinearEasing), RepeatMode.Restart),
         label = "live_wallpaper_t"
     )
     Canvas(modifier = modifier) {
@@ -342,13 +350,17 @@ private fun LiveWallpaperRenderer(type: LiveWallpaperType, modifier: Modifier = 
                 )
                 bands.forEachIndexed { i, col ->
                     val phase = t * 6.283f + i * 2.1f
-                    val cy = h * (0.25f + 0.15f * i) + kotlin.math.sin(phase) * h * 0.08f
+                    // Both vertical AND horizontal drift now (real aurora ribbons undulate
+                    // side to side, not just up/down), with a much larger swing so the
+                    // motion reads clearly instead of blending into a near-static gradient.
+                    val cy = h * (0.22f + 0.16f * i) + kotlin.math.sin(phase) * h * 0.22f
+                    val xShift = kotlin.math.cos(phase * 0.8f) * w * 0.18f
                     drawRect(
                         brush = Brush.verticalGradient(
-                            listOf(col.copy(alpha = 0.25f), Color.Transparent),
-                            startY = cy - h * 0.2f, endY = cy + h * 0.35f
+                            listOf(col.copy(alpha = 0.38f), col.copy(alpha = 0.08f), Color.Transparent),
+                            startY = cy - h * 0.18f, endY = cy + h * 0.4f
                         ),
-                        topLeft = Offset(0f, 0f), size = androidx.compose.ui.geometry.Size(w, h)
+                        topLeft = Offset(xShift, 0f), size = androidx.compose.ui.geometry.Size(w, h)
                     )
                 }
             }
@@ -392,12 +404,17 @@ private fun LiveWallpaperRenderer(type: LiveWallpaperType, modifier: Modifier = 
                 repeat(18) { i ->
                     val baseX = rng.nextFloat() * w
                     val baseY = rng.nextFloat() * h
-                    val drift = kotlin.math.sin(t * 6.283f + i) * 30f
-                    val r = rng.nextFloat() * 50f + 30f
+                    // Bigger, faster drift + higher opacity than before — at drift=30px and
+                    // alpha=0.12 the orbs barely read as moving against their own soft edges.
+                    val phase = t * 6.283f + i
+                    val driftX = kotlin.math.sin(phase) * w * 0.12f
+                    val driftY = kotlin.math.cos(phase * 0.7f) * h * 0.08f
+                    val r = rng.nextFloat() * 46f + 28f
+                    val pulse = 0.85f + 0.15f * kotlin.math.sin(phase * 1.3f)
                     drawCircle(
                         Color(listOf(0xFF64B5F6, 0xFFBA68C8, 0xFF4DD0E1, 0xFFFFB74D)[i % 4].toInt())
-                            .copy(alpha = 0.12f),
-                        radius = r, center = Offset(baseX + drift, baseY + drift * 0.6f)
+                            .copy(alpha = 0.22f),
+                        radius = r * pulse, center = Offset(baseX + driftX, baseY + driftY)
                     )
                 }
             }
@@ -614,6 +631,22 @@ suspend fun PointerInputScope.detectPressDragGestures(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Icon bitmap cache — loadDesktopFileInfo runs on every refreshDesktopFiles()
+// call (which fires often: after every paste/delete/rename/install, plus the
+// FileObserver's own debounced triggers), and was previously re-decoding
+// every icon from scratch every single time — including PackageManager app
+// icon lookups, which are a real binder-IPC cost, not just a bitmap decode.
+// This is very likely the main contributor to "desktop takes long to load,
+// especially on other phones". Keyed so a changed/replaced file naturally
+// invalidates its own stale entry without needing explicit eviction.
+// ─────────────────────────────────────────────────────────────────
+private object DesktopIconCache {
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, Bitmap>()
+    fun get(key: String): Bitmap? = cache[key]
+    fun put(key: String, bitmap: Bitmap): Bitmap { cache[key] = bitmap; return bitmap }
+}
+
 fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFileInfo? = try {
     val ext = file.extension.lowercase()
     when {
@@ -627,8 +660,10 @@ fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFi
             val label = lines.find { it.startsWith("label=") }?.removePrefix("label=")?.trim()
                 ?: file.nameWithoutExtension
             val iconBmp: Bitmap? = if (pkg.isNotBlank()) {
-                try { drawableToBitmap(context.packageManager.getApplicationIcon(pkg)) }
-                catch (_: Exception) { null }
+                val cacheKey = "app:$pkg"
+                DesktopIconCache.get(cacheKey) ?: try {
+                    DesktopIconCache.put(cacheKey, drawableToBitmap(context.packageManager.getApplicationIcon(pkg)))
+                } catch (_: Exception) { null }
             } else null
             DesktopFileInfo(
                 id = file.absolutePath, file = file, name = label,
@@ -646,7 +681,10 @@ fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFi
             val iconBmp: Bitmap? = iconRel?.let {
                 try {
                     val f = File(context.filesDir, it)
-                    if (f.exists()) BitmapFactory.decodeFile(f.absolutePath) else null
+                    if (!f.exists()) return@let null
+                    val cacheKey = "webapp:$it:${f.lastModified()}"
+                    DesktopIconCache.get(cacheKey)
+                        ?: BitmapFactory.decodeFile(f.absolutePath)?.let { bmp -> DesktopIconCache.put(cacheKey, bmp) }
                 } catch (_: Exception) { null }
             }
             DesktopFileInfo(
@@ -659,7 +697,10 @@ fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFi
         ext in MUSIC_EXTS -> DesktopFileInfo(id = file.absolutePath, file = file, name = file.name, type = DesktopItemType.MUSIC_FILE)
         ext in VIDEO_EXTS -> DesktopFileInfo(id = file.absolutePath, file = file, name = file.name, type = DesktopItemType.VIDEO_FILE)
         ext in IMAGE_EXTS -> {
-            val thumb = try { BitmapFactory.decodeFile(file.absolutePath, MEDIA_THUMB_SAMPLE) } catch (_: Exception) { null }
+            val cacheKey = "img:${file.absolutePath}:${file.lastModified()}"
+            val thumb = DesktopIconCache.get(cacheKey) ?: try {
+                BitmapFactory.decodeFile(file.absolutePath, MEDIA_THUMB_SAMPLE)?.let { DesktopIconCache.put(cacheKey, it) }
+            } catch (_: Exception) { null }
             DesktopFileInfo(id = file.absolutePath, file = file, name = file.name, type = DesktopItemType.IMAGE_FILE, iconBitmap = thumb)
         }
         ext in TEXT_EXTS -> DesktopFileInfo(id = file.absolutePath, file = file, name = file.name, type = DesktopItemType.TEXT_FILE)
@@ -969,7 +1010,17 @@ fun Desktop(
         // When dragging starts on a selected icon, all selected icons move together.
         // dragGroupOrigins stores each icon's pixel offset from the drag anchor.
         var isDraggingGroup     by remember { mutableStateOf(false) }
+        // Broadcasts the CURRENT absolute target position for each follower (read by each
+        // follower's own LaunchedEffect below). Kept separate from groupRelativeOffsets —
+        // previously this single map was used for BOTH the original relative offset AND the
+        // live absolute broadcast, and once onDrag started overwriting it with absolute
+        // positions, the NEXT onDrag call re-read those absolute values as if they were still
+        // relative deltas and added them to the anchor again — a compounding feedback loop
+        // that could send followers flying off-screen within a few frames of dragging.
         val dragGroupOffsets    = remember { mutableStateMapOf<String, Offset>() }
+        // Stable, immutable-during-drag relative offsets (follower - anchor), captured once
+        // at drag start and never mutated afterward — the fix for the bug above.
+        val groupRelativeOffsets = remember { mutableStateMapOf<String, Offset>() }
 
         // ── Desktop-full toast ─────────────────────────────────────────
         var showDesktopFullToast  by remember { mutableStateOf(false) }
@@ -1030,6 +1081,13 @@ fun Desktop(
         // ── Context menus ──
         var showDesktopCtx      by remember { mutableStateOf(false) }
         var desktopCtxOffset    by remember { mutableStateOf(Offset.Zero) }
+        // Real screen coordinates of the desktop canvas layer — captured once via
+        // onGloballyPositioned below, used to convert local tap positions (measured
+        // relative to that layer) into true window coordinates for the context menus'
+        // Popup-based positioning. This is what fixes menus sometimes landing away
+        // from the actual tap point: previously offsets were used as-is, assuming the
+        // desktop layer started at the window's absolute (0,0), which isn't always true.
+        var desktopLayerCoords  by remember { mutableStateOf<LayoutCoordinates?>(null) }
         var iconCtxTarget       by remember { mutableStateOf<DesktopFileInfo?>(null) }
         var iconCtxOffset       by remember { mutableStateOf(Offset.Zero) }
 
@@ -1098,6 +1156,38 @@ fun Desktop(
             if (changed) prefs.saveCustomPositions(customPositions)
         }
 
+        // FIX: Re-snap all custom positions whenever the icon SIZE changes (not just
+        // screen bounds). Positions are stored as raw pixel coordinates, so switching to
+        // a larger icon size previously left old, tighter pixel spacing in place — icons
+        // that were fine at Small/Medium spacing would visually overlap once cells grew
+        // for Large. Re-snapping in a stable top-to-bottom, left-to-right order and
+        // tracking occupied cells as we go guarantees no two icons land on the same cell.
+        LaunchedEffect(iconSize, cellWPx, cellHPx) {
+            if (customPositions.isEmpty()) return@LaunchedEffect
+            val maxX = screenWPxTotal - cellWPx
+            val maxY = screenHPxTotal - cellHPx
+            val occupied = mutableSetOf<Pair<Int, Int>>()
+            var changed = false
+            customPositions.toList()
+                .sortedWith(compareBy({ it.second.y }, { it.second.x }))
+                .forEach { (id, oldPos) ->
+                    val snapped = snapToGrid(
+                        oldPos, cellWPx, cellHPx, padLeftPx, padTopPx,
+                        screenWPxTotal, screenHPxTotal, occupied
+                    )
+                    val finalPos = Offset(
+                        snapped.x.coerceIn(padLeftPx, maxX),
+                        snapped.y.coerceIn(padTopPx, maxY)
+                    )
+                    occupied.add(posToCell(finalPos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                    if (finalPos != oldPos) {
+                        customPositions[id] = finalPos
+                        changed = true
+                    }
+                }
+            if (changed) prefs.saveCustomPositions(customPositions)
+        }
+
         // ── Debounced refresh (only used for explicit user-triggered mutations —
         //    e.g. right after a rename/delete/paste — so the UI feels instant instead
         //    of waiting on the ViewModel's own ~120ms FileObserver debounce) ──
@@ -1160,16 +1250,39 @@ fun Desktop(
         //    — snapshotFlow only re-fires on snapshot-state reads, and a raw StateFlow.value
         //    read doesn't count, so that version only ever fired once for the whole screen's
         //    lifetime instead of on every refresh. ──
-        var refreshFlicker by remember { mutableStateOf(false) }
-        var lastRefreshTick by remember { mutableStateOf(-1) }
-        LaunchedEffect(vmUiState.desktopRefreshTick) {
-            val tick = vmUiState.desktopRefreshTick
-            if (lastRefreshTick != -1 && tick != lastRefreshTick) {
-                refreshFlicker = true
-                delay(500)
-                refreshFlicker = false
+        // ── Windows-style refresh effect — icons vanish then reappear together, but ONLY
+        //    for an explicit "Refresh" from the desktop context menu (manualDesktopRefreshTick),
+        //    not for silent rescans the FileObserver triggers after a paste/delete/rename.
+        //
+        //    Driven by ONE shared Animatable owned here, instead of each icon running its
+        //    own independent LaunchedEffect + Animatable with a random stagger. The old
+        //    per-icon approach caused two real bugs: (1) the random stagger meant icons
+        //    visibly disappeared/reappeared at different times instead of together, and
+        //    (2) if a slower device's frame timing pushed any single icon's animation past
+        //    the parent's fixed window, that icon's LaunchedEffect got cancelled mid-fade
+        //    and its alpha froze at whatever value it was interrupted at — sometimes 0,
+        //    leaving an icon invisible but still clickable at its real position. With one
+        //    shared value, every icon reads the exact same alpha every frame, so they're
+        //    perfectly in sync and there's no per-icon coroutine that can get stuck. ──
+        val desktopFlickerAlpha = remember { Animatable(1f) }
+        var lastManualRefreshTick by remember { mutableStateOf(-1) }
+        LaunchedEffect(vmUiState.manualDesktopRefreshTick) {
+            val tick = vmUiState.manualDesktopRefreshTick
+            if (lastManualRefreshTick != -1 && tick != lastManualRefreshTick) {
+                try {
+                    desktopFlickerAlpha.animateTo(0f, tween(90))
+                    desktopFlickerAlpha.animateTo(1f, tween(180))
+                } finally {
+                    // Belt-and-braces: even if this coroutine gets cancelled mid-fade (e.g. a
+                    // second rapid refresh), never leave icons stuck below full opacity.
+                    // NonCancellable because a suspend call in a finally block after
+                    // cancellation would otherwise throw immediately.
+                    withContext(NonCancellable) {
+                        if (desktopFlickerAlpha.value < 1f) desktopFlickerAlpha.snapTo(1f)
+                    }
+                }
             }
-            lastRefreshTick = tick
+            lastManualRefreshTick = tick
         }
 
         val sortedItems = remember(items, sortMode, sortAscending) {
@@ -1324,6 +1437,7 @@ fun Desktop(
             Box(
                 Modifier
                     .fillMaxSize()
+                    .onGloballyPositioned { desktopLayerCoords = it }
                     .pointerInput(Unit) {
                         detectPressDragGestures(
                             onTap = {
@@ -1340,7 +1454,7 @@ fun Desktop(
                             },
                             onLongPressReleased = { off ->
                                 if (draggedId == null) {
-                                    desktopCtxOffset = off
+                                    desktopCtxOffset = desktopLayerCoords?.localToWindow(off) ?: off
                                     showDesktopCtx   = true
                                     iconCtxTarget    = null
                                 }
@@ -1430,19 +1544,21 @@ fun Desktop(
                             mutableStateOf(if (autoArrange) basePos else customPositions[item.id] ?: basePos)
                         }
 
-                        LaunchedEffect(autoArrange, idx, rows, maxCols, iconSize, screenWPxTotal, screenHPxTotal) {
+                        LaunchedEffect(autoArrange, idx, rows, maxCols, iconSize, screenWPxTotal, screenHPxTotal, isDraggingGroup) {
                             if (autoArrange) pos = basePos
                         }
 
                         val isDragged    = draggedId == item.id
                         val isInGroup    = isDraggingGroup && item.id in selectedIds && !isDragged
 
-                        // BUG 6 FIX: apply absolute positions broadcast by the drag anchor for group members
-                        LaunchedEffect(dragGroupOffsets[item.id], isInGroup) {
-                            if (isInGroup) {
-                                val target = dragGroupOffsets[item.id]
-                                if (target != null) pos = target
-                            }
+                        // Follower position-apply — keyed purely on the broadcast value changing
+                        // (not on isInGroup), so the anchor's FINAL settle position at drag-end
+                        // still gets applied even though isInGroup flips false in that same
+                        // callback (previously the isInGroup guard meant that last update was
+                        // silently dropped, leaving followers un-snapped and unsaved).
+                        LaunchedEffect(dragGroupOffsets[item.id]) {
+                            val target = dragGroupOffsets[item.id]
+                            if (target != null) pos = target
                         }
 
                         // Snap-back animation: animates position smoothly on grid rejection
@@ -1482,9 +1598,18 @@ fun Desktop(
                                         onLongPressReleased = {
                                             val r = inlineRename
                                             if (r != null) commitRename(r, r.initialName)
-                                            selectedIds    = setOf(item.id)
+                                            // Right-clicking (long-pressing) an icon that's already part of
+                                            // the current multi-selection keeps that selection intact — so
+                                            // the context menu's Cut/Copy/Delete act on all of them, matching
+                                            // real Explorer. Only replace the selection if this icon wasn't
+                                            // already selected (previously this always collapsed to just the
+                                            // one icon, silently discarding any multi-selection).
+                                            if (item.id !in selectedIds) {
+                                                selectedIds = setOf(item.id)
+                                            }
                                             iconCtxTarget  = item
-                                            iconCtxOffset  = Offset(pos.x + cellWPx / 2, pos.y + cellHPx / 2)
+                                            val localPoint = Offset(pos.x + cellWPx / 2, pos.y + cellHPx / 2)
+                                            iconCtxOffset  = desktopLayerCoords?.localToWindow(localPoint) ?: localPoint
                                             showDesktopCtx = false
                                         },
                                         onDragStart = {
@@ -1498,6 +1623,7 @@ fun Desktop(
                                             if (item.id in selectedIds && selectedIds.size > 1) {
                                                 isDraggingGroup = true
                                                 dragGroupOffsets.clear()
+                                                groupRelativeOffsets.clear()
                                                 selectedIds.filter { it != item.id }.forEach { otherId ->
                                                     val otherIdx = sortedItems.indexOfFirst { it.id == otherId }
                                                     val otherPos = customPositions[otherId]
@@ -1505,7 +1631,7 @@ fun Desktop(
                                                         ?: autoGridPos(otherIdx.coerceAtLeast(0), rows, maxCols,
                                                             cellWPx, cellHPx, padLeftPx, padTopPx)
                                                         ?: return@forEach
-                                                    dragGroupOffsets[otherId] = otherPos - pos
+                                                    groupRelativeOffsets[otherId] = otherPos - pos
                                                 }
                                             }
                                         },
@@ -1517,14 +1643,12 @@ fun Desktop(
                                                 (pos.y + amt.y).coerceIn(padTopPx, maxY)
                                             )
                                             // Broadcast current anchor position so group members can follow.
-                                            // On drag start, dragGroupOffsets held relative offsets (member - anchor).
-                                            // During drag we overwrite them with the current ABSOLUTE target
-                                            // position (anchorPos + rel) so each member's LaunchedEffect can
-                                            // apply it directly to its own pos state.
+                                            // groupRelativeOffsets (immutable during the drag) holds each
+                                            // follower's offset from the anchor; dragGroupOffsets is purely
+                                            // the live absolute target each follower's effect applies.
                                             if (isDraggingGroup) {
                                                 val anchorPos = pos
-                                                val relOffsets = dragGroupOffsets.toMap()
-                                                relOffsets.forEach { (otherId, rel) ->
+                                                groupRelativeOffsets.forEach { (otherId, rel) ->
                                                     val target = Offset(
                                                         (anchorPos.x + rel.x).coerceIn(padLeftPx, screenWPxTotal - cellWPx),
                                                         (anchorPos.y + rel.y).coerceIn(padTopPx, screenHPxTotal - cellHPx)
@@ -1565,13 +1689,43 @@ fun Desktop(
                                                     prefs.saveCustomPositions(customPositions)
                                                 }
                                             }
+                                            // Settle followers too: snap each to a free grid cell and
+                                            // persist it — previously followers just froze at their last
+                                            // live-drag pixel position (unsnapped, unsaved), so they'd
+                                            // silently revert or look "stuck" off-grid after the drag.
+                                            if (wasGroup && !autoArrange) {
+                                                val occupiedNow = occupiedCells.toMutableSet()
+                                                customPositions[item.id]?.let {
+                                                    occupiedNow.add(posToCell(it, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                                                }
+                                                groupRelativeOffsets.keys.forEach { otherId ->
+                                                    val lastPos = dragGroupOffsets[otherId] ?: return@forEach
+                                                    val freeCells = occupiedNow - posToCell(
+                                                        customPositions[otherId] ?: lastPos,
+                                                        cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows
+                                                    )
+                                                    val snapped = snapToGrid(
+                                                        lastPos, cellWPx, cellHPx, padLeftPx, padTopPx,
+                                                        screenWPxTotal, screenHPxTotal, freeCells
+                                                    )
+                                                    val finalPos = Offset(
+                                                        snapped.x.coerceIn(padLeftPx, maxX),
+                                                        snapped.y.coerceIn(padTopPx, maxY)
+                                                    )
+                                                    customPositions[otherId] = finalPos
+                                                    dragGroupOffsets[otherId] = finalPos  // last broadcast: followers apply this final settle
+                                                    occupiedNow.add(posToCell(finalPos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                                                }
+                                                prefs.saveCustomPositions(customPositions)
+                                            }
                                             dragMoved = false
-                                            if (!wasGroup) dragGroupOffsets.clear()
+                                            groupRelativeOffsets.clear()
                                         },
                                         onDragCancel = {
                                             draggedId = null
                                             isDraggingGroup = false
                                             dragGroupOffsets.clear()
+                                            groupRelativeOffsets.clear()
                                             dragMoved = false
                                             if (autoArrange) pos = basePos
                                         }
@@ -1595,7 +1749,7 @@ fun Desktop(
                                 onInlineRenameConfirm = {
                                     inlineRename?.let { r -> commitRename(r, liveRenameText) }
                                 },
-                                refreshFlicker    = refreshFlicker
+                                refreshFlickerAlpha = desktopFlickerAlpha.value
                             )
                         }
                     }
@@ -1706,7 +1860,7 @@ fun Desktop(
                     },
                     showIcons           = showIconsOnDesktop,
                     onShowIconsToggle   = { showIconsOnDesktop = it; prefs.showIconsOnDesktop = it; showDesktopCtx = false },
-                    onRefresh           = { viewModel.refreshDesktopFiles(); showDesktopCtx = false },
+                    onRefresh           = { viewModel.requestDesktopRefresh(); showDesktopCtx = false },
                     onPaste             = {
                         viewModel.pasteClipboard(desktopDir)
                         showDesktopCtx = false
@@ -1915,25 +2069,15 @@ private fun DesktopIcon(
     initialRenameText: String,
     onLiveTextChange: (String) -> Unit,
     onInlineRenameConfirm: () -> Unit,
-    refreshFlicker: Boolean = false
+    // Shared, parent-owned refresh-flicker value (0f..1f) — every icon reads the exact
+    // same value each frame, so the whole desktop fades out/in in perfect sync, and
+    // there's no per-icon coroutine that can get interrupted and freeze an icon invisible.
+    refreshFlickerAlpha: Float = 1f
 ) {
     val iconDp = iconSizeDp(iconSize).dp
     val cellW  = cellWidthDp(iconSize).dp
     val cellH  = cellHeightDp(iconSize).dp
     val focusRequester = remember { FocusRequester() }
-
-    // Windows-style refresh effect — icons briefly vanish entirely, then reappear,
-    // matching the real explorer.exe F5 behavior (not just a dip in opacity), with a
-    // small random per-icon stagger so the whole desktop doesn't blink in perfect unison.
-    val flickerAlpha = remember { Animatable(1f) }
-    LaunchedEffect(refreshFlicker) {
-        if (refreshFlicker) {
-            delay((0..150).random().toLong())
-            flickerAlpha.animateTo(0f, tween(60))
-            delay((30..90).random().toLong())
-            flickerAlpha.animateTo(1f, tween(140))
-        }
-    }
 
     // FIX: KEY is item.id only — never changes on keystroke.
     // stripping extension for display (Windows UX convention)
@@ -1964,7 +2108,7 @@ private fun DesktopIcon(
             .width(cellW)
             .height(cellH)
             .padding(1.dp)
-            .graphicsLayer(alpha = flickerAlpha.value),
+            .graphicsLayer(alpha = refreshFlickerAlpha),
         contentAlignment = Alignment.TopCenter
     ) {
         // Win11-style selection: subtle blue tint + blue border glow
@@ -2504,6 +2648,123 @@ fun WallpaperPersonalisePanel(
 // ─────────────────────────────────────────────────────────────────
 // Win11 style Desktop Context Menu
 // ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// Win11-style context menu infrastructure
+//
+// Uses real Compose Popups positioned with the ACTUAL measured menu size and
+// the real window bounds (both supplied by Compose itself via
+// PopupPositionProvider), instead of the old approach of guessing the menu's
+// height and clamping against LocalConfiguration's screen size — that guess
+// silently went wrong whenever the real menu height differed from the
+// estimate (e.g. once submenus existed), which is what caused the menu to
+// sometimes land away from the actual tap point.
+//
+// Submenus ("View", "Sort by", "New", "Open with") are now real flyout
+// Popups anchored beside their parent row's own on-screen bounds — like
+// real Windows 11 — instead of an inline accordion that grows the menu.
+// ─────────────────────────────────────────────────────────────────
+private class ClickAnchoredMenuPosition(
+    private val clickWindowPos: IntOffset,
+    private val marginPx: Int
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize
+    ): IntOffset {
+        var x = clickWindowPos.x
+        var y = clickWindowPos.y
+        if (x + popupContentSize.width > windowSize.width - marginPx) {
+            x = windowSize.width - popupContentSize.width - marginPx
+        }
+        if (y + popupContentSize.height > windowSize.height - marginPx) {
+            y = windowSize.height - popupContentSize.height - marginPx
+        }
+        x = x.coerceAtLeast(marginPx)
+        y = y.coerceAtLeast(marginPx)
+        return IntOffset(x, y)
+    }
+}
+
+/** Flyout beside a parent row's real bounds — right normally, flipped left if that
+ *  would overflow the screen's right edge, matching real Windows 11 submenu behavior. */
+private class FlyoutMenuPosition(
+    private val parentRowWindowBounds: IntRect,
+    private val marginPx: Int
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize
+    ): IntOffset {
+        var x = parentRowWindowBounds.right
+        if (x + popupContentSize.width > windowSize.width - marginPx) {
+            x = (parentRowWindowBounds.left - popupContentSize.width).coerceAtLeast(marginPx)
+        }
+        var y = parentRowWindowBounds.top
+        if (y + popupContentSize.height > windowSize.height - marginPx) {
+            y = windowSize.height - popupContentSize.height - marginPx
+        }
+        x = x.coerceAtLeast(marginPx)
+        y = y.coerceAtLeast(marginPx)
+        return IntOffset(x, y)
+    }
+}
+
+@Composable
+private fun Win11MenuPopup(
+    clickWindowPos: Offset,
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    val posPx = IntOffset(clickWindowPos.x.roundToInt(), clickWindowPos.y.roundToInt())
+    Popup(
+        popupPositionProvider = remember(posPx) { ClickAnchoredMenuPosition(posPx, marginPx = 12) },
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true, dismissOnClickOutside = true)
+    ) {
+        content()
+    }
+}
+
+/** A menu row that owns a flyout submenu — tapping the row toggles its flyout,
+ *  positioned beside the row's own real on-screen bounds instead of expanding inline. */
+@Composable
+private fun Win11FlyoutRow(
+    icon: ImageVector,
+    label: String,
+    tc: Color,
+    tcDim: Color,
+    isOpen: Boolean,
+    onToggle: () -> Unit,
+    onCloseFlyout: () -> Unit,
+    submenuContent: @Composable () -> Unit
+) {
+    var rowWindowBounds by remember { mutableStateOf(IntRect.Zero) }
+    Box(
+        Modifier.onGloballyPositioned { coords ->
+            val p = coords.positionInWindow()
+            rowWindowBounds = IntRect(
+                p.x.roundToInt(), p.y.roundToInt(),
+                p.x.roundToInt() + coords.size.width, p.y.roundToInt() + coords.size.height
+            )
+        }
+    ) {
+        W11CtxRow(icon, label, tc, tcDim, hasArrow = true) { onToggle() }
+    }
+    if (isOpen) {
+        Popup(
+            popupPositionProvider = remember(rowWindowBounds) { FlyoutMenuPosition(rowWindowBounds, marginPx = 12) },
+            onDismissRequest = onCloseFlyout,
+            properties = PopupProperties(focusable = false, dismissOnClickOutside = true)
+        ) {
+            submenuContent()
+        }
+    }
+}
+
 @Composable
 fun Win11DesktopContextMenu(
     offset: Offset,
@@ -2530,86 +2791,98 @@ fun Win11DesktopContextMenu(
     onDisplaySettings: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val density  = LocalDensity.current
     val menuW    = 210
     val bg       = if (isDark) Color(0xFA1E1E1E) else Color(0xFCEFF4F9)
     val tc       = if (isDark) Color(0xFFF5F5F5) else Color(0xFF1A1A1A)
     val tcDim    = if (isDark) Color(0xFF999999) else Color(0xFF666666)
     val divColor = if (isDark) Color(0xFF333333) else Color(0xFFDCDCDC)
-    val hoverBg  = if (isDark) Color(0x12FFFFFF) else Color(0x0F000000)
     val accent   = Color(0xFF0078D4)
 
     var openSub by remember { mutableStateOf<String?>(null) }
 
-    val estMenuH = 360  // approximate height of desktop context menu
-    val maxX = with(density) { (screenWidthDp - menuW - 6).dp.toPx() }
-    val maxY = with(density) { (screenHeightDp - estMenuH - 6).dp.toPx() }
-    val xOff = offset.x.coerceIn(6f, maxX).roundToInt()
-    // BUG 7 FIX: clamp y so menu never overflows the bottom edge
-    val yOff = offset.y.coerceIn(6f, maxY.coerceAtLeast(6f)).roundToInt()
-
-    Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
+    Win11MenuPopup(clickWindowPos = offset, onDismiss = onDismiss) {
         Surface(
-            modifier        = Modifier.offset { IntOffset(xOff, yOff) }.width(menuW.dp),
+            modifier        = Modifier.width(menuW.dp),
             shape           = RoundedCornerShape(8.dp),
             color           = bg,
             shadowElevation = 16.dp,
             border          = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
         ) {
             Column(Modifier.padding(vertical = 5.dp)) {
-                W11CtxRow(Icons.Default.ViewModule, "View", tc, tcDim, hasArrow = true) {
-                    openSub = if (openSub == "view") null else "view"
-                }
-                AnimatedVisibility(openSub == "view", enter = expandVertically(), exit = shrinkVertically()) {
-                    Column(Modifier.background(hoverBg.copy(0.04f))) {
-                        W11SubRow("Large icons",  viewMode == DesktopIconSize.LARGE,  tc, accent) { onViewChange(DesktopIconSize.LARGE) }
-                        W11SubRow("Medium icons", viewMode == DesktopIconSize.MEDIUM, tc, accent) { onViewChange(DesktopIconSize.MEDIUM) }
-                        W11SubRow("Small icons",  viewMode == DesktopIconSize.SMALL,  tc, accent) { onViewChange(DesktopIconSize.SMALL) }
-                        W11CtxDivider(divColor)
-                        W11SubRow("Auto arrange icons",  autoArrange, tc, accent) { onAutoArrangeToggle(!autoArrange) }
-                        W11SubRow("Align icons to grid", true,        tc, accent) {}
-                        W11CtxDivider(divColor)
-                        W11SubRow("Show desktop icons", showIcons, tc, accent) { onShowIconsToggle(!showIcons) }
+                Win11FlyoutRow(
+                    icon = Icons.Default.ViewModule, label = "View", tc = tc, tcDim = tcDim,
+                    isOpen = openSub == "view",
+                    onToggle = { openSub = if (openSub == "view") null else "view" },
+                    onCloseFlyout = { openSub = null }
+                ) {
+                    Surface(
+                        modifier = Modifier.width(190.dp), shape = RoundedCornerShape(8.dp), color = bg,
+                        shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
+                    ) {
+                        Column(Modifier.padding(vertical = 5.dp)) {
+                            W11SubRow("Large icons",  viewMode == DesktopIconSize.LARGE,  tc, accent) { onViewChange(DesktopIconSize.LARGE) }
+                            W11SubRow("Medium icons", viewMode == DesktopIconSize.MEDIUM, tc, accent) { onViewChange(DesktopIconSize.MEDIUM) }
+                            W11SubRow("Small icons",  viewMode == DesktopIconSize.SMALL,  tc, accent) { onViewChange(DesktopIconSize.SMALL) }
+                            W11CtxDivider(divColor)
+                            W11SubRow("Auto arrange icons",  autoArrange, tc, accent) { onAutoArrangeToggle(!autoArrange) }
+                            W11SubRow("Align icons to grid", true,        tc, accent) {}
+                            W11CtxDivider(divColor)
+                            W11SubRow("Show desktop icons", showIcons, tc, accent) { onShowIconsToggle(!showIcons) }
+                        }
                     }
                 }
 
-                W11CtxRow(Icons.Default.Sort, "Sort by", tc, tcDim, hasArrow = true) {
-                    openSub = if (openSub == "sort") null else "sort"
-                }
-                AnimatedVisibility(openSub == "sort", enter = expandVertically(), exit = shrinkVertically()) {
-                    Column(Modifier.background(hoverBg.copy(0.04f))) {
-                        W11SubRow("Name",          sortMode == DesktopSortMode.NAME,          tc, accent) { onSortChange(DesktopSortMode.NAME,          sortAscending) }
-                        W11SubRow("Size",          sortMode == DesktopSortMode.SIZE,          tc, accent) { onSortChange(DesktopSortMode.SIZE,          sortAscending) }
-                        W11SubRow("Item type",     sortMode == DesktopSortMode.TYPE,          tc, accent) { onSortChange(DesktopSortMode.TYPE,          sortAscending) }
-                        W11SubRow("Date modified", sortMode == DesktopSortMode.DATE_MODIFIED, tc, accent) { onSortChange(DesktopSortMode.DATE_MODIFIED, sortAscending) }
-                        W11CtxDivider(divColor)
-                        W11SubRow("Ascending",  sortAscending,  tc, accent) { onSortChange(sortMode, true) }
-                        W11SubRow("Descending", !sortAscending, tc, accent) { onSortChange(sortMode, false) }
+                Win11FlyoutRow(
+                    icon = Icons.Default.Sort, label = "Sort by", tc = tc, tcDim = tcDim,
+                    isOpen = openSub == "sort",
+                    onToggle = { openSub = if (openSub == "sort") null else "sort" },
+                    onCloseFlyout = { openSub = null }
+                ) {
+                    Surface(
+                        modifier = Modifier.width(190.dp), shape = RoundedCornerShape(8.dp), color = bg,
+                        shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
+                    ) {
+                        Column(Modifier.padding(vertical = 5.dp)) {
+                            W11SubRow("Name",          sortMode == DesktopSortMode.NAME,          tc, accent) { onSortChange(DesktopSortMode.NAME,          sortAscending) }
+                            W11SubRow("Size",          sortMode == DesktopSortMode.SIZE,          tc, accent) { onSortChange(DesktopSortMode.SIZE,          sortAscending) }
+                            W11SubRow("Item type",     sortMode == DesktopSortMode.TYPE,          tc, accent) { onSortChange(DesktopSortMode.TYPE,          sortAscending) }
+                            W11SubRow("Date modified", sortMode == DesktopSortMode.DATE_MODIFIED, tc, accent) { onSortChange(DesktopSortMode.DATE_MODIFIED, sortAscending) }
+                            W11CtxDivider(divColor)
+                            W11SubRow("Ascending",  sortAscending,  tc, accent) { onSortChange(sortMode, true) }
+                            W11SubRow("Descending", !sortAscending, tc, accent) { onSortChange(sortMode, false) }
+                        }
                     }
                 }
 
-                W11CtxRow(Icons.Default.Refresh,      "Refresh",          tc, tcDim) { onRefresh() }
+                W11CtxRow(Icons.Default.Refresh,      "Refresh",          tc, tcDim) { onRefresh(); onDismiss() }
                 W11CtxDivider(divColor)
                 W11CtxRow(Icons.Default.ContentPaste, "Paste",
-                    if (hasPaste) tc else tcDim, tcDim, enabled = hasPaste) { onPaste() }
+                    if (hasPaste) tc else tcDim, tcDim, enabled = hasPaste) { onPaste(); onDismiss() }
                 W11CtxDivider(divColor)
 
-                W11CtxRow(Icons.Default.Add, "New", tc, tcDim, hasArrow = true) {
-                    openSub = if (openSub == "new") null else "new"
-                }
-                AnimatedVisibility(openSub == "new", enter = expandVertically(), exit = shrinkVertically()) {
-                    Column(Modifier.background(hoverBg.copy(0.04f))) {
-                        W11SubRowIcon(Icons.Default.Folder,      "Folder",                     Color(0xFFFFC107), tc) { onNewFolder();       onDismiss() }
-                        W11SubRowIcon(Icons.Default.Link,        "Shortcut link",              Color(0xFF0078D4), tc) { onNewShortcut();      onDismiss() }
-                        W11SubRowIcon(Icons.Default.Apps,        "Add Installed App Shortcut", Color(0xFF107C10), tc) { onAddAppShortcut();   onDismiss() }
-                        W11CtxDivider(divColor)
-                        W11SubRowIcon(Icons.Default.Description, "Text Document",              Color(0xFF0078D4), tc) { onNewTextFile();      onDismiss() }
+                Win11FlyoutRow(
+                    icon = Icons.Default.Add, label = "New", tc = tc, tcDim = tcDim,
+                    isOpen = openSub == "new",
+                    onToggle = { openSub = if (openSub == "new") null else "new" },
+                    onCloseFlyout = { openSub = null }
+                ) {
+                    Surface(
+                        modifier = Modifier.width(220.dp), shape = RoundedCornerShape(8.dp), color = bg,
+                        shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
+                    ) {
+                        Column(Modifier.padding(vertical = 5.dp)) {
+                            W11SubRowIcon(Icons.Default.Folder,      "Folder",                     Color(0xFFFFC107), tc) { onNewFolder();       onDismiss() }
+                            W11SubRowIcon(Icons.Default.Link,        "Shortcut link",              Color(0xFF0078D4), tc) { onNewShortcut();      onDismiss() }
+                            W11SubRowIcon(Icons.Default.Apps,        "Add Installed App Shortcut", Color(0xFF107C10), tc) { onAddAppShortcut();   onDismiss() }
+                            W11CtxDivider(divColor)
+                            W11SubRowIcon(Icons.Default.Description, "Text Document",              Color(0xFF0078D4), tc) { onNewTextFile();      onDismiss() }
+                        }
                     }
                 }
 
                 W11CtxDivider(divColor)
-                W11CtxRow(Icons.Default.Monitor, "Display settings", tc, tcDim) { onDisplaySettings() }
-                W11CtxRow(Icons.Default.Palette, "Personalise",      tc, tcDim) { onPersonalize() }
+                W11CtxRow(Icons.Default.Monitor, "Display settings", tc, tcDim) { onDisplaySettings(); onDismiss() }
+                W11CtxRow(Icons.Default.Palette, "Personalise",      tc, tcDim) { onPersonalize(); onDismiss() }
             }
         }
     }
@@ -2639,9 +2912,7 @@ fun Win11IconContextMenu(
     onCreateShortcut: () -> Unit,
     onProperties: () -> Unit
 ) {
-    val density  = LocalDensity.current
     val menuW    = 220
-    val estH     = if (onSetAsWallpaper != null) 400 else 360
     val bg       = if (isDark) Color(0xFA1E1E1E) else Color(0xFCEFF4F9)
     val tc       = if (isDark) Color(0xFFF5F5F5) else Color(0xFF1A1A1A)
     val tcDim    = if (isDark) Color(0xFF999999) else Color(0xFF666666)
@@ -2650,14 +2921,9 @@ fun Win11IconContextMenu(
 
     var openSub by remember { mutableStateOf<String?>(null) }
 
-    val maxX = with(density) { (screenWidthDp - menuW - 6).dp.toPx() }
-    val maxY = with(density) { (screenHeightDp - estH - 6).dp.toPx() }
-    val xOff = offset.x.coerceIn(6f, maxX).roundToInt()
-    val yOff = offset.y.coerceIn(6f, maxY.coerceAtLeast(6f)).roundToInt()
-
-    Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
+    Win11MenuPopup(clickWindowPos = offset, onDismiss = onDismiss) {
         Surface(
-            modifier        = Modifier.offset { IntOffset(xOff, yOff) }.width(menuW.dp),
+            modifier        = Modifier.width(menuW.dp),
             shape           = RoundedCornerShape(8.dp),
             color           = bg,
             shadowElevation = 16.dp,
@@ -2679,12 +2945,20 @@ fun Win11IconContextMenu(
 
                 W11CtxDivider(divColor)
                 W11CtxRow(Icons.Default.OpenInNew, "Open", tc, tcDim, isBold = true) { onOpen(); onDismiss() }
-                W11CtxRow(Icons.Default.OpenWith, "Open with", tc, tcDim, hasArrow = true) {
-                    openSub = if (openSub == "openwith") null else "openwith"
-                }
-                AnimatedVisibility(openSub == "openwith", enter = expandVertically(), exit = shrinkVertically()) {
-                    Column(Modifier.background(Color.Black.copy(0.02f))) {
-                        W11SubRowIcon(Icons.Default.OpenInNew, "Choose app", tc.copy(0.8f), tc) { onOpenWith(); onDismiss() }
+
+                Win11FlyoutRow(
+                    icon = Icons.Default.OpenWith, label = "Open with", tc = tc, tcDim = tcDim,
+                    isOpen = openSub == "openwith",
+                    onToggle = { openSub = if (openSub == "openwith") null else "openwith" },
+                    onCloseFlyout = { openSub = null }
+                ) {
+                    Surface(
+                        modifier = Modifier.width(190.dp), shape = RoundedCornerShape(8.dp), color = bg,
+                        shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
+                    ) {
+                        Column(Modifier.padding(vertical = 5.dp)) {
+                            W11SubRowIcon(Icons.Default.OpenInNew, "Choose app", tc.copy(0.8f), tc) { onOpenWith(); onDismiss() }
+                        }
                     }
                 }
 

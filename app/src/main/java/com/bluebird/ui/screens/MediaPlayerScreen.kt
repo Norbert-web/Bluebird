@@ -64,6 +64,8 @@ import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -113,22 +115,78 @@ import kotlin.math.roundToInt
 // Design tokens (unchanged)
 // ─────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────
+// Theme system — desktop-style accent themes. FTV keeps every existing
+// call site (`FTV.Accent`, `FTV.Gold`, …) working unchanged; those
+// properties now read from whichever BBTheme is currently selected via
+// a plain Compose-observable holder. Structural surface/bg colors stay
+// as before — only the "personality" colors are themeable.
+// ─────────────────────────────────────────────────────────────────
+
+data class BBPalette(
+    val accent: Color, val accentGlow: Color, val accentDim: Color,
+    val gold: Color, val videoColor: Color, val audioColor: Color
+)
+
+enum class BBTheme(val label: String, val palette: BBPalette) {
+    FLUENT("Fluent Blue", BBPalette(
+        accent = Color(0xFF0078D4), accentGlow = Color(0xFF429CE3), accentDim = Color(0xFF005A9E),
+        gold = Color(0xFFFFB900), videoColor = Color(0xFF16C60C), audioColor = Color(0xFF9B59B6)
+    )),
+    NORD("Nord", BBPalette(
+        accent = Color(0xFF88C0D0), accentGlow = Color(0xFFA3D4E0), accentDim = Color(0xFF5E9AAD),
+        gold = Color(0xFFEBCB8B), videoColor = Color(0xFFA3BE8C), audioColor = Color(0xFFB48EAD)
+    )),
+    DRACULA("Dracula", BBPalette(
+        accent = Color(0xFFBD93F9), accentGlow = Color(0xFFD6BCFA), accentDim = Color(0xFF8C6FC4),
+        gold = Color(0xFFF1FA8C), videoColor = Color(0xFF50FA7B), audioColor = Color(0xFFFF79C6)
+    )),
+    WINAMP("Classic Winamp", BBPalette(
+        accent = Color(0xFF00FF41), accentGlow = Color(0xFF6BFF8E), accentDim = Color(0xFF00B82E),
+        gold = Color(0xFFFFD400), videoColor = Color(0xFF00E5FF), audioColor = Color(0xFF00FF41)
+    )),
+    SOLAR("Solarized", BBPalette(
+        accent = Color(0xFF268BD2), accentGlow = Color(0xFF5AA9DE), accentDim = Color(0xFF1B6796),
+        gold = Color(0xFFB58900), videoColor = Color(0xFF859900), audioColor = Color(0xFFD33682)
+    )),
+    SUNSET("Sunset", BBPalette(
+        accent = Color(0xFFFF6B6B), accentGlow = Color(0xFFFF9E9E), accentDim = Color(0xFFCC4F4F),
+        gold = Color(0xFFFFD166), videoColor = Color(0xFF4ECDC4), audioColor = Color(0xFFFF6B6B)
+    ));
+}
+
+private object ThemeHolder {
+    var current by mutableStateOf(BBTheme.FLUENT)
+}
+
+private const val THEME_PREFS_KEY = "bluebird_theme"
+
+private fun loadTheme(ctx: Context) {
+    val name = prefs(ctx).getString(THEME_PREFS_KEY, BBTheme.FLUENT.name)
+    ThemeHolder.current = try { BBTheme.valueOf(name ?: BBTheme.FLUENT.name) } catch (_: Exception) { BBTheme.FLUENT }
+}
+
+private fun saveTheme(ctx: Context, theme: BBTheme) {
+    ThemeHolder.current = theme
+    prefs(ctx).edit().putString(THEME_PREFS_KEY, theme.name).apply()
+}
+
 private object FTV {
     val Bg           = Color(0xFF0D0D0D)
     val BgMid        = Color(0xFF141414)
     val Surface      = Color(0xFF1C1C1C)
     val SurfaceHigh  = Color(0xFF242424)
     val Border       = Color(0xFF2E2E2E)
-    val SelectedBg   = Color(0x250078D4)
+    val SelectedBg   get() = Accent.copy(alpha = 0.14f)
     val Text         = Color(0xFFFFFFFF)
     val TextSec      = Color(0xFFAAAAAA)
     val TextMuted    = Color(0xFF666666)
-    val Accent       = Color(0xFF0078D4)
-    val AccentGlow   = Color(0xFF429CE3)
-    val AccentDim    = Color(0xFF005A9E)
-    val Gold         = Color(0xFFFFB900)
-    val VideoGreen   = Color(0xFF16C60C)
-    val AudioPurple  = Color(0xFF9B59B6)
+    val Accent       get() = ThemeHolder.current.palette.accent
+    val AccentGlow   get() = ThemeHolder.current.palette.accentGlow
+    val AccentDim    get() = ThemeHolder.current.palette.accentDim
+    val Gold         get() = ThemeHolder.current.palette.gold
+    val VideoGreen   get() = ThemeHolder.current.palette.videoColor
+    val AudioPurple  get() = ThemeHolder.current.palette.audioColor
     val DangerRed    = Color(0xFFD83B01)
     val SuccessGreen = Color(0xFF107C10)
 
@@ -254,7 +312,7 @@ private fun ScannedTrack.toMediaTrack() = MediaTrack(
 )
 
 enum class RepeatMode { OFF, REPEAT_ALL, REPEAT_ONE }
-enum class MediaTab   { VIDEOS, MUSIC, PLAYLIST, FOLDERS, RECENTS, FAVORITES }
+enum class MediaTab   { VIDEOS, MUSIC, PLAYLIST, PLAYLISTS, FOLDERS, RECENTS, FAVORITES }
 
 private fun RepeatMode.toPlayerRepeat() = when (this) {
     RepeatMode.OFF        -> Player.REPEAT_MODE_OFF
@@ -330,6 +388,50 @@ private fun loadSavedQueueIds(ctx: Context): Triple<List<String>, Int, Long> {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// User playlists — named, persisted collections distinct from the live
+// playback queue (MediaTab.PLAYLIST). Stored as one JSON blob; this is
+// a "few dozen playlists, few hundred tracks each" scale feature, so a
+// single pref key read/written whole is simpler and fast enough — no
+// need for a database for this.
+// ─────────────────────────────────────────────────────────────────
+
+data class BBPlaylist(
+    val id: String,
+    var name: String,
+    val trackKeys: MutableList<String> = mutableListOf()
+)
+
+private const val PLAYLISTS_PREFS_KEY = "bluebird_playlists"
+
+private fun loadPlaylists(ctx: Context): List<BBPlaylist> {
+    val raw = prefs(ctx).getString(PLAYLISTS_PREFS_KEY, "[]")!!
+    return try {
+        val arr = JSONArray(raw)
+        (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            val keysArr = o.getJSONArray("keys")
+            BBPlaylist(
+                id = o.getString("id"),
+                name = o.getString("name"),
+                trackKeys = (0 until keysArr.length()).map { keysArr.getString(it) }.toMutableList()
+            )
+        }
+    } catch (_: Exception) { emptyList() }
+}
+
+private fun savePlaylists(ctx: Context, playlists: List<BBPlaylist>) {
+    val arr = JSONArray()
+    playlists.forEach { pl ->
+        val o = org.json.JSONObject()
+        o.put("id", pl.id)
+        o.put("name", pl.name)
+        o.put("keys", JSONArray().also { a -> pl.trackKeys.forEach { a.put(it) } })
+        arr.put(o)
+    }
+    prefs(ctx).edit().putString(PLAYLISTS_PREFS_KEY, arr.toString()).apply()
+}
+
+// ─────────────────────────────────────────────────────────────────
 // State holder
 // ─────────────────────────────────────────────────────────────────
 
@@ -391,7 +493,14 @@ private class PlayerState {
 
     // Overlays
     var showSettings  by mutableStateOf(false)
-    var showTagEditor by mutableStateOf(false)
+    var showTagEditor by mutableStateOf<MediaTrack?>(null)
+
+    // User playlists (distinct from the live queue)
+    var userPlaylists    by mutableStateOf(listOf<BBPlaylist>())
+    var openPlaylistId   by mutableStateOf<String?>(null)
+    var showAddToPlaylist by mutableStateOf<MediaTrack?>(null) // non-null = "add this track" sheet is open
+    var showNewPlaylistDialog by mutableStateOf(false)
+    var editingPlaylistId by mutableStateOf<String?>(null) // rename-in-progress
 
     // Groupings
     val audioGroups: Map<String, List<MediaTrack>> get() =
@@ -403,10 +512,18 @@ private class PlayerState {
 
     val currentTrack get() = playlist.getOrNull(currentIndex)
 
+    val openPlaylist get() = userPlaylists.firstOrNull { it.id == openPlaylistId }
+    val openPlaylistTracks: List<MediaTrack> get() {
+        val pl = openPlaylist ?: return emptyList()
+        val byKey = allTracks.associateBy { it.metaKey }
+        return pl.trackKeys.mapNotNull { byKey[it] }
+    }
+
     val filteredTracks get() = when (activeTab) {
         MediaTab.VIDEOS    -> videoTracks.filter { q -> q.displayTitle.contains(searchQuery, true) || q.displayArtist.contains(searchQuery, true) || searchQuery.isEmpty() }
         MediaTab.MUSIC     -> audioTracks.filter { q -> q.displayTitle.contains(searchQuery, true) || q.displayArtist.contains(searchQuery, true) || searchQuery.isEmpty() }
         MediaTab.PLAYLIST  -> playlist.filter    { q -> q.displayTitle.contains(searchQuery, true) || searchQuery.isEmpty() }
+        MediaTab.PLAYLISTS -> openPlaylistTracks.filter { q -> q.displayTitle.contains(searchQuery, true) || searchQuery.isEmpty() }
         MediaTab.FOLDERS   -> allTracks.filter   { q -> q.displayTitle.contains(searchQuery, true) || searchQuery.isEmpty() }
         MediaTab.RECENTS   -> recentPaths.mapNotNull { key -> allTracks.firstOrNull { it.metaKey == key } }
         MediaTab.FAVORITES -> allTracks.filter   { it.isFavorite }
@@ -502,6 +619,51 @@ private class PlayerState {
         crossfadeSec = seconds
         sendEffectCommand(PlaybackService.CMD_SET_CROSSFADE, bundleOf(PlaybackService.ARG_VALUE to seconds))
     }
+
+    // ── User playlists ───────────────────────────────────────────────
+
+    fun createPlaylist(ctx: Context, name: String): BBPlaylist {
+        val pl = BBPlaylist(id = System.currentTimeMillis().toString(), name = name.ifBlank { "New Playlist" })
+        userPlaylists = userPlaylists + pl
+        savePlaylists(ctx, userPlaylists)
+        return pl
+    }
+
+    fun deletePlaylist(ctx: Context, id: String) {
+        userPlaylists = userPlaylists.filterNot { it.id == id }
+        if (openPlaylistId == id) openPlaylistId = null
+        savePlaylists(ctx, userPlaylists)
+    }
+
+    fun renamePlaylist(ctx: Context, id: String, newName: String) {
+        if (newName.isBlank()) return
+        userPlaylists = userPlaylists.map { if (it.id == id) it.copy(name = newName) else it }
+        savePlaylists(ctx, userPlaylists)
+    }
+
+    fun addTrackToPlaylist(ctx: Context, playlistId: String, track: MediaTrack) {
+        userPlaylists = userPlaylists.map { pl ->
+            if (pl.id == playlistId && track.metaKey !in pl.trackKeys) {
+                BBPlaylist(pl.id, pl.name, (pl.trackKeys + track.metaKey).toMutableList())
+            } else pl
+        }
+        savePlaylists(ctx, userPlaylists)
+    }
+
+    fun removeTrackFromPlaylist(ctx: Context, playlistId: String, track: MediaTrack) {
+        userPlaylists = userPlaylists.map { pl ->
+            if (pl.id == playlistId) BBPlaylist(pl.id, pl.name, pl.trackKeys.filterNot { it == track.metaKey }.toMutableList())
+            else pl
+        }
+        savePlaylists(ctx, userPlaylists)
+    }
+
+    fun playPlaylist(id: String, startIndex: Int = 0) {
+        val pl = userPlaylists.firstOrNull { it.id == id } ?: return
+        val byKey = allTracks.associateBy { it.metaKey }
+        val tracks = pl.trackKeys.mapNotNull { byKey[it] }
+        playQueue(tracks, startIndex)
+    }
 }
 
 @Composable
@@ -556,6 +718,8 @@ fun MediaPlayerScreen(
         state.isLoading   = false
         state.isLibraryReady = true
         state.recentPaths = loadRecents(ctx)
+        state.userPlaylists = loadPlaylists(ctx)
+        loadTheme(ctx)
 
         if (initialPath.isNotEmpty()) {
             val i = tracks.indexOfFirst { it.file?.absolutePath == initialPath }
@@ -694,19 +858,53 @@ fun MediaPlayerScreen(
         }
     }
 
-    if (state.showSettings) SettingsSheet(state, isDark, tc, tcs, tcm, surface, border) { state.showSettings = false }
+    if (state.showSettings) SettingsSheet(state, isDark, tc, tcs, tcm, surface, border, ctx) { state.showSettings = false }
 
-    if (state.showTagEditor) state.currentTrack?.let { t ->
+    state.showTagEditor?.let { t ->
         TagEditorSheet(t, isDark, tc, tcs, surface, border,
             onSave = { newTitle, newArtist, newAlbum ->
                 t.editTitle  = newTitle.takeIf { it.isNotBlank() }
                 t.editArtist = newArtist.takeIf { it.isNotBlank() }
                 t.editAlbum  = newAlbum.takeIf { it.isNotBlank() }
                 scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) }
-                state.showTagEditor = false
+                state.showTagEditor = null
             },
-            onDismiss = { state.showTagEditor = false }
+            onDismiss = { state.showTagEditor = null }
         )
+    }
+
+    state.showAddToPlaylist?.let { t ->
+        AddToPlaylistDialog(
+            state = state, track = t, isDark = isDark, tc = tc, tcs = tcs, tcm = tcm, surface = surface, border = border,
+            onCreateNew = { name ->
+                val pl = state.createPlaylist(ctx, name)
+                state.addTrackToPlaylist(ctx, pl.id, t)
+            },
+            onToggle = { playlistId, alreadyIn ->
+                if (alreadyIn) state.removeTrackFromPlaylist(ctx, playlistId, t)
+                else state.addTrackToPlaylist(ctx, playlistId, t)
+            },
+            onDismiss = { state.showAddToPlaylist = null }
+        )
+    }
+
+    if (state.showNewPlaylistDialog) {
+        NamePromptDialog(
+            title = "New playlist", initialValue = "", isDark = isDark, tc = tc, surface = surface, border = border,
+            onConfirm = { name -> state.createPlaylist(ctx, name); state.showNewPlaylistDialog = false },
+            onDismiss = { state.showNewPlaylistDialog = false }
+        )
+    }
+
+    state.editingPlaylistId?.let { id ->
+        val pl = state.userPlaylists.firstOrNull { it.id == id }
+        if (pl != null) {
+            NamePromptDialog(
+                title = "Rename playlist", initialValue = pl.name, isDark = isDark, tc = tc, surface = surface, border = border,
+                onConfirm = { name -> state.renamePlaylist(ctx, id, name); state.editingPlaylistId = null },
+                onDismiss = { state.editingPlaylistId = null }
+            )
+        }
     }
 }
 
@@ -868,6 +1066,7 @@ private fun LibraryPane(
         val tabs = listOf(
             MediaTab.MUSIC to Icons.Default.MusicNote,
             MediaTab.VIDEOS to Icons.Default.Movie,
+            MediaTab.PLAYLISTS to Icons.AutoMirrored.Filled.PlaylistPlay,
             MediaTab.PLAYLIST to Icons.Default.QueueMusic,
             MediaTab.FOLDERS to Icons.Default.Folder,
             MediaTab.RECENTS to Icons.Default.History,
@@ -883,8 +1082,8 @@ private fun LibraryPane(
                 Row(
                     Modifier.clip(RoundedCornerShape(6.dp))
                         .background(if (active) FTV.Accent else Color.Transparent)
-                        .clickable { state.activeTab = tab }
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                        .clickable { state.activeTab = tab; if (tab != MediaTab.PLAYLISTS) state.openPlaylistId = null }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -893,6 +1092,7 @@ private fun LibraryPane(
                     Text(
                         when (tab) {
                             MediaTab.MUSIC -> "Music"; MediaTab.VIDEOS -> "Videos"
+                            MediaTab.PLAYLISTS -> "Playlists"
                             MediaTab.PLAYLIST -> "Queue"; MediaTab.FOLDERS -> "Folders"
                             MediaTab.RECENTS -> "Recent"; MediaTab.FAVORITES -> "Faves"
                         },
@@ -903,41 +1103,82 @@ private fun LibraryPane(
             }
         }
 
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).height(34.dp)
-                .clip(RoundedCornerShape(17.dp))
-                .background(if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh)
-                .padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(Icons.Default.Search, null, tint = tcm, modifier = Modifier.size(14.dp))
-            Box(Modifier.weight(1f)) {
-                if (state.searchQuery.isEmpty()) Text("Search…", color = tcm, fontSize = 12.sp)
-                androidx.compose.foundation.text.BasicTextField(
-                    value = state.searchQuery, onValueChange = { state.searchQuery = it },
-                    textStyle = androidx.compose.ui.text.TextStyle(color = tc, fontSize = 12.sp),
-                    cursorBrush = SolidColor(FTV.Accent), singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+        val showsPlaylistFolderList = state.activeTab == MediaTab.PLAYLISTS && state.openPlaylist == null
+
+        if (!showsPlaylistFolderList) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).height(34.dp)
+                    .clip(RoundedCornerShape(17.dp))
+                    .background(if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh)
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.Search, null, tint = tcm, modifier = Modifier.size(14.dp))
+                Box(Modifier.weight(1f)) {
+                    if (state.searchQuery.isEmpty()) Text("Search…", color = tcm, fontSize = 12.sp)
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = state.searchQuery, onValueChange = { state.searchQuery = it },
+                        textStyle = androidx.compose.ui.text.TextStyle(color = tc, fontSize = 12.sp),
+                        cursorBrush = SolidColor(FTV.Accent), singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                if (state.searchQuery.isNotEmpty())
+                    Icon(Icons.Default.Close, null, tint = tcm, modifier = Modifier.size(13.dp).clickable { state.searchQuery = "" })
             }
-            if (state.searchQuery.isNotEmpty())
-                Icon(Icons.Default.Close, null, tint = tcm, modifier = Modifier.size(13.dp).clickable { state.searchQuery = "" })
         }
 
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            val cnt = state.filteredTracks.size
-            Text("$cnt ${when(state.activeTab){ MediaTab.VIDEOS->"videos"; MediaTab.MUSIC->"tracks"; else->"items" }}", color = tcm, fontSize = 10.sp)
-            if (state.activeTab == MediaTab.MUSIC || state.activeTab == MediaTab.VIDEOS) {
-                Text("Add all to queue", color = FTV.Accent, fontSize = 10.sp,
-                    modifier = Modifier.clickable { state.filteredTracks.forEach { state.addToPlaylist(it) } })
+        if (state.activeTab == MediaTab.PLAYLISTS) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val openPl = state.openPlaylist
+                if (openPl != null) {
+                    IconButton(onClick = { state.openPlaylistId = null }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = tc, modifier = Modifier.size(18.dp))
+                    }
+                    Text(openPl.name, color = tc, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { state.playPlaylist(openPl.id) }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.PlayArrow, null, tint = FTV.Accent, modifier = Modifier.size(18.dp))
+                    }
+                } else {
+                    Text("Your playlists", color = tcs, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Row(
+                        Modifier.clip(RoundedCornerShape(6.dp)).background(FTV.Accent)
+                            .clickable { state.showNewPlaylistDialog = true }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(13.dp))
+                        Text("New", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
-            if (state.activeTab == MediaTab.PLAYLIST && state.playlist.isNotEmpty()) {
-                Text("Clear queue", color = FTV.DangerRed, fontSize = 10.sp,
-                    modifier = Modifier.clickable { state.clearQueue() })
-            }
+            Divider(color = border.copy(alpha = 0.5f))
         }
-        Divider(color = border.copy(alpha = 0.5f))
+
+        if (!showsPlaylistFolderList) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                val cnt = state.filteredTracks.size
+                Text("$cnt ${when(state.activeTab){ MediaTab.VIDEOS->"videos"; MediaTab.MUSIC->"tracks"; else->"items" }}", color = tcm, fontSize = 10.sp)
+                if (state.activeTab == MediaTab.MUSIC || state.activeTab == MediaTab.VIDEOS) {
+                    Text("Add all to queue", color = FTV.Accent, fontSize = 10.sp,
+                        modifier = Modifier.clickable { state.filteredTracks.forEach { state.addToPlaylist(it) } })
+                }
+                if (state.activeTab == MediaTab.PLAYLIST && state.playlist.isNotEmpty()) {
+                    Text("Clear queue", color = FTV.DangerRed, fontSize = 10.sp,
+                        modifier = Modifier.clickable { state.clearQueue() })
+                }
+                if (state.activeTab == MediaTab.PLAYLISTS && state.openPlaylist != null) {
+                    Text("Add tracks…", color = FTV.Accent, fontSize = 10.sp,
+                        modifier = Modifier.clickable { state.activeTab = MediaTab.MUSIC })
+                }
+            }
+            Divider(color = border.copy(alpha = 0.5f))
+        }
 
         val listState = rememberLazyListState()
         val tracks    = state.filteredTracks
@@ -956,10 +1197,100 @@ private fun LibraryPane(
                             onPlayNext   = {},
                             onRemoveFromQueue = { state.removeFromPlaylist(idx) },
                             onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
+                            onAddToPlaylist = { state.showAddToPlaylist = t },
                             onShare    = { shareTrack(ctx, t) },
-                            onTagEdit  = { state.showTagEditor = true },
+                            onTagEdit  = { state.showTagEditor = t },
                             onLoadSubtitle = if (t.isVideo) { { pickSubtitleFor(t, onPickSubtitle, state) } } else null
                         )
+                    }
+                }
+                MediaTab.PLAYLISTS -> {
+                    val openPl = state.openPlaylist
+                    if (openPl == null) {
+                        if (state.userPlaylists.isEmpty()) {
+                            item {
+                                Column(
+                                    Modifier.fillMaxWidth().padding(32.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.PlaylistPlay, null, tint = tcm, modifier = Modifier.size(32.dp))
+                                    Text("No playlists yet", color = tcs, fontSize = 12.sp)
+                                    Text("Tap New to create one", color = tcm, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                        items(state.userPlaylists, key = { it.id }) { pl ->
+                            var showPlMenu by remember(pl.id) { mutableStateOf(false) }
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .clickable { state.openPlaylistId = pl.id }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)).background(FTV.Accent.copy(0.15f)),
+                                    contentAlignment = Alignment.Center) {
+                                    Icon(Icons.AutoMirrored.Filled.PlaylistPlay, null, tint = FTV.Accent, modifier = Modifier.size(20.dp))
+                                }
+                                Column(Modifier.weight(1f)) {
+                                    Text(pl.name, color = tc, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("${pl.trackKeys.size} tracks", color = tcm, fontSize = 11.sp)
+                                }
+                                Box {
+                                    Icon(Icons.Default.MoreVert, null, tint = tcm,
+                                        modifier = Modifier.size(16.dp).clickable { showPlMenu = true })
+                                    DropdownMenu(expanded = showPlMenu, onDismissRequest = { showPlMenu = false },
+                                        modifier = Modifier.background(if (isDark) FTV.Surface else FTV.LSurface)) {
+                                        DropdownMenuItem(
+                                            text = { Text("Play", color = if (isDark) FTV.Text else FTV.LText, fontSize = 13.sp) },
+                                            onClick = { state.playPlaylist(pl.id); showPlMenu = false },
+                                            leadingIcon = { Icon(Icons.Default.PlayArrow, null, tint = FTV.Accent, modifier = Modifier.size(16.dp)) }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Rename", color = if (isDark) FTV.Text else FTV.LText, fontSize = 13.sp) },
+                                            onClick = { state.editingPlaylistId = pl.id; showPlMenu = false },
+                                            leadingIcon = { Icon(Icons.Default.Edit, null, tint = FTV.Accent, modifier = Modifier.size(16.dp)) }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Delete", color = FTV.DangerRed, fontSize = 13.sp) },
+                                            onClick = { state.deletePlaylist(ctx, pl.id); showPlMenu = false },
+                                            leadingIcon = { Icon(Icons.Default.Delete, null, tint = FTV.DangerRed, modifier = Modifier.size(16.dp)) }
+                                        )
+                                    }
+                                }
+                            }
+                            Divider(color = border.copy(alpha = 0.4f))
+                        }
+                    } else {
+                        val plTracks = state.openPlaylistTracks
+                        if (plTracks.isEmpty()) {
+                            item {
+                                Column(
+                                    Modifier.fillMaxWidth().padding(32.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text("This playlist is empty", color = tcs, fontSize = 12.sp)
+                                    Text("Long-press or use ⋮ on any track to add it here", color = tcm, fontSize = 10.sp, textAlign = TextAlign.Center)
+                                }
+                            }
+                        }
+                        itemsIndexed(plTracks, key = { _, t -> "${openPl.id}_${t.metaKey}" }) { idx, t ->
+                            LibraryRow(t, state.currentTrack?.metaKey == t.metaKey, state.isPlaying, isDark, tc, tcs, tcm, border,
+                                onClick = { state.playPlaylist(openPl.id, idx) },
+                                onAddToQueue = { state.addToPlaylist(t) },
+                                onPlayNext   = { state.playNext(t) },
+                                onRemoveFromQueue = { state.removeTrackFromPlaylist(ctx, openPl.id, t) },
+                                removeLabel = "Remove from playlist",
+                                onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
+                                onAddToPlaylist = { state.showAddToPlaylist = t },
+                                onShare    = { shareTrack(ctx, t) },
+                                onTagEdit  = { state.showTagEditor = t },
+                                onLoadSubtitle = if (t.isVideo) { { pickSubtitleFor(t, onPickSubtitle, state) } } else null
+                            )
+                        }
                     }
                 }
                 MediaTab.FOLDERS -> {
@@ -976,8 +1307,9 @@ private fun LibraryPane(
                                 onPlayNext   = { state.playNext(t) },
                                 onRemoveFromQueue = {},
                                 onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
+                                onAddToPlaylist = { state.showAddToPlaylist = t },
                                 onShare    = { shareTrack(ctx, t) },
-                                onTagEdit  = { state.showTagEditor = true },
+                                onTagEdit  = { state.showTagEditor = t },
                                 onLoadSubtitle = if (t.isVideo) { { pickSubtitleFor(t, onPickSubtitle, state) } } else null
                             )
                         }
@@ -992,8 +1324,9 @@ private fun LibraryPane(
                                 onPlayNext   = { state.playNext(t) },
                                 onRemoveFromQueue = {},
                                 onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
+                                onAddToPlaylist = { state.showAddToPlaylist = t },
                                 onShare    = { shareTrack(ctx, t) },
-                                onTagEdit  = { state.showTagEditor = true },
+                                onTagEdit  = { state.showTagEditor = t },
                                 onLoadSubtitle = null
                             )
                         }
@@ -1011,8 +1344,9 @@ private fun LibraryPane(
                                     onPlayNext   = { state.playNext(t) },
                                     onRemoveFromQueue = {},
                                     onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
+                                    onAddToPlaylist = { state.showAddToPlaylist = t },
                                     onShare    = { shareTrack(ctx, t) },
-                                    onTagEdit  = { state.showTagEditor = true },
+                                    onTagEdit  = { state.showTagEditor = t },
                                     onLoadSubtitle = null
                                 )
                             }
@@ -1035,6 +1369,7 @@ private fun LibraryPane(
                                     onPlayNext   = { state.playNext(t) },
                                     onRemoveFromQueue = {},
                                     onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
+                                    onAddToPlaylist = { state.showAddToPlaylist = t },
                                     onShare    = { shareTrack(ctx, t) },
                                     onTagEdit  = {},
                                     onLoadSubtitle = { pickSubtitleFor(t, onPickSubtitle, state) }
@@ -1049,8 +1384,9 @@ private fun LibraryPane(
                                 onPlayNext   = { state.playNext(t) },
                                 onRemoveFromQueue = {},
                                 onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
+                                onAddToPlaylist = { state.showAddToPlaylist = t },
                                 onShare    = { shareTrack(ctx, t) },
-                                onTagEdit  = { state.showTagEditor = true },
+                                onTagEdit  = { state.showTagEditor = t },
                                 onLoadSubtitle = if (t.isVideo) { { pickSubtitleFor(t, onPickSubtitle, state) } } else null
                             )
                         }
@@ -1122,7 +1458,9 @@ private fun LibraryRow(
     onAddToQueue: () -> Unit,
     onPlayNext: () -> Unit,
     onRemoveFromQueue: () -> Unit,
+    removeLabel: String = "Remove from queue",
     onFavorite: () -> Unit,
+    onAddToPlaylist: () -> Unit = {},
     onShare: () -> Unit,
     onTagEdit: () -> Unit,
     onLoadSubtitle: (() -> Unit)? = null
@@ -1186,7 +1524,8 @@ private fun LibraryRow(
                     add(Triple(Icons.Default.PlayArrow, "Play now", onClick))
                     add(Triple(Icons.Default.PlaylistAdd, "Add to queue", onAddToQueue))
                     add(Triple(Icons.Default.QueuePlayNext, "Play next", onPlayNext))
-                    add(Triple(Icons.Default.Remove, "Remove from queue", onRemoveFromQueue))
+                    add(Triple(Icons.Default.Remove, removeLabel, onRemoveFromQueue))
+                    add(Triple(Icons.Default.LibraryAdd, "Add to playlist…", onAddToPlaylist))
                     add(Triple(if (track.isFavorite) Icons.Default.StarBorder else Icons.Default.Star,
                         if (track.isFavorite) "Unfavorite" else "Favorite", onFavorite))
                     add(Triple(Icons.Default.Edit, "Edit tags", onTagEdit))
@@ -1273,7 +1612,7 @@ private fun PlayerPane(
                     Icon(if (track.isFavorite) Icons.Default.Star else Icons.Default.StarBorder, null,
                         tint = if (track.isFavorite) FTV.Gold else tcm, modifier = Modifier.size(18.dp))
                 }
-                IconButton(onClick = { state.showTagEditor = true }, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = { state.showTagEditor = track }, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.Default.Edit, null, tint = tcm, modifier = Modifier.size(15.dp))
                 }
             }
@@ -1523,8 +1862,8 @@ private fun VolumeControl(state: PlayerState, tc: Color, tcm: Color) {
     Box {
         ToolbarBtn(
             when { state.isMuted || state.volume == 0f -> Icons.Default.VolumeOff
-                   state.volume < 0.5f -> Icons.Default.VolumeDown
-                   else -> Icons.Default.VolumeUp },
+                state.volume < 0.5f -> Icons.Default.VolumeDown
+                else -> Icons.Default.VolumeUp },
             tc
         ) { expanded = !expanded }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -1620,6 +1959,7 @@ private fun SettingsSheet(
     state: PlayerState, isDark: Boolean,
     tc: Color, tcs: Color, tcm: Color,
     surface: Color, border: Color,
+    ctx: Context,
     onDismiss: () -> Unit
 ) {
     Box(Modifier.fillMaxSize().background(Color.Black.copy(0.4f)).clickable(onClick = onDismiss), contentAlignment = Alignment.CenterEnd) {
@@ -1634,6 +1974,27 @@ private fun SettingsSheet(
                 Text("Settings", color = tc, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, null, tint = tcm) }
             }
+            Divider(color = border)
+
+            Text("Theme", color = tcs, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BBTheme.values().forEach { theme ->
+                    val active = ThemeHolder.current == theme
+                    Column(
+                        Modifier.clip(RoundedCornerShape(10.dp))
+                            .background(if (active) theme.palette.accent.copy(0.15f) else (if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh))
+                            .border(1.dp, if (active) theme.palette.accent else Color.Transparent, RoundedCornerShape(10.dp))
+                            .clickable { saveTheme(ctx, theme) }
+                            .padding(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(Modifier.size(28.dp).clip(CircleShape).background(theme.palette.accent))
+                        Text(theme.label, color = tc, fontSize = 10.sp, maxLines = 1)
+                    }
+                }
+            }
+
             Divider(color = border)
 
             Text("Equalizer", color = tcs, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
@@ -1773,5 +2134,148 @@ private fun ControlBtn(icon: ImageVector, tint: Color, size: Dp, onClick: () -> 
 private fun ToolbarBtn(icon: ImageVector, tc: Color, onClick: () -> Unit) {
     Box(Modifier.size(36.dp).clip(RoundedCornerShape(5.dp)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(icon, null, tint = tc, modifier = Modifier.size(18.dp))
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Add-to-playlist dialog — lists all playlists with a checkbox-style
+// toggle for "is this track in it", plus an inline "new playlist" row.
+// ─────────────────────────────────────────────────────────────────
+
+@Composable
+private fun AddToPlaylistDialog(
+    state: PlayerState,
+    track: MediaTrack,
+    isDark: Boolean,
+    tc: Color, tcs: Color, tcm: Color,
+    surface: Color, border: Color,
+    onCreateNew: (String) -> Unit,
+    onToggle: (playlistId: String, alreadyIn: Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var showNewRow by remember { mutableStateOf(false) }
+    var newName by remember { mutableStateOf("") }
+
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(0.5f)).clickable(onClick = onDismiss), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.width(320.dp).heightIn(max = 480.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (isDark) FTV.Surface else FTV.LSurface)
+                .clickable(enabled = false) {}
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column {
+                    Text("Add to playlist", color = tc, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(track.displayTitle, color = tcs, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.Close, null, tint = tcm, modifier = Modifier.size(16.dp)) }
+            }
+            Divider(color = border)
+
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                if (state.userPlaylists.isEmpty() && !showNewRow) {
+                    Text("No playlists yet — create one below", color = tcm, fontSize = 12.sp, modifier = Modifier.padding(vertical = 12.dp))
+                }
+                state.userPlaylists.forEach { pl ->
+                    val alreadyIn = track.metaKey in pl.trackKeys
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onToggle(pl.id, alreadyIn) }.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            if (alreadyIn) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank, null,
+                            tint = if (alreadyIn) FTV.Accent else tcm, modifier = Modifier.size(18.dp)
+                        )
+                        Text(pl.name, color = tc, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text("${pl.trackKeys.size}", color = tcm, fontSize = 11.sp)
+                    }
+                }
+            }
+
+            Divider(color = border)
+
+            if (showNewRow) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(
+                        Modifier.weight(1f).height(36.dp).clip(RoundedCornerShape(8.dp))
+                            .background(if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh)
+                            .padding(horizontal = 10.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (newName.isEmpty()) Text("Playlist name…", color = tcm, fontSize = 12.sp)
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = newName, onValueChange = { newName = it },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = tc, fontSize = 13.sp),
+                            cursorBrush = SolidColor(FTV.Accent), singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    IconButton(onClick = {
+                        if (newName.isNotBlank()) { onCreateNew(newName); showNewRow = false; newName = "" }
+                    }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.Check, null, tint = FTV.Accent, modifier = Modifier.size(20.dp))
+                    }
+                }
+            } else {
+                Row(
+                    Modifier.fillMaxWidth().clickable { showNewRow = true }.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.Add, null, tint = FTV.Accent, modifier = Modifier.size(18.dp))
+                    Text("New playlist", color = FTV.Accent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Generic single-text-field prompt — used for both "new playlist" and
+// "rename playlist" so we don't duplicate the same little dialog twice.
+// ─────────────────────────────────────────────────────────────────
+
+@Composable
+private fun NamePromptDialog(
+    title: String,
+    initialValue: String,
+    isDark: Boolean,
+    tc: Color,
+    surface: Color, border: Color,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var value by remember { mutableStateOf(initialValue) }
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(0.5f)).clickable(onClick = onDismiss), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.width(300.dp).clip(RoundedCornerShape(12.dp))
+                .background(if (isDark) FTV.Surface else FTV.LSurface)
+                .clickable(enabled = false) {}
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(title, color = tc, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Box(
+                Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(8.dp))
+                    .background(if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh)
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                androidx.compose.foundation.text.BasicTextField(
+                    value = value, onValueChange = { value = it },
+                    textStyle = androidx.compose.ui.text.TextStyle(color = tc, fontSize = 14.sp),
+                    cursorBrush = SolidColor(FTV.Accent), singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                Text("Cancel", color = FTV.TextMuted, fontSize = 13.sp, modifier = Modifier.clickable(onClick = onDismiss).padding(8.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Save", color = FTV.Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable { if (value.isNotBlank()) onConfirm(value) }.padding(8.dp))
+            }
+        }
     }
 }

@@ -5,7 +5,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -26,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CalendarToday
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -34,11 +32,12 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Monitor
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.TextRotationAngledown
 import androidx.compose.material.icons.filled.Window
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
@@ -72,13 +71,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bluebird.CopyJobStatus
 import com.bluebird.CopyOpType
 import com.bluebird.LauncherScreen
 import com.bluebird.LauncherViewModel
 import com.bluebird.WindowIconKey
 import com.bluebird.WindowState
-import java.io.File
 import com.bluebird.editor.ui.screens.PremiumTextEditorScreen
 import com.bluebird.ui.screens.CalculatorScreen
 import com.bluebird.ui.screens.CalendarScreen
@@ -93,6 +92,7 @@ import com.bluebird.ui.screens.SettingsScreen
 import com.bluebird.ui.screens.TaskManagerScreen
 import com.bluebird.ui.theme.Win11Colors
 import com.win11launcher.ui.screens.BrowserScreen
+import java.io.File
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Window size constraints (dp)
@@ -146,9 +146,11 @@ private fun iconForKey(key: String): ImageVector = when (key) {
     WindowIconKey.TASK_MANAGER     -> Icons.Default.Monitor
     WindowIconKey.MEDIA_PLAYER     -> Icons.Default.MusicNote
     WindowIconKey.IMAGE_VIEWER     -> Icons.Default.Image
-    WindowIconKey.WORD_IMPRESS            -> Icons.Default.Phone
-    WindowIconKey.BLUEBIRD_STORE         -> Icons.Default.Chat
+    WindowIconKey.WORD_IMPRESS            -> Icons.Default.TextRotationAngledown
+    WindowIconKey.BLUEBIRD_STORE         -> Icons.Default.NightsStay
     WindowIconKey.RECYCLE_BIN      -> Icons.Default.Delete
+    WindowIconKey.WEB_APP_MANAGER -> Icons.Default.Public
+    WindowIconKey.WEB_APP -> Icons.Default.Public
     else                           -> Icons.Default.Window
 }
 

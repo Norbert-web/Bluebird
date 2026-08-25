@@ -155,8 +155,8 @@ object WindowIconKey {
     const val TASK_MANAGER  = "monitor"
     const val MEDIA_PLAYER  = "music_note"
     const val IMAGE_VIEWER  = "image"
-    const val WORD_IMPRESS         = "phone"
-    const val BLUEBIRD_STORE      = "chat"
+    const val BLUEBIRD_STORE         = "NightsStay"
+    const val WORD_IMPRESS      = "TextRotationAngledown"
     const val RECYCLE_BIN   = "delete"
     const val PremiumTextEditorScreen = ""
     const val TERMINAL        = "terminal"
@@ -214,6 +214,11 @@ data class LauncherUiState(
     val pinnedTaskbarApps: List<AppInfo> = emptyList(),
     val desktopFiles: List<DesktopFileInfo> = emptyList(),
     val desktopRefreshTick: Int = 0,
+    // Bumped only by an explicit "Refresh" from the desktop context menu — separate from
+    // desktopRefreshTick (which bumps on every rescan, including silent ones triggered by
+    // the FileObserver after a paste/delete/rename) so the disappear/reappear flicker only
+    // plays when the user actually asked for it.
+    val manualDesktopRefreshTick: Int = 0,
     val copyJobs: List<CopyJob> = emptyList(),
     val clipboardFiles: List<String> = emptyList(),   // absolute paths — unified across Desktop + File Explorer
     val clipboardCut: Boolean = false,
@@ -961,6 +966,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _uiState.value = _uiState.value.copy(systemDesktopItems = sysItems)
     }
 
+    /** Explicit user-triggered refresh ("Refresh" on the desktop context menu) — bumps
+     *  manualDesktopRefreshTick immediately (so the flicker starts right away) and then
+     *  does the same rescan refreshDesktopFiles() always does. Silent rescans triggered
+     *  by the FileObserver (after a paste/delete/rename) go through refreshDesktopFiles()
+     *  directly and never touch this tick, so they never trigger the flicker. */
+    fun requestDesktopRefresh() {
+        _uiState.value = _uiState.value.copy(manualDesktopRefreshTick = _uiState.value.manualDesktopRefreshTick + 1)
+        refreshDesktopFiles()
+    }
+
     fun refreshDesktopFiles() {
         viewModelScope.launch(Dispatchers.IO) {
             val files  = desktopDir.listFiles()?.toList() ?: emptyList()
@@ -1499,8 +1514,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             LauncherScreen.PHOTOS        -> "Photos"
             LauncherScreen.MEDIA_PLAYER  -> "Media Player"
             LauncherScreen.IMAGE_VIEWER  -> extras["fileName"] ?: "Image Viewer"
-            LauncherScreen.WORD_IMPRESS         -> "Phone"
-            LauncherScreen.BLUEBIRD_STORE      -> "Messages"
+            LauncherScreen.WORD_IMPRESS         -> "Word Impress"
+            LauncherScreen.BLUEBIRD_STORE      -> "Bluebird Store"
             LauncherScreen.RECYCLE_BIN   -> "Recycle Bin"
             LauncherScreen.TERMINAL        -> "Terminal"
             LauncherScreen.WEB_APP_MANAGER -> "Web Apps"

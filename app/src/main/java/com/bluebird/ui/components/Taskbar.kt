@@ -51,7 +51,6 @@ import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CalendarToday
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
@@ -63,15 +62,15 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.LayersClear
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.material.icons.filled.Monitor
 import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Public
@@ -81,6 +80,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwipeRight
 import androidx.compose.material.icons.filled.SyncAlt
+import androidx.compose.material.icons.filled.TextRotationAngledown
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -120,8 +120,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -137,6 +135,8 @@ import com.bluebird.LauncherViewModel
 import com.bluebird.WindowIconKey
 import com.bluebird.WindowState
 import com.bluebird.ui.theme.Win11Colors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Taskbar Settings State
@@ -260,13 +260,14 @@ private fun iconForKey(key: String): ImageVector = when (key) {
     WindowIconKey.CALENDAR      -> Icons.Default.CalendarToday
     WindowIconKey.PHOTOS        -> Icons.Default.PhotoLibrary
     WindowIconKey.TASK_MANAGER  -> Icons.Default.Monitor
-    WindowIconKey.MEDIA_PLAYER  -> Icons.Default.MusicNote
+    WindowIconKey.MEDIA_PLAYER  -> Icons.Default.LiveTv
     WindowIconKey.IMAGE_VIEWER  -> Icons.Default.Image
-    WindowIconKey.WORD_IMPRESS         -> Icons.Default.Phone
-    WindowIconKey.BLUEBIRD_STORE      -> Icons.Default.Chat
+    WindowIconKey.WORD_IMPRESS         -> Icons.Default.TextRotationAngledown
+    WindowIconKey.BLUEBIRD_STORE      -> Icons.Default.NightsStay
     WindowIconKey.RECYCLE_BIN   -> Icons.Default.Delete
     WindowIconKey.WEB_APP       -> Icons.Default.Public
     WindowIconKey.COPY_PROGRESS -> Icons.Default.ContentCopy
+    WindowIconKey.WEB_APP_MANAGER -> Icons.Default.Public
     else                        -> Icons.Default.Window
 }
 

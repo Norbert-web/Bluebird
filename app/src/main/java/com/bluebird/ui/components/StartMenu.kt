@@ -73,11 +73,11 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.PlayCircleOutline
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -248,7 +248,7 @@ private val builtInApps = listOf(
     Triple("Tasks",        Icons.Default.Assignment,        LauncherScreen.TASK_MANAGER),
 
 
-    Triple("Media Player", Icons.Default.PlayCircleOutline, LauncherScreen.MEDIA_PLAYER),
+    Triple("Media Player", Icons.Default.LiveTv, LauncherScreen.MEDIA_PLAYER),
     Triple("Recycle Bin",  Icons.Default.Delete,            LauncherScreen.RECYCLE_BIN),
     Triple("Image Viewer", Icons.Default.Photo,             LauncherScreen.IMAGE_VIEWER),
     Triple("Text Editor",  Icons.Default.TextFields,        LauncherScreen.PremiumTextEditorScreen),
