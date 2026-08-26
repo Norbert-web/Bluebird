@@ -517,7 +517,7 @@ Bluebird requests the following permissions, each explained:
 
 ```bash
 git clone https://github.com/norbert-web/bluebird.git
-cd bluebird
+cd io.github.norbertweb.bluebird
 ```
 
 ### Open in Android Studio
@@ -551,9 +551,9 @@ Output: `app/build/outputs/apk/debug/app-debug.apk`
 1. Create a keystore (first time only):
 
 ```bash
-keytool -genkey -v -keystore bluebird-release.jks \
+keytool -genkey -v -keystore io.github.norbertweb.bluebird-release.jks \
   -keyalg RSA -keysize 2048 -validity 10000 \
-  -alias bluebird
+  -alias io.github.norbertweb.bluebird
 ```
 
 2. Configure signing in `app/build.gradle.kts`:
@@ -562,9 +562,9 @@ keytool -genkey -v -keystore bluebird-release.jks \
 android {
     signingConfigs {
         create("release") {
-            storeFile = file("../bluebird-release.jks")
+            storeFile = file("../io.github.norbertweb.bluebird-release.jks")
             storePassword = System.getenv("KEYSTORE_PASS")
-            keyAlias = "bluebird"
+            keyAlias = "io.github.norbertweb.bluebird"
             keyPassword = System.getenv("KEY_PASS")
         }
     }
@@ -626,7 +626,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ### Sideload via ADB
 
 ```bash
-adb install bluebird-release.apk
+adb install io.github.norbertweb.bluebird-release.apk
 ```
 
 ---
@@ -640,7 +640,7 @@ Bluebird stores all user preferences in `SharedPreferences` under the key `launc
 To fully reset Bluebird:
 
 ```bash
-adb shell pm clear com.bluebird
+adb shell pm clear io.github.norbertweb.bluebirdb.norbertweb.bluebird
 ```
 
 Or: **Android Settings → Apps → Bluebird → Storage → Clear Data**
@@ -700,7 +700,7 @@ Use the [GitHub Issues](https://github.com/norbert-web/bluebird/issues) tracker.
 - Android version and device model
 - Steps to reproduce
 - Expected vs actual behavior
-- Logcat output (filter by `com.bluebird`)
+- Logcat output (filter by `io.github.norbertweb.bluebird`)
 
 ### Pull Requests
 

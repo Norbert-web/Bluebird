@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.bluebird"
+    namespace = "io.github.norbertweb.bluebird"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.bluebird"
+        applicationId = "io.github.norbertweb.bluebird"
         minSdk = 26
         targetSdk = 36
         versionCode = 10
@@ -92,4 +92,7 @@ dependencies {
     implementation("androidx.media3:media3-session:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("androidx.media3:media3-common:1.4.1")
+
+    // Dominant-color extraction from album art for the Now Playing screen
+    implementation("androidx.palette:palette-ktx:1.0.0")
 }
