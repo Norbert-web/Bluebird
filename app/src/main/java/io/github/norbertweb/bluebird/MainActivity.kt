@@ -33,7 +33,7 @@ import io.github.norbertweb.bluebird.data.NotificationListener
 import io.github.norbertweb.bluebird.ui.screens.DesktopScreen
 import io.github.norbertweb.bluebird.ui.screens.SetupScreen
 import io.github.norbertweb.bluebird.ui.theme.LocalTextScale
-import io.github.norbertweb.bluebird.ui.theme.Win11Theme
+import io.github.norbertweb.bluebird.ui.theme.bluebirdTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -99,7 +99,7 @@ class MainActivity : ComponentActivity() {
             // ─────────────────────────────────────────────────────────────────────
             DesktopDensityOverride(context = context) {
                 CompositionLocalProvider(LocalTextScale provides uiState.textScale) {
-                    Win11Theme(darkTheme = uiState.isDarkTheme) {
+                    bluebirdTheme(darkTheme = uiState.isDarkTheme) {
                         Surface(modifier = Modifier.fillMaxSize()) {
                             if (!uiState.hasCompletedSetup) {
                                 SetupScreen(

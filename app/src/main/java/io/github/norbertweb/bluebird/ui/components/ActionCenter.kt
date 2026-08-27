@@ -28,7 +28,7 @@ import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
 import io.github.norbertweb.bluebird.RealNotification
 import io.github.norbertweb.bluebird.ui.theme.LocalTextScale
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 
 // ─── Remote Notification Model ────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ fun ActionCenter(
     val dismissedRemoteIds  = uiState.dismissedRemoteNotificationIds
 
     val isDark     = uiState.isDarkTheme
-    val textColor  = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor  = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val subColor   = textColor.copy(alpha = 0.55f)
     val divColor   = if (isDark) Color(0xFF3A3A3A) else Color(0xFFDEDEDE)
 
@@ -199,7 +199,7 @@ fun ActionCenter(
                             else                   -> Icons.Default.VolumeUp
                         },
                         contentDescription = "Volume",
-                        tint     = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight,
+                        tint     = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight,
                         modifier = Modifier.size(20.dp)
                     )
                 },
@@ -221,7 +221,7 @@ fun ActionCenter(
                     Icon(
                         imageVector        = Icons.Default.Brightness6,
                         contentDescription = "Brightness",
-                        tint     = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight,
+                        tint     = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight,
                         modifier = Modifier.size(20.dp)
                     )
                 },
@@ -266,7 +266,7 @@ fun ActionCenter(
                     text       = "From Bluebird",
                     fontWeight = FontWeight.SemiBold,
                     fontSize   = (13 * textScale).sp,
-                    color      = Win11Colors.AccentBlue
+                    color      = bluebirdColors.AccentBlue
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 remoteNotifications
@@ -312,7 +312,7 @@ fun ActionCenter(
                     ) {
                         Text(
                             "Clear all",
-                            color    = Win11Colors.AccentBlue,
+                            color    = bluebirdColors.AccentBlue,
                             fontSize = (12 * textScale).sp
                         )
                     }
@@ -361,10 +361,10 @@ private fun DndPill(
     onClick: () -> Unit,
     textScale: Float
 ) {
-    val bg = if (enabled) Win11Colors.AccentBlue else
+    val bg = if (enabled) bluebirdColors.AccentBlue else
         if (isDark) Color(0xFF3A3A3A) else Color(0xFFE0E0E0)
     val fg = if (enabled) Color.White else
-        if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+        if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     Row(
         modifier = Modifier
@@ -456,12 +456,12 @@ private fun QuickToggleTile(
     textScale: Float,
     modifier: Modifier = Modifier
 ) {
-    val activeBg   = Win11Colors.AccentBlue.copy(alpha = 0.18f)
+    val activeBg   = bluebirdColors.AccentBlue.copy(alpha = 0.18f)
     val inactiveBg = if (isDark) Color(0xFF2C2C2C) else Color(0xFFEBEBEB)
     val bg         = if (data.active) activeBg else inactiveBg
-    val iconTint   = if (data.active) Win11Colors.AccentBlue else
-        if (isDark) Win11Colors.TextSecondary else Win11Colors.TextSecondaryLight
-    val textColor  = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val iconTint   = if (data.active) bluebirdColors.AccentBlue else
+        if (isDark) bluebirdColors.TextSecondary else bluebirdColors.TextSecondaryLight
+    val textColor  = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val subColor   = textColor.copy(alpha = 0.5f)
 
     val scale by animateFloatAsState(
@@ -477,7 +477,7 @@ private fun QuickToggleTile(
             .background(bg)
             .border(
                 width = if (data.active) 1.dp else 0.dp,
-                color = if (data.active) Win11Colors.AccentBlue.copy(alpha = 0.4f) else Color.Transparent,
+                color = if (data.active) bluebirdColors.AccentBlue.copy(alpha = 0.4f) else Color.Transparent,
                 shape = RoundedCornerShape(12.dp)
             )
             .clickable { data.onClick() }
@@ -543,8 +543,8 @@ private fun SliderSection(
                     .fillMaxWidth()
                     .height(28.dp),
                 colors        = SliderDefaults.colors(
-                    thumbColor            = Win11Colors.AccentBlue,
-                    activeTrackColor      = Win11Colors.AccentBlue,
+                    thumbColor            = bluebirdColors.AccentBlue,
+                    activeTrackColor      = bluebirdColors.AccentBlue,
                     inactiveTrackColor    = if (isDark) Color(0xFF444444) else Color(0xFFCCCCCC)
                 )
             )
@@ -578,7 +578,7 @@ private fun TextScaleSection(
                 Icon(
                     Icons.Default.TextFields,
                     contentDescription = "Text Size",
-                    tint     = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight,
+                    tint     = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight,
                     modifier = Modifier.size(20.dp)
                 )
                 Text(
@@ -590,7 +590,7 @@ private fun TextScaleSection(
             }
             Text(
                 currentScale.toTextScaleLabel(),
-                color    = Win11Colors.AccentBlue,
+                color    = bluebirdColors.AccentBlue,
                 fontSize = (12 * textScale).sp,
                 fontWeight = FontWeight.SemiBold
             )
@@ -603,10 +603,10 @@ private fun TextScaleSection(
         ) {
             steps.forEach { (scale, label) ->
                 val selected = kotlin.math.abs(scale - currentScale) < 0.05f
-                val bg       = if (selected) Win11Colors.AccentBlue
+                val bg       = if (selected) bluebirdColors.AccentBlue
                 else if (isDark) Color(0xFF2C2C2C) else Color(0xFFEBEBEB)
                 val fg       = if (selected) Color.White
-                else if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+                else if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
                 Box(
                     modifier = Modifier
@@ -662,9 +662,9 @@ private fun BatterySection(
     textScale: Float
 ) {
     val batteryColor = when {
-        charging  -> Win11Colors.AccentBlue
-        level > 20 -> Win11Colors.Success
-        else       -> Win11Colors.Error
+        charging  -> bluebirdColors.AccentBlue
+        level > 20 -> bluebirdColors.Success
+        else       -> bluebirdColors.Error
     }
 
     Row(
@@ -699,7 +699,7 @@ private fun BatterySection(
                     Icon(
                         Icons.Default.FlashOn,
                         contentDescription = null,
-                        tint     = Win11Colors.AccentBlue,
+                        tint     = bluebirdColors.AccentBlue,
                         modifier = Modifier.size(14.dp)
                     )
                 }
@@ -752,7 +752,7 @@ private fun NotificationGroup(
                     modifier = Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(Win11Colors.AccentBlue)
+                        .background(bluebirdColors.AccentBlue)
                 )
                 Text(
                     text = appName,
@@ -763,7 +763,7 @@ private fun NotificationGroup(
                 if (notifs.size > 1) {
                     Text(
                         text = "${notifs.size}",
-                        color = Win11Colors.AccentBlue,
+                        color = bluebirdColors.AccentBlue,
                         fontSize = (11 * textScale).sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -823,7 +823,7 @@ private fun SwipeToDismissNotifCard(
                 modifier = Modifier
                     .matchParentSize()
                     .clip(RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp))
-                    .background(Win11Colors.Error.copy(alpha = (offsetX / threshold).coerceIn(0f, 1f))),
+                    .background(bluebirdColors.Error.copy(alpha = (offsetX / threshold).coerceIn(0f, 1f))),
                 contentAlignment = Alignment.CenterEnd
             ) {
                 Icon(
@@ -860,13 +860,13 @@ private fun SwipeToDismissNotifCard(
                 modifier = Modifier
                     .size(32.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Win11Colors.AccentBlue.copy(alpha = 0.15f)),
+                    .background(bluebirdColors.AccentBlue.copy(alpha = 0.15f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Default.Notifications,
                     contentDescription = null,
-                    tint     = Win11Colors.AccentBlue,
+                    tint     = bluebirdColors.AccentBlue,
                     modifier = Modifier.size(16.dp)
                 )
             }
@@ -924,7 +924,7 @@ private fun NotifActionButton(
     ) {
         Text(
             label,
-            color    = Win11Colors.AccentBlue,
+            color    = bluebirdColors.AccentBlue,
             fontSize = (11 * textScale).sp,
             fontWeight = FontWeight.Medium
         )
@@ -943,10 +943,10 @@ private fun BluebirdRemoteNotifCard(
 ) {
     val accent = try {
         Color(android.graphics.Color.parseColor(notif.badgeColor))
-    } catch (e: Exception) { Win11Colors.AccentBlue }
+    } catch (e: Exception) { bluebirdColors.AccentBlue }
 
     val bg     = accent.copy(alpha = if (isDark) 0.12f else 0.1f)
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     Row(
         modifier = Modifier

@@ -1,4 +1,4 @@
-package com.win11launcher.browser.ui
+package com.io.github.norbertweb.bluebird.browser.ui
 
 // Use model alias to avoid clashing with android.webkit.PermissionRequest
 import android.content.Intent
@@ -30,38 +30,38 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import com.win11launcher.browser.data.BrowserRepository
-import com.win11launcher.browser.model.Bookmark
-import com.win11launcher.browser.model.BrowserPanel
-import com.win11launcher.browser.model.BrowserTab
-import com.win11launcher.browser.model.DownloadItem
-import com.win11launcher.browser.model.HistoryEntry
-import com.win11launcher.browser.model.JsDialogState
-import com.win11launcher.browser.model.MAX_HISTORY_ENTRIES
-import com.win11launcher.browser.model.MAX_TABS
-import com.win11launcher.browser.model.NEWTAB_URL
-import com.win11launcher.browser.model.SslDialogState
-import com.win11launcher.browser.ui.components.BookmarksBar
-import com.win11launcher.browser.ui.components.EdgeNavigationBar
-import com.win11launcher.browser.ui.components.EdgeTabBar
-import com.win11launcher.browser.ui.components.FindInPageBar
-import com.win11launcher.browser.ui.components.GeolocationDialog
-import com.win11launcher.browser.ui.components.JsDialog
-import com.win11launcher.browser.ui.components.PermissionRequestDialog
-import com.win11launcher.browser.ui.components.SslWarningDialog
-import com.win11launcher.browser.ui.keyboard.FloatingKeyboard
-import com.win11launcher.browser.ui.newtab.NewTabPage
-import com.win11launcher.browser.ui.panels.AddressSuggestionsDropdown
-import com.win11launcher.browser.ui.panels.EdgeContextMenu
-import com.win11launcher.browser.ui.panels.SidePanel
-import com.win11launcher.browser.ui.panels.TabOverviewGrid
-import com.win11launcher.browser.ui.webview.BrowserWebView
-import com.win11launcher.browser.utils.DownloadHelper
-import com.win11launcher.browser.utils.UrlUtils
+import com.io.github.norbertweb.bluebird.browser.data.BrowserRepository
+import com.io.github.norbertweb.bluebird.browser.model.Bookmark
+import com.io.github.norbertweb.bluebird.browser.model.BrowserPanel
+import com.io.github.norbertweb.bluebird.browser.model.BrowserTab
+import com.io.github.norbertweb.bluebird.browser.model.DownloadItem
+import com.io.github.norbertweb.bluebird.browser.model.HistoryEntry
+import com.io.github.norbertweb.bluebird.browser.model.JsDialogState
+import com.io.github.norbertweb.bluebird.browser.model.MAX_HISTORY_ENTRIES
+import com.io.github.norbertweb.bluebird.browser.model.MAX_TABS
+import com.io.github.norbertweb.bluebird.browser.model.NEWTAB_URL
+import com.io.github.norbertweb.bluebird.browser.model.SslDialogState
+import com.io.github.norbertweb.bluebird.browser.ui.components.BookmarksBar
+import com.io.github.norbertweb.bluebird.browser.ui.components.EdgeNavigationBar
+import com.io.github.norbertweb.bluebird.browser.ui.components.EdgeTabBar
+import com.io.github.norbertweb.bluebird.browser.ui.components.FindInPageBar
+import com.io.github.norbertweb.bluebird.browser.ui.components.GeolocationDialog
+import com.io.github.norbertweb.bluebird.browser.ui.components.JsDialog
+import com.io.github.norbertweb.bluebird.browser.ui.components.PermissionRequestDialog
+import com.io.github.norbertweb.bluebird.browser.ui.components.SslWarningDialog
+import com.io.github.norbertweb.bluebird.browser.ui.keyboard.FloatingKeyboard
+import com.io.github.norbertweb.bluebird.browser.ui.newtab.NewTabPage
+import com.io.github.norbertweb.bluebird.browser.ui.panels.AddressSuggestionsDropdown
+import com.io.github.norbertweb.bluebird.browser.ui.panels.EdgeContextMenu
+import com.io.github.norbertweb.bluebird.browser.ui.panels.SidePanel
+import com.io.github.norbertweb.bluebird.browser.ui.panels.TabOverviewGrid
+import com.io.github.norbertweb.bluebird.browser.ui.webview.BrowserWebView
+import com.io.github.norbertweb.bluebird.browser.utils.DownloadHelper
+import com.io.github.norbertweb.bluebird.browser.utils.UrlUtils
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import com.win11launcher.browser.model.PermissionRequest as BrowserPermissionRequest
+import com.io.github.norbertweb.bluebird.browser.model.PermissionRequest as BrowserPermissionRequest
 
 // ═══════════════════════════════════════════════════════════════════════
 // BrowserScreen — root composable

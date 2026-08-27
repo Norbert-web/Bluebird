@@ -1,4 +1,4 @@
-package com.win11launcher.browser.model
+package com.io.github.norbertweb.bluebird.browser.model
 
 import androidx.compose.ui.graphics.Color
 import java.util.UUID

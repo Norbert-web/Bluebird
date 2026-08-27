@@ -1,4 +1,4 @@
-package com.win11launcher.browser.ui.panels
+package com.io.github.norbertweb.bluebird.browser.ui.panels
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -67,15 +67,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.win11launcher.browser.model.Bookmark
-import com.win11launcher.browser.model.BrowserPanel
-import com.win11launcher.browser.model.BrowserSettings
-import com.win11launcher.browser.model.BrowserTab
-import com.win11launcher.browser.model.DownloadItem
-import com.win11launcher.browser.model.DownloadStatus
-import com.win11launcher.browser.model.HistoryEntry
-import com.win11launcher.browser.model.SearchEngine
-import com.win11launcher.browser.model.StartPage
+import com.io.github.norbertweb.bluebird.browser.model.Bookmark
+import com.io.github.norbertweb.bluebird.browser.model.BrowserPanel
+import com.io.github.norbertweb.bluebird.browser.model.BrowserSettings
+import com.io.github.norbertweb.bluebird.browser.model.BrowserTab
+import com.io.github.norbertweb.bluebird.browser.model.DownloadItem
+import com.io.github.norbertweb.bluebird.browser.model.DownloadStatus
+import com.io.github.norbertweb.bluebird.browser.model.HistoryEntry
+import com.io.github.norbertweb.bluebird.browser.model.SearchEngine
+import com.io.github.norbertweb.bluebird.browser.model.StartPage
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale

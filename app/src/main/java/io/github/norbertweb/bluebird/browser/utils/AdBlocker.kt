@@ -1,4 +1,4 @@
-package com.win11launcher.browser.utils
+package com.io.github.norbertweb.bluebird.browser.utils
 
 // ═══════════════════════════════════════════════════════════════════════
 // AdBlocker — real URL-pattern request filter

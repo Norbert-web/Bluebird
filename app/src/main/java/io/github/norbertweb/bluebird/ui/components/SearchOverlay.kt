@@ -44,7 +44,7 @@ import androidx.compose.ui.unit.*
 import io.github.norbertweb.bluebird.AppInfo
 import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 
 // ─────────────────────────────────────────────
 // Search filter categories (like the one for Windows 11)
@@ -128,9 +128,9 @@ fun SearchOverlay(
                     .background(
                         Brush.horizontalGradient(
                             listOf(
-                                Win11Colors.AccentBlue,
+                                bluebirdColors.AccentBlue,
                                 Color(0xFF8855FF),
-                                Win11Colors.AccentBlue
+                                bluebirdColors.AccentBlue
                             )
                         )
                     )
@@ -153,7 +153,7 @@ fun SearchOverlay(
                             .background(if (isDark) Color(0xFF2E2E3E) else Color(0xFFE8E8F0))
                             .border(
                                 1.dp,
-                                if (searchQuery.isNotEmpty()) Win11Colors.AccentBlue.copy(0.5f) else surfaceBorder,
+                                if (searchQuery.isNotEmpty()) bluebirdColors.AccentBlue.copy(0.5f) else surfaceBorder,
                                 RoundedCornerShape(20.dp)
                             )
                             .padding(horizontal = 14.dp),
@@ -163,7 +163,7 @@ fun SearchOverlay(
                         Icon(
                             Icons.Default.Search,
                             contentDescription = null,
-                            tint = if (searchQuery.isEmpty()) Color(0xFF888888) else Win11Colors.AccentBlue,
+                            tint = if (searchQuery.isEmpty()) Color(0xFF888888) else bluebirdColors.AccentBlue,
                             modifier = Modifier.size(16.dp)
                         )
 
@@ -178,7 +178,7 @@ fun SearchOverlay(
                                 fontSize = 14.sp
                             ),
                             singleLine = true,
-                            cursorBrush = SolidColor(Win11Colors.AccentBlue),
+                            cursorBrush = SolidColor(bluebirdColors.AccentBlue),
                             decorationBox = { inner ->
                                 if (searchQuery.isEmpty()) {
                                     Text(
@@ -224,7 +224,7 @@ fun SearchOverlay(
 
                 Spacer(Modifier.height(12.dp))
 
-                // ── Filter tabs (Win11 style) ──
+                // ── Filter tabs (bluebird style) ──
                 AnimatedVisibility(visible = searchQuery.isNotEmpty() || isExpanded) {
                     Column {
                         LazyRow(
@@ -467,7 +467,7 @@ private fun BestMatchItem(app: AppInfo, isDark: Boolean, textColor: Color, onCli
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
-            .border(0.5.dp, Win11Colors.AccentBlue.copy(0.3f), RoundedCornerShape(10.dp))
+            .border(0.5.dp, bluebirdColors.AccentBlue.copy(0.3f), RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -488,7 +488,7 @@ private fun BestMatchItem(app: AppInfo, isDark: Boolean, textColor: Color, onCli
                     .align(Alignment.BottomEnd)
                     .size(14.dp)
                     .clip(CircleShape)
-                    .background(Win11Colors.AccentBlue),
+                    .background(bluebirdColors.AccentBlue),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Default.Star, null, tint = Color.White, modifier = Modifier.size(8.dp))
@@ -504,11 +504,11 @@ private fun BestMatchItem(app: AppInfo, isDark: Boolean, textColor: Color, onCli
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(6.dp))
-                .background(Win11Colors.AccentBlue.copy(0.15f))
-                .border(0.5.dp, Win11Colors.AccentBlue.copy(0.4f), RoundedCornerShape(6.dp))
+                .background(bluebirdColors.AccentBlue.copy(0.15f))
+                .border(0.5.dp, bluebirdColors.AccentBlue.copy(0.4f), RoundedCornerShape(6.dp))
                 .padding(horizontal = 10.dp, vertical = 5.dp)
         ) {
-            Text("Open", color = Win11Colors.AccentBlue, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            Text("Open", color = bluebirdColors.AccentBlue, fontSize = 11.sp, fontWeight = FontWeight.Medium)
         }
     }
 }
@@ -544,7 +544,7 @@ private fun AppResultRow(app: AppInfo, query: String, isDark: Boolean, textColor
                 val idx = lower.indexOf(queryLower)
                 if (idx >= 0) {
                     append(app.name.substring(0, idx))
-                    withStyle(SpanStyle(color = Win11Colors.AccentBlue, fontWeight = FontWeight.SemiBold)) {
+                    withStyle(SpanStyle(color = bluebirdColors.AccentBlue, fontWeight = FontWeight.SemiBold)) {
                         append(app.name.substring(idx, idx + query.length))
                     }
                     append(app.name.substring(idx + query.length))
@@ -569,13 +569,13 @@ private fun WebSearchRow(query: String, isDark: Boolean, textColor: Color, onCli
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(if (isDark) Color(0xFF25253A) else Color(0xFFE5E5F5))
-            .border(0.5.dp, Win11Colors.AccentBlue.copy(0.2f), RoundedCornerShape(8.dp))
+            .border(0.5.dp, bluebirdColors.AccentBlue.copy(0.2f), RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Icon(Icons.Default.Language, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(16.dp))
+        Icon(Icons.Default.Language, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(16.dp))
         Text(
             buildAnnotatedString {
                 append("Search the web for ")
@@ -665,7 +665,7 @@ private fun SectionHeader(
         if (action != null) {
             Text(
                 action.first,
-                color = Win11Colors.AccentBlue,
+                color = bluebirdColors.AccentBlue,
                 fontSize = 10.sp,
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
@@ -688,7 +688,7 @@ private fun SearchFilterChip(
 ) {
     val bg by animateColorAsState(
         targetValue = when {
-            isSelected -> Win11Colors.AccentBlue
+            isSelected -> bluebirdColors.AccentBlue
             isDark -> Color(0xFF2A2A3A)
             else -> Color(0xFFE0E0EE)
         },
@@ -774,7 +774,7 @@ private fun QuickSearchChip(label: String, icon: ImageVector, isDark: Boolean, o
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Icon(icon, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(13.dp))
+        Icon(icon, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(13.dp))
         Text(label, color = textColor.copy(0.85f), fontSize = 12.sp)
     }
 }

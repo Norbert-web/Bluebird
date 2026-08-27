@@ -1,4 +1,4 @@
-package com.win11launcher.browser.utils
+package com.io.github.norbertweb.bluebird.browser.utils
 
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
@@ -9,8 +9,8 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Environment
 import android.webkit.URLUtil
-import com.win11launcher.browser.model.DownloadItem
-import com.win11launcher.browser.model.DownloadStatus
+import com.io.github.norbertweb.bluebird.browser.model.DownloadItem
+import com.io.github.norbertweb.bluebird.browser.model.DownloadStatus
 import kotlinx.coroutines.*
 
 // ═══════════════════════════════════════════════════════════════════════

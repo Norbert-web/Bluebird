@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.media.MediaPlayer
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
@@ -39,11 +40,15 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.norbertweb.bluebird.core.filesystem.BluebirdFileSystem
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -61,11 +66,20 @@ private val TermError   = Color(0xFFF2F2F2)   // cmd doesn't colour its own erro
 private val TermSuccess = Color(0xFF4EC9B0)
 private val TermWarning = Color(0xFFDCDCAA)
 private val TermInfo    = Color(0xFF9CDCFE)
+private val TermLyric   = Color(0xFFFF79C6)
+
+// Command syntax-highlighting palette — applied to both the live input
+// line (via VisualTransformation) and the echoed command once it's run.
+private val HlCommand = Color(0xFF57C7FF) // recognized command/alias
+private val HlUnknown = Color(0xFFFF5C57) // first word isn't a known command — hints it'll error
+private val HlFlag    = Color(0xFFF3F99D) // /flag or -flag
+private val HlString  = Color(0xFFB6F79C) // "quoted text"
+private val HlPath    = Color(0xFFBD93F9) // contains \ or starts with a drive letter
 
 // ─────────────────────────────────────────────────────────────────
 // Data model
 // ─────────────────────────────────────────────────────────────────
-enum class TermLineType { INPUT, OUTPUT, ERROR, INFO, SUCCESS, WARNING, SYSTEM }
+enum class TermLineType { INPUT, OUTPUT, ERROR, INFO, SUCCESS, WARNING, SYSTEM, LYRIC }
 
 data class TermLine(
     val text: String,
@@ -74,6 +88,38 @@ data class TermLine(
 )
 
 data class TermSegment(val text: String, val color: Color)
+
+/**
+ * Tokenizes a command line and assigns each token a colour: the verb
+ * (recognized vs not), /flags, "quoted strings", and \paths each get
+ * their own colour, everything else falls back to [fgColor]. Shared by
+ * the live input line (wrapped in a VisualTransformation) and by the
+ * echoed command line once it's actually run, so both look the same.
+ */
+private fun highlightSegments(text: String, fgColor: Color, knownCommands: Set<String>): List<TermSegment> {
+    if (text.isBlank()) return listOf(TermSegment(text, fgColor))
+    val tokenRegex = Regex("\"[^\"]*\"|\\S+")
+    val driveRegex = Regex("^[A-Za-z]:", RegexOption.IGNORE_CASE)
+    val segs = mutableListOf<TermSegment>()
+    var lastEnd = 0
+    var tokenIndex = 0
+    tokenRegex.findAll(text).forEach { m ->
+        if (m.range.first > lastEnd) segs.add(TermSegment(text.substring(lastEnd, m.range.first), fgColor))
+        val token = m.value
+        val color = when {
+            tokenIndex == 0 -> if (token.lowercase() in knownCommands) HlCommand else HlUnknown
+            token.length >= 2 && token.startsWith("\"") && token.endsWith("\"") -> HlString
+            token.startsWith("/") || token.startsWith("-") -> HlFlag
+            token.contains("\\") || driveRegex.containsMatchIn(token) -> HlPath
+            else -> fgColor
+        }
+        segs.add(TermSegment(token, color))
+        lastEnd = m.range.last + 1
+        tokenIndex++
+    }
+    if (lastEnd < text.length) segs.add(TermSegment(text.substring(lastEnd), fgColor))
+    return segs
+}
 
 // ─────────────────────────────────────────────────────────────────
 // Canonical CMD commands, plus Unix verbs kept as aliases.
@@ -115,7 +161,7 @@ private val BUILT_IN_COMMANDS = CANONICAL_COMMANDS + ALIASES.keys + "rm" + "pwd"
 // aliases. Lives under C:\System\Config so it's inside the normal
 // Bluebird sandbox and shows up in `dir` like anything else.
 // ─────────────────────────────────────────────────────────────────
-private fun configFile() = File(BluebirdFileSystem.root, "System/Config/io.github.norbertweb.bluebird.cfg")
+private fun configFile() = File(BluebirdFileSystem.root, "System/Config/bluebird.cfg")
 private fun aliasFile() = File(BluebirdFileSystem.root, "System/Config/aliases.cfg")
 
 private fun loadKeyValueFile(f: File): Map<String, String> {
@@ -274,6 +320,143 @@ fun TerminalScreen(
         return s
     }
 
+    // ── Terminal music player ───────────────────────────────────────
+    // A real MediaPlayer, not a stub — plays audio files from the
+    // Bluebird sandbox and, if a same-named .lrc file sits next to the
+    // track, streams its lyrics into the terminal in sync with
+    // playback (colored, one line at a time, riding the same
+    // auto-scroll everything else uses). If/when a real cross-app
+    // Music Service exists (Phase 5), this is the logic that should
+    // move there so the GUI player and Terminal share one playback
+    // state — for now it's self-contained to the terminal session.
+    val mediaPlayer = remember { MediaPlayer() }
+    var currentTrack by remember { mutableStateOf<File?>(null) }
+    var isPlaying by remember { mutableStateOf(false) }
+    var lyricsJob by remember { mutableStateOf<Job?>(null) }
+
+    fun findLrcFor(audio: File): File? {
+        // Case-insensitive match on both the base name and the extension —
+        // real filesystems here are case-sensitive, so "Song.LRC" or
+        // "SONG.lrc" next to "song.mp3" was silently missed by an
+        // exact-case candidate check. Scan the folder instead, same
+        // approach other lyric-aware players use.
+        val base = audio.nameWithoutExtension
+        return audio.parentFile?.listFiles()?.firstOrNull { f ->
+            f.isFile && f.extension.equals("lrc", ignoreCase = true) && f.nameWithoutExtension.equals(base, ignoreCase = true)
+        }
+    }
+
+    fun parseLrc(f: File): List<Pair<Long, String>> {
+        // Minutes: 1+ digits (some exporters emit "[9:45.00]" not "[09:45.00]").
+        // Fraction separator: accepts either '.' or ':' — e.g. "[00:12:34]" is
+        // a common variant from several LRC generators (colon instead of dot),
+        // as opposed to a second, redundant timestamp.
+        val timeTag = Regex("\\[(\\d{1,2}):(\\d{2})(?:[.:](\\d{1,3}))?\\]")
+        val result = mutableListOf<Pair<Long, String>>()
+        // Strip a leading BOM if present, which otherwise rides along on the
+        // first line and is harmless here but worth clearing defensively.
+        f.readLines().forEachIndexed { i, rawLine ->
+            val line = if (i == 0) rawLine.removePrefix("\uFEFF") else rawLine
+            val tags = timeTag.findAll(line).toList()
+            if (tags.isEmpty()) return@forEachIndexed
+            val text = line.substring(tags.last().range.last + 1).trim()
+            tags.forEach { m ->
+                val min = m.groupValues[1].toLong()
+                val sec = m.groupValues[2].toLong()
+                val frac = m.groupValues[3].padEnd(3, '0').take(3).ifEmpty { "000" }.toLong()
+                result.add((min * 60_000 + sec * 1000 + frac) to text)
+            }
+        }
+        return result.sortedBy { it.first }
+    }
+
+    /**
+     * Some downloaded ".lrc" files (SnapTube and similar sources are a common
+     * culprit) contain no [mm:ss] timestamps at all — just plain lyric text,
+     * one line per line, the same "static lyrics" format apps like Lark
+     * Player fall back to displaying untimed. There's nothing to sync in
+     * that case, so instead of failing, spread the lines evenly across the
+     * track's known duration once it's known, giving a reasonable
+     * approximation of a synced scroll rather than declaring "no lyrics".
+     */
+    fun parsePlainLyrics(f: File, durationMs: Long): List<Pair<Long, String>> {
+        val rawLines = f.readLines()
+            .mapIndexed { i, line -> if (i == 0) line.removePrefix("\uFEFF") else line }
+            .map { it.trim() }
+        // Drop leading/trailing blank runs but keep interior blank lines —
+        // they're meaningful pauses in plain lyric sheets.
+        val start = rawLines.indexOfFirst { it.isNotEmpty() }
+        val end = rawLines.indexOfLast { it.isNotEmpty() }
+        if (start == -1) return emptyList()
+        val trimmedLines = rawLines.subList(start, end + 1)
+        if (trimmedLines.isEmpty() || durationMs <= 0) return emptyList()
+        val step = durationMs / trimmedLines.size
+        return trimmedLines.mapIndexed { i, text -> (i * step) to text }
+    }
+
+    fun looksTimestamped(f: File): Boolean {
+        val timeTag = Regex("\\[(\\d{1,2}):(\\d{2})(?:[.:](\\d{1,3}))?\\]")
+        return f.readLines().any { timeTag.containsMatchIn(it) }
+    }
+
+    fun stopPlayback(announce: Boolean = false) {
+        lyricsJob?.cancel(); lyricsJob = null
+        if (announce && currentTrack != null) emit("⏹ Stopped: ${currentTrack!!.name}", TermLineType.INFO)
+        try { if (mediaPlayer.isPlaying) mediaPlayer.stop() } catch (_: Exception) { }
+        try { mediaPlayer.reset() } catch (_: Exception) { }
+        isPlaying = false
+        currentTrack = null
+    }
+
+    fun playTrack(f: File) {
+        stopPlayback()
+        try {
+            mediaPlayer.setDataSource(f.absolutePath)
+            mediaPlayer.setOnCompletionListener {
+                isPlaying = false
+                emit("♪ Finished: ${f.name}", TermLineType.SUCCESS)
+            }
+            mediaPlayer.prepare()
+            mediaPlayer.start()
+            isPlaying = true
+            currentTrack = f
+            emit("♪ Now playing: ${f.name}", TermLineType.SUCCESS)
+
+            val lrcFile = findLrcFor(f)
+            val lyrics = when {
+                lrcFile == null -> null
+                looksTimestamped(lrcFile) -> parseLrc(lrcFile)
+                else -> {
+                    emit("(Lyrics found are untimed — showing them synced to song length.)", TermLineType.INFO)
+                    parsePlainLyrics(lrcFile, mediaPlayer.duration.toLong())
+                }
+            }
+            if (lyrics.isNullOrEmpty()) {
+                val hint = if (lrcFile != null) " (file found but no lines matched — check its timestamp format)" else ""
+                emit("(No .lrc lyrics found for ${f.nameWithoutExtension} — playing audio only.)$hint", TermLineType.WARNING)
+                return
+            }
+            lyricsJob = scope.launch {
+                var idx = 0
+                while (isActive) {
+                    val pos = try { mediaPlayer.currentPosition.toLong() } catch (_: Exception) { break }
+                    while (idx < lyrics.size && lyrics[idx].first <= pos) {
+                        val text = lyrics[idx].second
+                        if (text.isNotBlank()) emit("♪ $text", TermLineType.LYRIC) else emitBlank()
+                        idx++
+                    }
+                    if (idx >= lyrics.size) break
+                    if (!mediaPlayer.isPlaying) { delay(200); continue } // paused — hold position, don't advance
+                    delay(120)
+                }
+            }
+        } catch (_: Exception) {
+            emit("Unable to play ${f.name} — unsupported format or file error.", TermLineType.ERROR)
+            isPlaying = false; currentTrack = null
+        }
+    }
+
+
     // ── Autocomplete logic ────────────────────────────────────────
     fun buildSuggestions(partial: String) {
         val parts = partial.trimStart().split("\\s+".toRegex())
@@ -395,7 +578,8 @@ fun TerminalScreen(
         if (history.isEmpty() || history.last() != trimmedRaw) history.add(trimmedRaw)
         historyIdx = -1
 
-        emitRich(listOf(TermSegment("${prompt()} ", fgColor), TermSegment(trimmedRaw, fgColor)))
+        val knownForHighlight = (BUILT_IN_COMMANDS + aliasMap.keys).map { it.lowercase() }.toSet()
+        emitRich(listOf(TermSegment("${prompt()} ", fgColor)) + highlightSegments(trimmedRaw, fgColor, knownForHighlight))
 
         val firstPass = trimmed.split("\\s+".toRegex())
         var typed = firstPass[0].lowercase()
@@ -866,7 +1050,56 @@ fun TerminalScreen(
             "tty" -> onEnterTty?.invoke() ?: emit("TTY mode (launcher takeover) isn't wired up yet — see Phase 4 in the design doc.", TermLineType.WARNING)
             "music" -> {
                 val sub = args.getOrNull(0)?.lowercase() ?: "status"
-                emit("Music: '$sub' isn't wired up yet — needs the Music Service first (Phase 5).", TermLineType.WARNING)
+                when (sub) {
+                    "play" -> {
+                        // Everything after "play" is the filename — not just the first
+                        // word — so names with spaces work without needing quotes,
+                        // same convention as `open`.
+                        val target = args.drop(1).joinToString(" ").trim().ifEmpty { null }
+                        when {
+                            target != null -> {
+                                val f = toReal(target)
+                                when {
+                                    !allowed(f) -> accessDenied()
+                                    !f.exists() || f.isDirectory -> emit("The system cannot find the file specified.", TermLineType.ERROR)
+                                    else -> playTrack(f)
+                                }
+                            }
+                            currentTrack != null && !isPlaying -> {
+                                try { mediaPlayer.start(); isPlaying = true; emit("▶ Resumed: ${currentTrack!!.name}", TermLineType.SUCCESS) }
+                                catch (_: Exception) { emit("Unable to resume playback.", TermLineType.ERROR) }
+                            }
+                            else -> emit("Usage: music play <file>", TermLineType.ERROR)
+                        }
+                    }
+                    "pause" -> {
+                        if (isPlaying) { try { mediaPlayer.pause(); isPlaying = false; emit("⏸ Paused.", TermLineType.INFO) } catch (_: Exception) { } }
+                        else emit("Nothing is playing.", TermLineType.INFO)
+                    }
+                    "stop" -> if (currentTrack != null) stopPlayback(announce = true) else emit("Nothing is playing.", TermLineType.INFO)
+                    "status" -> {
+                        if (currentTrack != null) emit("${if (isPlaying) "▶ Playing" else "⏸ Paused"}: ${currentTrack!!.name}", TermLineType.INFO)
+                        else emit("Nothing is playing.", TermLineType.INFO)
+                    }
+                    "list" -> {
+                        // Scans wherever you currently are (C:\ or, with admin mode
+                        // on, anywhere under D:\), not a hardcoded Music folder.
+                        val tracks = currentDir.listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("mp3", "wav", "ogg", "m4a", "flac") }
+                        if (tracks.isNullOrEmpty()) emit("No audio files found in ${virtual(currentDir)}", TermLineType.INFO)
+                        else tracks.sortedBy { it.name.lowercase() }.forEach { t ->
+                            val hasLrc = if (findLrcFor(t) != null) " ♪" else ""
+                            emit("  ${t.name}$hasLrc")
+                        }
+                    }
+                    "volume" -> {
+                        val v = args.getOrNull(1)?.toFloatOrNull()
+                        if (v == null) emit("Usage: music volume <0-100>", TermLineType.ERROR)
+                        else { val level = (v / 100f).coerceIn(0f, 1f); mediaPlayer.setVolume(level, level); emit("Volume set to ${v.toInt()}%") }
+                    }
+                    "next", "previous" -> emit("Playlist navigation isn't wired up yet — play a specific file with 'music play <file>'.", TermLineType.WARNING)
+                    "open" -> emit("Launching Bluebird Music isn't wired up yet (Phase 3).", TermLineType.WARNING)
+                    else -> emit("Usage: music [play|pause|stop|status|list|volume] ...", TermLineType.ERROR)
+                }
             }
 
             "settings" -> when {
@@ -1089,6 +1322,13 @@ fun TerminalScreen(
 
     LaunchedEffect(lines.size) { scrollBottom() }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            lyricsJob?.cancel()
+            try { mediaPlayer.release() } catch (_: Exception) { }
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────
     // UI
     // ─────────────────────────────────────────────────────────────
@@ -1193,6 +1433,15 @@ fun TerminalScreen(
                             singleLine = true,
                             textStyle = TextStyle(color = fgColor, fontSize = 12.5.sp, fontFamily = FontFamily.Monospace),
                             cursorBrush = SolidColor(fgColor),
+                            visualTransformation = { text ->
+                                val known = (BUILT_IN_COMMANDS + aliasMap.keys).map { it.lowercase() }.toSet()
+                                val annotated = buildAnnotatedString {
+                                    highlightSegments(text.text, fgColor, known).forEach { seg ->
+                                        withStyle(SpanStyle(color = seg.color)) { append(seg.text) }
+                                    }
+                                }
+                                TransformedText(annotated, OffsetMapping.Identity)
+                            },
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                             keyboardActions = KeyboardActions(onGo = {
                                 if (!isRunning) { val cmd = input; input = ""; execute(cmd) }
@@ -1216,6 +1465,7 @@ private fun TerminalLine(line: TermLine, fgColor: Color) {
         TermLineType.SUCCESS -> TermSuccess
         TermLineType.WARNING -> TermWarning
         TermLineType.SYSTEM -> fgColor.copy(0.5f)
+        TermLineType.LYRIC -> TermLyric
     }
 
     if (line.segments != null) {

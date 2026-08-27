@@ -1,8 +1,8 @@
-package com.win11launcher.browser.data
+package com.io.github.norbertweb.bluebird.browser.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.win11launcher.browser.model.*
+import com.io.github.norbertweb.bluebird.browser.model.*
 import org.json.JSONArray
 import org.json.JSONObject
 

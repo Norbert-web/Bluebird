@@ -22,7 +22,9 @@ import androidx.compose.ui.unit.*
 import androidx.core.content.ContextCompat
 import io.github.norbertweb.bluebird.LauncherViewModel
 import io.github.norbertweb.bluebird.RecycleBinItem
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
+import io.github.norbertweb.bluebird.wordprocessor.formatDate
+import io.github.norbertweb.bluebird.wordprocessor.formatFileSize
 import java.io.File
 
 // Helper functions (make sure these exist in your project, otherwise include them here)
@@ -67,10 +69,10 @@ fun RecycleBinScreen(isDark: Boolean, viewModel: LauncherViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val items = uiState.recycleBinItems
 
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val bgColor = if (isDark) Color(0xFF1C1C1C) else Color(0xFFFAFAFA)
     val surfaceBg = if (isDark) Color(0xFF252525) else Color(0xFFEEEEEE)
-    val accent = Win11Colors.AccentBlue
+    val accent = bluebirdColors.AccentBlue
 
     // Permission check – not always required, but good practice for accessing real filesystem
     var hasStoragePerm by remember {
@@ -183,7 +185,7 @@ fun RecycleBinScreen(isDark: Boolean, viewModel: LauncherViewModel) {
             if (items.isNotEmpty()) {
                 Button(
                     onClick = { showEmptyDialog = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = Win11Colors.DangerRed),
+                    colors = ButtonDefaults.buttonColors(containerColor = bluebirdColors.DangerRed),
                     modifier = Modifier.height(32.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                 ) {
@@ -221,9 +223,9 @@ fun RecycleBinScreen(isDark: Boolean, viewModel: LauncherViewModel) {
                     selectedIds.forEach { viewModel.permanentlyDelete(it) }
                     selectedIds = emptySet()
                 }) {
-                    Icon(Icons.Default.DeleteForever, null, tint = Win11Colors.DangerRed, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.DeleteForever, null, tint = bluebirdColors.DangerRed, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Delete permanently", color = Win11Colors.DangerRed, fontSize = 12.sp)
+                    Text("Delete permanently", color = bluebirdColors.DangerRed, fontSize = 12.sp)
                 }
                 Spacer(modifier = Modifier.weight(1f))
                 IconButton(onClick = { selectedIds = emptySet() }, modifier = Modifier.size(20.dp)) {
@@ -308,7 +310,7 @@ fun RecycleBinScreen(isDark: Boolean, viewModel: LauncherViewModel) {
                         viewModel.emptyRecycleBin()
                         showEmptyDialog = false
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Win11Colors.DangerRed)
+                    colors = ButtonDefaults.buttonColors(containerColor = bluebirdColors.DangerRed)
                 ) { Text("Empty") }
             },
             dismissButton = {
@@ -338,7 +340,7 @@ private fun RecycleBinItemRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                if (isSelected) Win11Colors.AccentBlue.copy(alpha = 0.15f)
+                if (isSelected) bluebirdColors.AccentBlue.copy(alpha = 0.15f)
                 else Color.Transparent
             )
             .combinedClickable(
@@ -421,13 +423,13 @@ private fun RecycleBinItemRow(
                         Icon(
                             Icons.Default.RestoreFromTrash,
                             null,
-                            tint = Win11Colors.AccentBlue,
+                            tint = bluebirdColors.AccentBlue,
                             modifier = Modifier.size(16.dp)
                         )
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text("Delete permanently", color = Win11Colors.DangerRed) },
+                    text = { Text("Delete permanently", color = bluebirdColors.DangerRed) },
                     onClick = {
                         showContextMenu = false
                         onPermanentDelete()
@@ -436,7 +438,7 @@ private fun RecycleBinItemRow(
                         Icon(
                             Icons.Default.DeleteForever,
                             null,
-                            tint = Win11Colors.DangerRed,
+                            tint = bluebirdColors.DangerRed,
                             modifier = Modifier.size(16.dp)
                         )
                     }

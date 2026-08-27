@@ -1,10 +1,10 @@
-package com.win11launcher.browser.utils
+package com.io.github.norbertweb.bluebird.browser.utils
 
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import com.win11launcher.browser.model.NEWTAB_URL
-import com.win11launcher.browser.model.SearchEngine
+import com.io.github.norbertweb.bluebird.browser.model.NEWTAB_URL
+import com.io.github.norbertweb.bluebird.browser.model.SearchEngine
 
 // ═══════════════════════════════════════════════════════════════════════
 // Main-thread dispatcher

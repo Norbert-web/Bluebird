@@ -11,7 +11,7 @@ import androidx.compose.ui.unit.sp
  *
  * Usage at root:
  *   CompositionLocalProvider(LocalTextScale provides uiState.textScale) {
- *       Win11Theme(...) { ... }
+ *       bluebirdTheme(...) { ... }
  *   }
  *
  * Usage in any Composable:

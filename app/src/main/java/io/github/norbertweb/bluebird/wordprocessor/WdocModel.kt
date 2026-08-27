@@ -1,4 +1,4 @@
-package io.github.norbertweb.bluebird.ui.screens
+package io.github.norbertweb.bluebird.wordprocessor
 
 // ============================================================================================
 // WdocModel.kt — the document's data model.

@@ -1,4 +1,4 @@
-package io.github.norbertweb.bluebird.ui.screens
+package io.github.norbertweb.bluebird.wordprocessor
 
 import java.text.SimpleDateFormat
 import java.util.*

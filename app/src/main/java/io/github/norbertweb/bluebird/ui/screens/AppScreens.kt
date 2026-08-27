@@ -1244,7 +1244,7 @@ fun TaskManagerScreen(isDark: Boolean) {
     var processes by remember {
         mutableStateOf(listOf(
             ProcessInfo(1,   "System Idle",           0.3f,   8f,  0f,   0f, "Running", "System"),
-            ProcessInfo(2,   "Win11 Launcher",        3.1f, 156f,  1.2f, 12f, "Running", "App"),
+            ProcessInfo(2,   "bluebird Launcher",        3.1f, 156f,  1.2f, 12f, "Running", "App"),
             ProcessInfo(3,   "Google Chrome",        18.4f, 624f,  3.8f,240f, "Running", "App"),
             ProcessInfo(104, "Chrome Helper",         6.2f, 210f,  0.4f, 80f, "Running", "App"),
             ProcessInfo(4,   "Spotify",               2.1f, 180f,  0f,  45f, "Running", "App"),

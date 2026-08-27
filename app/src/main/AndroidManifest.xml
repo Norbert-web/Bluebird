@@ -62,7 +62,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Win11Launcher"
+        android:theme="@style/Theme.bluebirdLauncher"
         android:exported="true"
         android:requestLegacyExternalStorage="true">
 
@@ -90,7 +90,7 @@
             android:screenOrientation="fullUser"
             android:showOnLockScreen="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode|keyboard|keyboardHidden|fontScale"
-            android:theme="@style/Theme.Win11Launcher.NoActionBar" />
+            android:theme="@style/Theme.bluebirdLauncher.NoActionBar" />
 
         <receiver
             android:name=".data.BootReceiver"
@@ -104,7 +104,7 @@
         <service
             android:name=".data.NotificationListener"
             android:exported="true"
-            android:label="Win11 Notification Access"
+            android:label="bluebird Notification Access"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />

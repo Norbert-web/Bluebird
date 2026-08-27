@@ -1,4 +1,4 @@
-package io.github.norbertweb.bluebird.ui.screens
+package io.github.norbertweb.bluebird.wordprocessor
 
 // ============================================================================================
 // RibbonsAndDialogs.kt — the ribbon tabs and every modal dialog the app uses.
@@ -20,11 +20,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -258,32 +259,32 @@ fun RibbonChip(label: String, enabled: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun RibbonIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean, onClick: () -> Unit) {
+fun RibbonIconButton(icon: ImageVector, enabled: Boolean, onClick: () -> Unit) {
     IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(32.dp)) {
         Icon(icon, null, modifier = Modifier.size(18.dp))
     }
 }
 
 @Composable
-fun RibbonToggleIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+fun RibbonToggleIcon(icon: ImageVector, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp))
-            .background(if (selected) Win11Colors.AccentBlue.copy(alpha = 0.25f) else Color.Transparent)
+            .background(if (selected) bluebirdColors.AccentBlue.copy(alpha = 0.25f) else Color.Transparent)
             .clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, null, tint = if (selected) Win11Colors.AccentBlue else LocalContentColor.current, modifier = Modifier.size(18.dp))
+        Icon(icon, null, tint = if (selected) bluebirdColors.AccentBlue else LocalContentColor.current, modifier = Modifier.size(18.dp))
     }
 }
 
 @Composable
-fun RibbonLabeledAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+fun RibbonLabeledAction(icon: ImageVector, label: String, onClick: () -> Unit) {
     Column(
         modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { onClick() }.padding(8.dp).width(56.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(icon, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(24.dp))
-        Text(label, fontSize = 9.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 11.sp)
+        Icon(icon, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(24.dp))
+        Text(label, fontSize = 9.sp, textAlign = TextAlign.Center, lineHeight = 11.sp)
     }
 }
 

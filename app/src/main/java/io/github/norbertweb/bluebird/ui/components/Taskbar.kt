@@ -134,7 +134,7 @@ import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
 import io.github.norbertweb.bluebird.WindowIconKey
 import io.github.norbertweb.bluebird.WindowState
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -296,7 +296,7 @@ fun rememberWindowBitmapIcon(customIconPath: String?): androidx.compose.ui.graph
 // Main Taskbar
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-fun Win11Taskbar(
+fun bluebirdTaskbar(
     uiState: LauncherUiState,
     viewModel: LauncherViewModel,
     modifier: Modifier = Modifier
@@ -338,7 +338,7 @@ fun Win11Taskbar(
     val popupOffsetXEnd = with(density) { (-8).dp.roundToPx() }
 
     val taskbarShape = if (settings.roundedTaskbar) RoundedCornerShape(14.dp) else RectangleShape
-    val taskbarBg = Win11Colors.TaskbarBg.copy(alpha = settings.taskbarOpacity)
+    val taskbarBg = bluebirdColors.TaskbarBg.copy(alpha = settings.taskbarOpacity)
 
     // Outer box is ONLY the taskbar strip itself — popups escape via Popup()
     Box(modifier = modifier.fillMaxWidth()) {
@@ -350,7 +350,7 @@ fun Win11Taskbar(
                     .fillMaxWidth()
                     .height(4.dp)
                     .align(Alignment.BottomCenter)
-                    //  .background(Win11Colors.AccentBlue.copy(alpha = 0.6f))
+                    //  .background(bluebirdColors.AccentBlue.copy(alpha = 0.6f))
                     // I  think invisible peek strip will be much better LAMN-NOBERT
                     .pointerInput(Unit) { detectTapGestures(onTap = { isTaskbarHidden = false }) }
             )
@@ -609,7 +609,7 @@ private fun SeparatedTaskbarLayout(
     context: android.content.Context
 ) {
     val pillShape = RoundedCornerShape(10.dp)
-    val pillBg = Win11Colors.TaskbarBg.copy(alpha = (settings.taskbarOpacity + 0.05f).coerceAtMost(1f))
+    val pillBg = bluebirdColors.TaskbarBg.copy(alpha = (settings.taskbarOpacity + 0.05f).coerceAtMost(1f))
     val pillBorder = BorderStroke(0.5.dp, Color(0x22FFFFFF))
 
     Row(
@@ -834,7 +834,7 @@ private fun OverflowBadgeButton(count: Int, isOpen: Boolean, onClick: () -> Unit
         modifier = Modifier
             .height(32.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isOpen) Win11Colors.AccentBlue.copy(0.25f) else Color(0x14FFFFFF))
+            .background(if (isOpen) bluebirdColors.AccentBlue.copy(0.25f) else Color(0x14FFFFFF))
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp),
         contentAlignment = Alignment.Center
@@ -856,7 +856,7 @@ private fun OverflowIconsPopup(
     Surface(
         modifier = Modifier.widthIn(max = 320.dp).shadow(20.dp, RoundedCornerShape(12.dp)),
         shape = RoundedCornerShape(12.dp),
-        color = Win11Colors.TaskbarBg,
+        color = bluebirdColors.TaskbarBg,
         border = BorderStroke(0.5.dp, Color(0x25FFFFFF))
     ) {
         Column(
@@ -875,7 +875,7 @@ private fun OverflowIconsPopup(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(6.dp))
-                        .background(if (isActive) Win11Colors.AccentBlue.copy(0.18f) else Color.Transparent)
+                        .background(if (isActive) bluebirdColors.AccentBlue.copy(0.18f) else Color.Transparent)
                         .clickable { onWindowClick(window) }
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -915,7 +915,7 @@ private fun HiddenIconsChevron(isOpen: Boolean, onClick: () -> Unit) {
         modifier = Modifier
             .size(26.dp)
             .clip(RoundedCornerShape(5.dp))
-            .background(if (isOpen) Win11Colors.HoverBg else Color.Transparent)
+            .background(if (isOpen) bluebirdColors.HoverBg else Color.Transparent)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -940,7 +940,7 @@ private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
             .wrapContentHeight()
             .shadow(20.dp, RoundedCornerShape(12.dp)),
         shape = RoundedCornerShape(12.dp),
-        color = Win11Colors.TaskbarBg,
+        color = bluebirdColors.TaskbarBg,
         border = BorderStroke(0.5.dp, Color(0x25FFFFFF))
     ) {
         Column(
@@ -991,7 +991,7 @@ private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(if (showTooltip) Win11Colors.HoverBg else Color.Transparent)
+                                .background(if (showTooltip) bluebirdColors.HoverBg else Color.Transparent)
                                 .pointerInput(Unit) {
                                     detectTapGestures(
                                         onLongPress = { showTooltip = true },
@@ -1033,7 +1033,7 @@ private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Default.Tune, null, tint = Win11Colors.AccentBlue,
+                Icon(Icons.Default.Tune, null, tint = bluebirdColors.AccentBlue,
                     modifier = Modifier.size(14.dp))
                 Text("Taskbar settings", color = Color.White, fontSize = 12.sp)
             }
@@ -1116,8 +1116,8 @@ private fun TaskbarSettingsPanel(
                 value = settings.taskbarOpacity,
                 onValueChange = { onSettingsChange(settings.copy(taskbarOpacity = it)) },
                 valueRange = 0.4f..1.0f,
-                colors = SliderDefaults.colors(thumbColor = Win11Colors.AccentBlue,
-                    activeTrackColor = Win11Colors.AccentBlue),
+                colors = SliderDefaults.colors(thumbColor = bluebirdColors.AccentBlue,
+                    activeTrackColor = bluebirdColors.AccentBlue),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
             )
 
@@ -1135,7 +1135,7 @@ private fun TaskbarSettingsPanel(
                         modifier = Modifier
                             .weight(1f).height(30.dp)
                             .clip(RoundedCornerShape(6.dp))
-                            .background(if (sel) Win11Colors.AccentBlue else Color(0x18FFFFFF))
+                            .background(if (sel) bluebirdColors.AccentBlue else Color(0x18FFFFFF))
                             .clickable { onSettingsChange(settings.copy(taskbarHeight = h)) },
                         contentAlignment = Alignment.Center
                     ) {
@@ -1158,7 +1158,7 @@ private fun TaskbarSettingsPanel(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(6.dp))
-                        .background(if (sel) Win11Colors.AccentBlue.copy(0.15f) else Color.Transparent)
+                        .background(if (sel) bluebirdColors.AccentBlue.copy(0.15f) else Color.Transparent)
                         .clickable { onSettingsChange(settings.copy(iconOverflowMode = mode)) }
                         .padding(horizontal = 10.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1175,7 +1175,7 @@ private fun TaskbarSettingsPanel(
                         IconOverflowMode.GROUPED       -> "Collapse same-app windows"
                     }
                     Icon(icon, null,
-                        tint = if (sel) Win11Colors.AccentBlue else Color.White.copy(0.6f),
+                        tint = if (sel) bluebirdColors.AccentBlue else Color.White.copy(0.6f),
                         modifier = Modifier.size(15.dp))
                     Column {
                         Text(mode.label, color = Color.White, fontSize = 12.sp,
@@ -1185,7 +1185,7 @@ private fun TaskbarSettingsPanel(
                     Spacer(Modifier.weight(1f))
                     if (sel) {
                         Icon(Icons.Default.CheckCircle, null,
-                            tint = Win11Colors.AccentBlue, modifier = Modifier.size(14.dp))
+                            tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
                     }
                 }
             }
@@ -1198,7 +1198,7 @@ private fun TaskbarSettingsPanel(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Max visible icons", color = Color.White.copy(0.85f), fontSize = 12.sp)
-                        Text("${settings.maxVisibleIcons}", color = Win11Colors.AccentBlue,
+                        Text("${settings.maxVisibleIcons}", color = bluebirdColors.AccentBlue,
                             fontSize = 12.sp)
                     }
                     Slider(
@@ -1206,8 +1206,8 @@ private fun TaskbarSettingsPanel(
                         onValueChange = { onSettingsChange(settings.copy(maxVisibleIcons = it.toInt())) },
                         valueRange = 4f..20f,
                         steps = 15,
-                        colors = SliderDefaults.colors(thumbColor = Win11Colors.AccentBlue,
-                            activeTrackColor = Win11Colors.AccentBlue),
+                        colors = SliderDefaults.colors(thumbColor = bluebirdColors.AccentBlue,
+                            activeTrackColor = bluebirdColors.AccentBlue),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
                     )
                 }
@@ -1246,7 +1246,7 @@ private fun TaskbarSettingsPanel(
 
 @Composable
 private fun SettingsSectionHeader(title: String) {
-    Text(title, color = Win11Colors.AccentBlue.copy(alpha = 0.85f),
+    Text(title, color = bluebirdColors.AccentBlue.copy(alpha = 0.85f),
         fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
     Spacer(Modifier.height(2.dp))
@@ -1278,7 +1278,7 @@ private fun SettingsToggle(label: String, value: Boolean, onToggle: (Boolean) ->
             modifier = Modifier
                 .width(34.dp).height(18.dp)
                 .clip(RoundedCornerShape(9.dp))
-                .background(if (value) Win11Colors.AccentBlue else Color(0xFF444444))
+                .background(if (value) bluebirdColors.AccentBlue else Color(0xFF444444))
         ) {
             Box(
                 Modifier
@@ -1305,7 +1305,7 @@ private fun StartButton(isActive: Boolean, onClick: () -> Unit) {
         modifier = Modifier
             .size(34.dp).scale(scale)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isActive) Win11Colors.HoverBg else Color.Transparent)
+            .background(if (isActive) bluebirdColors.HoverBg else Color.Transparent)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -1351,7 +1351,7 @@ private fun SearchPill(onClick: () -> Unit) {
         Icon(Icons.Default.Search, "Search", tint = Color(0xFFAAAAAA), modifier = Modifier.size(13.dp))
         Text("Search", color = Color(0xFF999999), fontSize = 11.sp)
         Spacer(Modifier.weight(1f))
-        Icon(Icons.Default.AutoAwesome, null, tint = Win11Colors.AccentBlue.copy(alpha = 0.7f),
+        Icon(Icons.Default.AutoAwesome, null, tint = bluebirdColors.AccentBlue.copy(alpha = 0.7f),
             modifier = Modifier.size(11.dp))
     }
 }
@@ -1379,7 +1379,7 @@ internal fun TaskbarIconButton(
             modifier = modifier
                 .size(32.dp).scale(scale)
                 .clip(RoundedCornerShape(6.dp))
-                .background(if (isActive) Win11Colors.HoverBg else Color.Transparent)
+                .background(if (isActive) bluebirdColors.HoverBg else Color.Transparent)
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onPress = { pressed = true; tryAwaitRelease(); pressed = false },
@@ -1392,7 +1392,7 @@ internal fun TaskbarIconButton(
         }
         if (isActive) {
             Box(Modifier.width(12.dp).height(2.dp)
-                .clip(RoundedCornerShape(1.dp)).background(Win11Colors.AccentBlue))
+                .clip(RoundedCornerShape(1.dp)).background(bluebirdColors.AccentBlue))
         }
     }
 }
@@ -1424,7 +1424,7 @@ private fun TaskbarAppIcon(
                 .height(32.dp).scale(scale)
                 .clip(RoundedCornerShape(6.dp))
                 .background(when {
-                    isActive  -> Win11Colors.AccentBlue.copy(alpha = 0.18f)
+                    isActive  -> bluebirdColors.AccentBlue.copy(alpha = 0.18f)
                     isRunning -> Color(0x12FFFFFF)
                     else      -> Color.Transparent
                 })
@@ -1456,7 +1456,7 @@ private fun TaskbarAppIcon(
             DropdownMenu(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
-                modifier = Modifier.background(Win11Colors.ContextMenuBg)
+                modifier = Modifier.background(bluebirdColors.ContextMenuBg)
             ) {
                 DropdownMenuItem(
                     text = { Text("Open", color = Color.White, fontSize = 12.sp) },
@@ -1484,7 +1484,7 @@ private fun TaskbarAppIcon(
                 modifier = Modifier
                     .width(if (isActive) 14.dp else 4.dp).height(2.dp)
                     .clip(RoundedCornerShape(1.dp))
-                    .background(if (isActive) Win11Colors.AccentBlue else Color.White.copy(alpha = 0.45f))
+                    .background(if (isActive) bluebirdColors.AccentBlue else Color.White.copy(alpha = 0.45f))
             )
         }
     }
@@ -1502,8 +1502,8 @@ private fun TaskbarWindowIcon(
     onClick: () -> Unit
 ) {
     val bgColor by animateColorAsState(
-        targetValue = if (isActive) Win11Colors.AccentBlue.copy(alpha = 0.22f)
-        else Win11Colors.HoverBg.copy(alpha = 0.5f),
+        targetValue = if (isActive) bluebirdColors.AccentBlue.copy(alpha = 0.22f)
+        else bluebirdColors.HoverBg.copy(alpha = 0.5f),
         animationSpec = tween(200), label = "windowBg"
     )
     val icon = remember(windowState.iconKey) { iconForKey(windowState.iconKey) }
@@ -1539,7 +1539,7 @@ private fun TaskbarWindowIcon(
                                 .offset(x = 4.dp, y = (-4).dp)
                                 .size(13.dp)
                                 .clip(CircleShape)
-                                .background(Win11Colors.AccentBlue),
+                                .background(bluebirdColors.AccentBlue),
                             contentAlignment = Alignment.Center
                         ) {
                             Text("$windowCount", color = Color.White, fontSize = 7.sp,
@@ -1559,7 +1559,7 @@ private fun TaskbarWindowIcon(
                 .width(if (isActive) 16.dp else if (windowCount > 1) 10.dp else 6.dp)
                 .height(2.dp)
                 .clip(RoundedCornerShape(1.dp))
-                .background(if (isActive) Win11Colors.AccentBlue else Color.White.copy(alpha = 0.35f))
+                .background(if (isActive) bluebirdColors.AccentBlue else Color.White.copy(alpha = 0.35f))
         )
     }
 }

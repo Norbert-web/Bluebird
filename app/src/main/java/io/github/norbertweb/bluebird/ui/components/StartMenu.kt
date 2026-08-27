@@ -128,7 +128,7 @@ import io.github.norbertweb.bluebird.AppInfo
 import io.github.norbertweb.bluebird.LauncherScreen
 import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Calendar
@@ -282,7 +282,7 @@ fun StartMenu(
     val isDark       = uiState.isDarkTheme
     val bgColor      = if (isDark) DS.glassDark else DS.glassLight
     val borderColor  = if (isDark) DS.borderDark else DS.borderLight
-    val textPrimary  = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textPrimary  = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     Box(
         modifier = modifier
@@ -498,7 +498,7 @@ private fun PremiumTabRow(
     onTabChange: (StartMenuTab) -> Unit,
     isDark: Boolean
 ) {
-    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         listOf(
@@ -545,7 +545,7 @@ private fun SectionHeader(
     isDark: Boolean,
     rightContent: (@Composable () -> Unit)? = null
 ) {
-    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     Spacer(Modifier.height(4.dp))
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -565,7 +565,7 @@ private fun SectionHeader(
 
 @Composable
 private fun EmptyStateView(message: String, isDark: Boolean) {
-    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
@@ -624,7 +624,7 @@ private fun PinnedView(
                 ) {
                     Text(
                         "No pinned apps — long-press any app to pin",
-                        color = (if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight).copy(alpha = 0.25f),
+                        color = (if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight).copy(alpha = 0.25f),
                         fontSize = 11.sp,
                         textAlign = TextAlign.Center
                     )
@@ -912,7 +912,7 @@ private fun SearchResultsView(
     context: Context,
     layoutPrefs: LayoutPreferences
 ) {
-    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     val appResults    = uiState.installedApps.filter { it.name.contains(query, ignoreCase = true) }
     val systemResults = builtInApps.filter { it.first.contains(query, ignoreCase = true) }
@@ -1017,7 +1017,7 @@ private fun SearchCategoryChip(label: String, isDark: Boolean) {
 @Composable
 private fun SettingsKeywordRow(keyword: String, isDark: Boolean, onClick: () -> Unit) {
     var pressed by remember { mutableStateOf(false) }
-    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1061,7 +1061,7 @@ private fun CollapsibleGroupHeader(
     isExpanded: Boolean,
     onToggle: () -> Unit
 ) {
-    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1227,7 +1227,7 @@ fun PremiumSearchBar(
 ) {
     val bgColor = if (isDark) DS.surfaceDark else DS.surfaceLight
     val borderColor = if (isDark) DS.borderDark else DS.borderLight
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     var isFocused by remember { mutableStateOf(false) }
     Box(
         modifier = modifier
@@ -1297,7 +1297,7 @@ fun AnimatedPinnedIcon(
     )
     var pressed by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     Box(contentAlignment = Alignment.TopEnd) {
         Column(
@@ -1415,7 +1415,7 @@ fun AnimatedBuiltInIcon(
         if (showLabel) {
             Spacer(Modifier.height(4.dp))
             Text(
-                name, fontSize = 10.sp, color = (if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight).copy(alpha = 0.8f),
+                name, fontSize = 10.sp, color = (if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight).copy(alpha = 0.8f),
                 textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 fontWeight = FontWeight.Normal, modifier = Modifier.fillMaxWidth()
             )
@@ -1430,7 +1430,7 @@ fun AnimatedBuiltInIcon(
 private fun HorizontalAppCard(app: AppInfo, isDark: Boolean, onClick: () -> Unit, onPin: () -> Unit) {
     var pressed by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val cardBg = if (isDark) DS.surfaceDark else DS.surfaceLight
     Box {
         Row(
@@ -1502,7 +1502,7 @@ private fun AllAppsRow(
 ) {
     var pressed by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
-    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     Box {
         Row(
             modifier = Modifier
@@ -1543,7 +1543,7 @@ private fun AllAppsRow(
 @Composable
 private fun BuiltInAppListRow(name: String, icon: ImageVector, isDark: Boolean, onClick: () -> Unit) {
     var pressed by remember { mutableStateOf(false) }
-    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1589,7 +1589,7 @@ private fun RecommendedSection(isDark: Boolean, viewModel: LauncherViewModel, is
         }
     }
 
-    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     if (permissionDenied) {
         Box(
@@ -1666,7 +1666,7 @@ private fun RecentCard(
     onClick: () -> Unit
 ) {
     var pressed by remember { mutableStateOf(false) }
-    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val cardBg = if (isDark) DS.surfaceDark else DS.surfaceLight
 
     Row(
@@ -1704,7 +1704,7 @@ private fun RecentCard(
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun QuickActionsStrip(isDark: Boolean, context: Context) {
-    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val actions = listOf(
         Pair(Icons.Default.Wifi, "Wi-Fi"),
         Pair(Icons.Default.Bluetooth, "Bluetooth"),
@@ -1755,7 +1755,7 @@ private fun QuickActionsStrip(isDark: Boolean, context: Context) {
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun CompactActionChip(label: String, icon: ImageVector, isDark: Boolean, onClick: () -> Unit) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(DS.chipCorner))
@@ -1779,7 +1779,7 @@ private fun BottomUserBar(
     viewModel: LauncherViewModel,
     isDark: Boolean
 ) {
-    val textPrimary = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val greeting    = remember { timeGreeting() }
 
     Row(
@@ -1852,7 +1852,7 @@ private fun BottomUserBar(
 @Composable
 private fun PowerMenuItem(label: String, icon: ImageVector, isDark: Boolean, onClick: () -> Unit) {
     var pressed by remember { mutableStateOf(false) }
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val iconTint = if (label == "Shut Down") DS.badgeRed else DS.accentStart
 
     Row(

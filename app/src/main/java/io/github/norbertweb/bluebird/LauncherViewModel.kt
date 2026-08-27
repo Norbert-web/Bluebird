@@ -1261,7 +1261,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     // ─── Notifications ───────────────────────────────────────────────────────
 
-    // One-shot events for the floating Win11-style toast popup (NotificationToastHost).
+    // One-shot events for the floating bluebird-style toast popup (NotificationToastHost).
     // Separate from the persistent lists in state — this flow only fires the
     // instant something new happens, which is what a transient toast needs.
     private val _toastEvents = MutableSharedFlow<ToastNotifData>(extraBufferCapacity = 8)

@@ -8,7 +8,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 
-object Win11Colors {
+object bluebirdColors {
     val GlassLight = Color(0xFF0078D4)
 
 
@@ -67,29 +67,29 @@ object Win11Colors {
 }
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Win11Colors.AccentBlue,
-    secondary = Win11Colors.AccentBlueLight,
-    background = Win11Colors.Surface,
-    surface = Win11Colors.SurfaceContainer,
+    primary = bluebirdColors.AccentBlue,
+    secondary = bluebirdColors.AccentBlueLight,
+    background = bluebirdColors.Surface,
+    surface = bluebirdColors.SurfaceContainer,
     onPrimary = Color.White,
-    onBackground = Win11Colors.TextPrimary,
-    onSurface = Win11Colors.TextPrimary,
+    onBackground = bluebirdColors.TextPrimary,
+    onSurface = bluebirdColors.TextPrimary,
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Win11Colors.AccentBlue,
-    secondary = Win11Colors.AccentBlueDark,
-    background = Win11Colors.SurfaceLight,
-    surface = Win11Colors.SurfaceContainerLight,
+    primary = bluebirdColors.AccentBlue,
+    secondary = bluebirdColors.AccentBlueDark,
+    background = bluebirdColors.SurfaceLight,
+    surface = bluebirdColors.SurfaceContainerLight,
     onPrimary = Color.White,
-    onBackground = Win11Colors.TextPrimaryLight,
-    onSurface = Win11Colors.TextPrimaryLight,
+    onBackground = bluebirdColors.TextPrimaryLight,
+    onSurface = bluebirdColors.TextPrimaryLight,
 )
 
 // ─── Scaled Typography ────────────────────────────────────────────────────────
 // Reads LocalTextScale and returns a full Typography where every style's
 // fontSize and lineHeight are multiplied by the scale factor.
-// Because Win11Theme wraps the entire app, every screen — browser, settings,
+// Because bluebirdTheme wraps the entire app, every screen — browser, settings,
 // file manager, everything — automatically respects the user's text size choice
 // without any per-screen changes needed.
 
@@ -126,13 +126,13 @@ private fun scaledTypography(scale: Float): Typography {
 }
 
 @Composable
-fun Win11Theme(
+fun bluebirdTheme(
     darkTheme: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
     // LocalTextScale is provided by MainActivity's CompositionLocalProvider.
-    // Win11Theme reads it here so the scaled Typography flows into every
+    // bluebirdTheme reads it here so the scaled Typography flows into every
     // Composable in the tree via MaterialTheme.typography.
     val scale      = LocalTextScale.current
     val typography = scaledTypography(scale)

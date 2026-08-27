@@ -18,8 +18,8 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.*
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
-import io.github.norbertweb.bluebird.ui.theme.Win11Theme
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdTheme
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlinx.coroutines.delay
@@ -30,7 +30,7 @@ class LockScreenActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            Win11Theme(darkTheme = true) {
+            bluebirdTheme(darkTheme = true) {
                 LockScreenContent(onUnlock = { finish() })
             }
         }
@@ -184,7 +184,7 @@ fun LockScreenContent(onUnlock: () -> Unit) {
                 Box(
                     modifier = Modifier
                         .size(80.dp)
-                        .background(Win11Colors.AccentBlue, CircleShape),
+                        .background(bluebirdColors.AccentBlue, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Default.Person, null, tint = Color.White, modifier = Modifier.size(48.dp))

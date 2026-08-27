@@ -1,4 +1,4 @@
-package io.github.norbertweb.bluebird.ui.screens
+package io.github.norbertweb.bluebird.wordprocessor
 
 // ============================================================================================
 // PhoneScreen.kt — main composable, state, and shell.
@@ -18,16 +18,17 @@ package io.github.norbertweb.bluebird.ui.screens
 // ============================================================================================
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
@@ -45,14 +46,16 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -75,7 +78,7 @@ fun PhoneScreen(isDark: Boolean) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val appBg = if (isDark) WordTheme.darkCanvas else Color(0xFFE8EAED)
     val pageColor = if (isDark) WordTheme.darkPage else WordTheme.pageWhite
     val ribbonBg = if (isDark) WordTheme.ribbonBlueDark else WordTheme.ribbonBlue
@@ -246,8 +249,8 @@ fun PhoneScreen(isDark: Boolean) {
             if (bytes != null) {
                 currentDoc.pushUndoSnapshot()
                 val img = ImageBlock().apply {
-                    bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.DEFAULT)
+                    bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    base64 = Base64.encodeToString(bytes, Base64.DEFAULT)
                 }
                 val insertAt = (focusedTopIndex + 1).coerceIn(0, currentDoc.blocks.size)
                 currentDoc.blocks.add(insertAt, img)
@@ -449,7 +452,7 @@ fun PhoneScreen(isDark: Boolean) {
         currentDoc.pushUndoSnapshot()
         val base = BuiltInStyles.byId(p.styleId).baseAttrs()
         p.spans = applyStyle(p.spans, sel.min, sel.max, p.field.text.length, base) { s ->
-            s.copy(link = url, color = Win11Colors.AccentBlue, underline = true)
+            s.copy(link = url, color = bluebirdColors.AccentBlue, underline = true)
         }
         currentDoc.isDirty = true
     }
@@ -577,7 +580,7 @@ fun PhoneScreen(isDark: Boolean) {
                         value = currentDoc.title,
                         onValueChange = { t -> currentDoc.title = t; currentDoc.isDirty = true },
                         singleLine = true,
-                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium),
+                        textStyle = TextStyle(color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium),
                         cursorBrush = SolidColor(Color.White),
                         modifier = Modifier.weight(1f)
                     )
@@ -916,13 +919,13 @@ private fun FileBackstage(
                 Row(
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
                         .clickable { onSelectDoc(i) }
-                        .background(if (i == currentIndex) Win11Colors.AccentBlue.copy(alpha = 0.15f) else Color.Transparent)
+                        .background(if (i == currentIndex) bluebirdColors.AccentBlue.copy(alpha = 0.15f) else Color.Transparent)
                         .padding(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         if (doc.kind == DocKind.PDF) Icons.Default.PictureAsPdf else Icons.Default.Description,
-                        null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(20.dp)
+                        null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(20.dp)
                     )
                     Spacer(Modifier.width(10.dp))
                     Column {
@@ -939,7 +942,7 @@ private fun FileBackstage(
 }
 
 @Composable
-private fun BackstageAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun BackstageAction(icon: ImageVector, label: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -964,7 +967,7 @@ private fun DocumentSidebar(
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text("Documents", color = textColor, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = onNew, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Default.Add, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Add, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(18.dp))
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -974,13 +977,13 @@ private fun DocumentSidebar(
                 val doc = documents[i]
                 Row(
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
-                        .background(if (i == currentIndex) Win11Colors.AccentBlue.copy(alpha = 0.18f) else Color.Transparent)
+                        .background(if (i == currentIndex) bluebirdColors.AccentBlue.copy(alpha = 0.18f) else Color.Transparent)
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         if (doc.kind == DocKind.PDF) Icons.Default.PictureAsPdf else Icons.Default.Description,
-                        null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(16.dp)
+                        null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(

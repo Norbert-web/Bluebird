@@ -45,12 +45,14 @@ import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import io.github.norbertweb.bluebird.LauncherViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import androidx.compose.foundation.text.selection.SelectionContainer
+import io.github.norbertweb.bluebird.wordprocessor.formatDate
+import io.github.norbertweb.bluebird.wordprocessor.formatFileSize
 
 // ────────────────────────────────────────────────────────
 // Data & Helpers
@@ -251,7 +253,7 @@ private fun PermissionGate(
     onPermissionGranted: () -> Unit
 ) {
     val context = LocalContext.current
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val bgColor = if (isDark) Color(0xFF1C1C1C) else Color(0xFFFAFAFA)
 
     val legacyPermissionLauncher = rememberLauncherForActivityResult(
@@ -346,7 +348,7 @@ private fun FileExplorerContent(
     // Ribbon's paste button reacts live to a cut/copy made on Desktop or in another window.
     val vmUiState = viewModel?.uiState?.collectAsStateWithLifecycle()?.value
 
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val bgColor = if (isDark) Color(0xFF1C1C1C) else Color(0xFFFAFAFA)
     val surfaceBg = if (isDark) Color(0xFF252525) else Color(0xFFF0F0F0)
     val navBg = if (isDark) Color(0xFF1F1F1F) else Color(0xFFF5F5F5)
@@ -532,7 +534,7 @@ private fun FileListArea(
         when {
             state.isLoading -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Win11Colors.AccentBlue)
+                    CircularProgressIndicator(color = bluebirdColors.AccentBlue)
                 }
             }
             state.files.isEmpty() -> {
@@ -772,7 +774,7 @@ private fun DeleteDialog(
         },
         confirmButton = {
             TextButton(onClick = onConfirm) {
-                Text("Delete", color = Win11Colors.DangerRed)
+                Text("Delete", color = bluebirdColors.DangerRed)
             }
         },
         dismissButton = {
@@ -909,7 +911,7 @@ private fun CommandBar(
                 value = searchQuery,
                 onValueChange = onSearchChange,
                 textStyle = TextStyle(color = textColor, fontSize = 12.sp),
-                cursorBrush = SolidColor(Win11Colors.AccentBlue),
+                cursorBrush = SolidColor(bluebirdColors.AccentBlue),
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -943,7 +945,7 @@ private fun BreadcrumbBar(
             }
             Text(
                 label,
-                color = if (index == parts.size - 1) textColor else Win11Colors.AccentBlueLight,
+                color = if (index == parts.size - 1) textColor else bluebirdColors.AccentBlueLight,
                 fontSize = 11.sp,
                 modifier = Modifier
                     .clip(RoundedCornerShape(2.dp))
@@ -992,7 +994,7 @@ private fun Ribbon(
         }
         if (clipboardActive) {
             IconButton(onClick = onPaste, modifier = Modifier.size(24.dp)) {
-                Icon(Icons.Default.ContentPaste, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(14.dp))
+                Icon(Icons.Default.ContentPaste, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
             }
         }
         IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
@@ -1012,13 +1014,13 @@ private fun Ribbon(
                 ) {
                     Text(
                         sort.replaceFirstChar { it.uppercase() },
-                        color = if (sortBy == sort) Win11Colors.AccentBlue else textColor.copy(alpha = 0.7f),
+                        color = if (sortBy == sort) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.7f),
                         fontSize = 11.sp
                     )
                     if (sortBy == sort) {
                         Icon(
                             if (sortAscending) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                            null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(12.dp)
+                            null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(12.dp)
                         )
                     }
                 }
@@ -1090,7 +1092,7 @@ private fun NavigationPane(
             LinearProgressIndicator(
                 progress = { if (totalBytes > 0) (usedBytes.toFloat() / totalBytes) else 0f },
                 modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                color = Win11Colors.AccentBlue,
+                color = bluebirdColors.AccentBlue,
                 trackColor = textColor.copy(alpha = 0.1f)
             )
             Spacer(Modifier.height(2.dp))
@@ -1112,14 +1114,14 @@ private fun NavItem(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth()
-            .background(if (isSelected) Win11Colors.AccentBlue.copy(alpha = 0.2f) else Color.Transparent)
+            .background(if (isSelected) bluebirdColors.AccentBlue.copy(alpha = 0.2f) else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Icon(icon, null, tint = if (isSelected) Win11Colors.AccentBlue else textColor.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
-        Text(label, color = if (isSelected) Win11Colors.AccentBlue else textColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Icon(icon, null, tint = if (isSelected) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+        Text(label, color = if (isSelected) bluebirdColors.AccentBlue else textColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -1134,7 +1136,7 @@ private fun StatusBar(textColor: Color, itemCount: Int, selectedCount: Int) {
     ) {
         Text("$itemCount items", color = textColor.copy(alpha = 0.4f), fontSize = 10.sp)
         if (selectedCount > 0) {
-            Text("$selectedCount selected", color = Win11Colors.AccentBlue, fontSize = 10.sp)
+            Text("$selectedCount selected", color = bluebirdColors.AccentBlue, fontSize = 10.sp)
         }
     }
 }
@@ -1155,7 +1157,7 @@ private fun ListFileItem(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth()
-            .background(if (isSelected) Win11Colors.AccentBlue.copy(alpha = 0.2f) else Color.Transparent)
+            .background(if (isSelected) bluebirdColors.AccentBlue.copy(alpha = 0.2f) else Color.Transparent)
             .pointerInput(Unit) {
                 detectTapGestures(onTap = { onClick() }, onLongPress = { onLongPress() })
             }
@@ -1185,7 +1187,7 @@ private fun GridFileItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isSelected) Win11Colors.AccentBlue.copy(alpha = 0.2f) else Color.Transparent)
+            .background(if (isSelected) bluebirdColors.AccentBlue.copy(alpha = 0.2f) else Color.Transparent)
             .pointerInput(Unit) {
                 detectTapGestures(onTap = { onClick() }, onLongPress = { onLongPress() })
             }
@@ -1230,7 +1232,7 @@ private fun FileContextMenu(
                 ContextMenuItem("Copy", Icons.Default.ContentCopy, onCopy)
                 ContextMenuItem("Rename", Icons.Default.DriveFileRenameOutline, onRename)
                 ContextMenuItem("Create shortcut", Icons.Default.Link, onCreateShortcut)
-                ContextMenuItem("Delete", Icons.Default.Delete, onDelete, tint = Win11Colors.DangerRed)
+                ContextMenuItem("Delete", Icons.Default.Delete, onDelete, tint = bluebirdColors.DangerRed)
                 Divider(Modifier.padding(vertical = 4.dp))
                 ContextMenuItem("Properties", Icons.Default.Info, onProperties)
             }

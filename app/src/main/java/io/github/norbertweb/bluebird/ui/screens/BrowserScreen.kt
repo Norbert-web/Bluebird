@@ -1,4 +1,4 @@
-package com.win11launcher.ui.screens
+package com.bluebirdlauncher.ui.screens
 
 import android.app.DownloadManager
 import android.content.Context

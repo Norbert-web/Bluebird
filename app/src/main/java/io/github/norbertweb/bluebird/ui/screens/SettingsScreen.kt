@@ -196,7 +196,7 @@ import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
 import io.github.norbertweb.bluebird.WallpaperTarget
 import io.github.norbertweb.bluebird.ui.components.wallpaperGradients
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import com.google.accompanist.drawablepainter.DrawablePainter
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -236,7 +236,7 @@ fun SettingsScreen(isDark: Boolean, viewModel: LauncherViewModel? = null) {
     val uiState  = viewModel?.uiState?.collectAsState()?.value
 
     val effectiveDark  = uiState?.isDarkTheme ?: isDark
-    val textColor      = if (effectiveDark) Win11Colors.TextPrimary      else Win11Colors.TextPrimaryLight
+    val textColor      = if (effectiveDark) bluebirdColors.TextPrimary      else bluebirdColors.TextPrimaryLight
     val bgColor        = if (effectiveDark) Color(0xFF1C1C1C)            else Color(0xFFFAFAFA)
     val surfaceBg      = if (effectiveDark) Color(0xFF2C2C2C)            else Color(0xFFEEEEEE)
     val navBg          = if (effectiveDark) Color(0xFF1A1A1A)            else Color(0xFFF0F0F0)
@@ -245,7 +245,7 @@ fun SettingsScreen(isDark: Boolean, viewModel: LauncherViewModel? = null) {
         AppTheme.SPECIAL -> listOf(Color(0xFF0E0820), Color(0xFF130A2E), Color(0xFF1C1040), Color(0xFFE8DEFF))
         else             -> listOf(bgColor, navBg, surfaceBg, textColor)
     }
-    val specialAccent  = if (uiState?.appTheme == AppTheme.SPECIAL) Color(0xFF9C6BF7) else Win11Colors.AccentBlue
+    val specialAccent  = if (uiState?.appTheme == AppTheme.SPECIAL) Color(0xFF9C6BF7) else bluebirdColors.AccentBlue
 
     var selectedCategory by remember { mutableStateOf(SettingsCategory.SYSTEM) }
 

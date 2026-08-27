@@ -1,4 +1,4 @@
-package io.github.norbertweb.bluebird.ui.screens
+package io.github.norbertweb.bluebird.wordprocessor
 
 // ============================================================================================
 // RichTextEngine.kt — plain text + a flat, gap-free list of format spans over it.

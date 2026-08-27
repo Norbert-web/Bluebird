@@ -1,4 +1,4 @@
-package com.win11launcher.browser.ui.components
+package com.io.github.norbertweb.bluebird.browser.ui.components
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
@@ -27,8 +27,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.win11launcher.browser.model.Bookmark
-import com.win11launcher.browser.model.BrowserTab
+import com.io.github.norbertweb.bluebird.browser.model.Bookmark
+import com.io.github.norbertweb.bluebird.browser.model.BrowserTab
 
 // ═══════════════════════════════════════════════════════════════════════
 // IME-suppressing text field

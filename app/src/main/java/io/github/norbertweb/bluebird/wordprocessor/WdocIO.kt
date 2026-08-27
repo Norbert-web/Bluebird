@@ -1,4 +1,4 @@
-package io.github.norbertweb.bluebird.ui.screens
+package io.github.norbertweb.bluebird.wordprocessor
 
 // ============================================================================================
 // WdocIO.kt — everything that turns a WordDocument into bytes and back.

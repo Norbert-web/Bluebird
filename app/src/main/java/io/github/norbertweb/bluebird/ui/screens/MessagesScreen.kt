@@ -91,7 +91,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -455,7 +455,7 @@ fun MessagesScreen(isDark: Boolean) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val bgColor = if (isDark) Color(0xFF1C1C1C) else Color(0xFFF5F5F5)
     val railBg = if (isDark) Color(0xFF202020) else Color(0xFFEDEDED)
     val cardBg = if (isDark) Color(0xFF262626) else Color.White
@@ -613,7 +613,7 @@ private fun NavRail(
 ) {
     Column(modifier = Modifier.width(190.dp).fillMaxHeight().background(railBg).padding(vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
-            Icon(Icons.Default.Storefront, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(22.dp))
+            Icon(Icons.Default.Storefront, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(8.dp))
             Text("Bluebird Store", color = textColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
@@ -622,14 +622,14 @@ private fun NavRail(
             val selected = section == s
             Row(
                 modifier = Modifier.fillMaxWidth()
-                    .background(if (selected) Win11Colors.AccentBlue.copy(alpha = 0.18f) else Color.Transparent)
+                    .background(if (selected) bluebirdColors.AccentBlue.copy(alpha = 0.18f) else Color.Transparent)
                     .clickable { onSelect(s) }
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(s.icon, null, tint = if (selected) Win11Colors.AccentBlue else textColor.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                Icon(s.icon, null, tint = if (selected) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(10.dp))
-                Text(s.label, color = if (selected) Win11Colors.AccentBlue else textColor, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text(s.label, color = if (selected) bluebirdColors.AccentBlue else textColor, fontSize = 13.sp, modifier = Modifier.weight(1f))
                 if (s == NavSection.INSTALLED && installedCount > 0) {
                     Text("$installedCount", color = textColor.copy(alpha = 0.5f), fontSize = 11.sp)
                 }
@@ -666,7 +666,7 @@ private fun StoreTopBar(title: String, query: String, textColor: Color, onQueryC
             singleLine = true,
             shape = RoundedCornerShape(20.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Win11Colors.AccentBlue,
+                focusedBorderColor = bluebirdColors.AccentBlue,
                 unfocusedBorderColor = textColor.copy(alpha = 0.2f),
                 focusedTextColor = textColor, unfocusedTextColor = textColor
             )
@@ -731,13 +731,13 @@ private fun AppCard(
         Text(app.shortDescription, color = textColor.copy(alpha = 0.65f), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, minLines = 2)
         Spacer(Modifier.height(10.dp))
         if (progress != null) {
-            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(4.dp), color = Win11Colors.AccentBlue)
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(4.dp), color = bluebirdColors.AccentBlue)
         } else {
             Button(
                 onClick = onQuickAction,
                 modifier = Modifier.fillMaxWidth().height(32.dp),
                 contentPadding = PaddingValues(0.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = if (installed) Win11Colors.SuccessGreen else Win11Colors.AccentBlue)
+                colors = ButtonDefaults.buttonColors(containerColor = if (installed) bluebirdColors.SuccessGreen else bluebirdColors.AccentBlue)
             ) {
                 Text(if (installed) "Open" else "Install", fontSize = 12.sp)
             }
@@ -784,26 +784,26 @@ private fun AppDetailPane(
             Column {
                 Text("Installing… ${(progress * 100).toInt()}%", color = textColor, fontSize = 12.sp)
                 Spacer(Modifier.height(6.dp))
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(6.dp), color = Win11Colors.AccentBlue)
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(6.dp), color = bluebirdColors.AccentBlue)
             }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (isInstalled) {
-                    Button(onClick = onOpen, colors = ButtonDefaults.buttonColors(containerColor = Win11Colors.SuccessGreen)) {
+                    Button(onClick = onOpen, colors = ButtonDefaults.buttonColors(containerColor = bluebirdColors.SuccessGreen)) {
                         Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Open")
                     }
                     OutlinedButton(onClick = onTogglePin) {
                         Icon(
                             Icons.Default.PushPin, null, modifier = Modifier.size(16.dp),
-                            tint = if (isPinned) Win11Colors.AccentBlue else LocalContentColor.current
+                            tint = if (isPinned) bluebirdColors.AccentBlue else LocalContentColor.current
                         )
                         Spacer(Modifier.width(6.dp)); Text(if (isPinned) "Pinned to io.github.norbertweb.io.github.norbertweb.bluebird" else "Pin to io.github.norbertweb.io.github.norbertweb.bluebird")
                     }
-                    OutlinedButton(onClick = onUninstall, colors = ButtonDefaults.outlinedButtonColors(contentColor = Win11Colors.DangerRed)) {
+                    OutlinedButton(onClick = onUninstall, colors = ButtonDefaults.outlinedButtonColors(contentColor = bluebirdColors.DangerRed)) {
                         Text("Uninstall")
                     }
                 } else {
-                    Button(onClick = onInstall, colors = ButtonDefaults.buttonColors(containerColor = Win11Colors.AccentBlue)) {
+                    Button(onClick = onInstall, colors = ButtonDefaults.buttonColors(containerColor = bluebirdColors.AccentBlue)) {
                         Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Install")
                     }
                 }
@@ -843,7 +843,7 @@ private fun AppRuntimeView(
             IconButton(onClick = onTogglePin, modifier = Modifier.size(30.dp)) {
                 Icon(
                     Icons.Default.PushPin, null, modifier = Modifier.size(16.dp),
-                    tint = if (isPinned) Win11Colors.AccentBlue else LocalContentColor.current
+                    tint = if (isPinned) bluebirdColors.AccentBlue else LocalContentColor.current
                 )
             }
         }

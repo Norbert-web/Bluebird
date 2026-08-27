@@ -1,4 +1,4 @@
-package com.win11launcher.browser.ui.components
+package com.io.github.norbertweb.bluebird.browser.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,9 +21,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.win11launcher.browser.model.JsDialogState
-import com.win11launcher.browser.model.JsDialogType
-import com.win11launcher.browser.model.SslDialogState
+import com.io.github.norbertweb.bluebird.browser.model.JsDialogState
+import com.io.github.norbertweb.bluebird.browser.model.JsDialogType
+import com.io.github.norbertweb.bluebird.browser.model.SslDialogState
 
 // ═══════════════════════════════════════════════════════════════════════
 // JsDialogComposable — alert / confirm / prompt
@@ -186,7 +186,7 @@ fun SslWarningDialog(
 
 @Composable
 fun PermissionRequestDialog(
-    request: com.win11launcher.browser.model.PermissionRequest,
+    request: com.io.github.norbertweb.bluebird.browser.model.PermissionRequest,
     isDark: Boolean
 ) {
     val bg        = if (isDark) Color(0xFF2C2C2C) else Color.White

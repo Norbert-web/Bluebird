@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.*
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 
 @Composable
 fun GlassCard(
@@ -25,8 +25,8 @@ fun GlassCard(
     blur: Boolean = false,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val bgColor = if (isDark) Win11Colors.GlassDark else Win11Colors.GlassLight
-    val borderColor = if (isDark) Win11Colors.GlassBorderDark else Win11Colors.GlassBorderLight
+    val bgColor = if (isDark) bluebirdColors.GlassDark else bluebirdColors.GlassLight
+    val borderColor = if (isDark) bluebirdColors.GlassBorderDark else bluebirdColors.GlassBorderLight
 
     Box(
         modifier = modifier
@@ -68,7 +68,7 @@ fun AcrylicSurface(
 }
 
 @Composable
-fun Win11Button(
+fun bluebirdButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isDark: Boolean = true,
@@ -77,11 +77,11 @@ fun Win11Button(
     var isPressed by remember { mutableStateOf(false) }
 
     val bgColor = if (isPressed)
-        Win11Colors.AccentBlue.copy(alpha = 0.3f)
+        bluebirdColors.AccentBlue.copy(alpha = 0.3f)
     else if (isDark)
-        Win11Colors.HoverBg
+        bluebirdColors.HoverBg
     else
-        Win11Colors.HoverBgLight
+        bluebirdColors.HoverBgLight
 
     Row(
         modifier = modifier
@@ -118,8 +118,8 @@ fun TaskbarButton(
             .clip(RoundedCornerShape(6.dp))
             .background(
                 when {
-                    isActive -> Win11Colors.AccentBlue.copy(alpha = 0.3f)
-                    hovered -> Win11Colors.HoverBg
+                    isActive -> bluebirdColors.AccentBlue.copy(alpha = 0.3f)
+                    hovered -> bluebirdColors.HoverBg
                     else -> Color.Transparent
                 }
             )
@@ -138,7 +138,7 @@ fun TaskbarButton(
                 .width(20.dp)
                 .height(3.dp)
                 .background(
-                    Win11Colors.AccentBlue,
+                    bluebirdColors.AccentBlue,
                     RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp)
                 )
         )
@@ -153,7 +153,7 @@ fun WindowTitleBar(
     onMaximize: () -> Unit,
     onClose: () -> Unit
 ) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val btnHover = if (isDark) Color(0x20FFFFFF) else Color(0x20000000)
 
     Row(
@@ -182,7 +182,7 @@ fun WindowTitleBar(
                 modifier = Modifier
                     .size(46.dp, 32.dp)
                     .background(
-                        if (hovered && index == 2) Win11Colors.Error
+                        if (hovered && index == 2) bluebirdColors.Error
                         else if (hovered) btnHover
                         else Color.Transparent
                     )
@@ -208,10 +208,10 @@ fun QuickToggle(
     onClick: () -> Unit,
     isDark: Boolean = true
 ) {
-    val bgColor = if (isActive) Win11Colors.AccentBlue.copy(alpha = 0.25f)
+    val bgColor = if (isActive) bluebirdColors.AccentBlue.copy(alpha = 0.25f)
     else if (isDark) Color(0xFF3C3C3C) else Color(0xFFE5E5E5)
 
-    val borderColor = if (isActive) Win11Colors.AccentBlue.copy(alpha = 0.6f)
+    val borderColor = if (isActive) bluebirdColors.AccentBlue.copy(alpha = 0.6f)
     else if (isDark) Color(0x20FFFFFF) else Color(0x20000000)
 
     Column(
@@ -229,7 +229,7 @@ fun QuickToggle(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight,
+            color = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight,
             textAlign = TextAlign.Center,
             maxLines = 1
         )
@@ -244,7 +244,7 @@ fun SliderRow(
     leadingIcon: @Composable () -> Unit,
     isDark: Boolean = true
 ) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -257,8 +257,8 @@ fun SliderRow(
             onValueChange = onValueChange,
             modifier = Modifier.weight(1f),
             colors = SliderDefaults.colors(
-                thumbColor = Win11Colors.AccentBlue,
-                activeTrackColor = Win11Colors.AccentBlue
+                thumbColor = bluebirdColors.AccentBlue,
+                activeTrackColor = bluebirdColors.AccentBlue
             )
         )
     }
@@ -289,7 +289,7 @@ fun AppIconSmall(
         )
     } else {
         Box(
-            modifier = modifier.background(Win11Colors.AccentBlue, RoundedCornerShape(8.dp)),
+            modifier = modifier.background(bluebirdColors.AccentBlue, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center
         ) {
             Text(

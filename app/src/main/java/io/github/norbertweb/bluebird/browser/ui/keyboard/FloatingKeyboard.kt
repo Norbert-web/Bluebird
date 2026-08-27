@@ -1,4 +1,4 @@
-package com.win11launcher.browser.ui.keyboard
+package com.io.github.norbertweb.bluebird.browser.ui.keyboard
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable

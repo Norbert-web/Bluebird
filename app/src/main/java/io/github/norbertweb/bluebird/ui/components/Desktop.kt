@@ -3,6 +3,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import android.Manifest
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
@@ -15,6 +16,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Environment
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -97,7 +99,7 @@ val wallpaperGradients = listOf(
 // Background particle animation engine — Kotlin/Compose, single Canvas +
 // single frame ticker driving any mix of active BgAnimationType values at
 // once (mix mode is just multiple types sharing one particle pool). Sits
-// between the wallpaper and the io.github.norbertweb.io.github.norbertweb.bluebird icons; forced off whenever a live
+// between the wallpaper and the desktop icons; forced off whenever a live
 // wallpaper is active (see BackgroundEffectsState's mutual-exclusion rule).
 // ─────────────────────────────────────────────────────────────────
 private data class BgParticle(
@@ -331,15 +333,34 @@ private fun BackgroundAnimationLayer(
 // animation layer above (see BackgroundEffectsState).
 // ─────────────────────────────────────────────────────────────────
 @Composable
-private fun LiveWallpaperRenderer(type: LiveWallpaperType, modifier: Modifier = Modifier) {
-    val infinite = rememberInfiniteTransition(label = "live_wallpaper")
+private fun LiveWallpaperRenderer(
+    type: LiveWallpaperType,
+    modifier: Modifier = Modifier,
+    // The Effects-tab picker previously rendered all 4 wallpapers simultaneously, each
+    // running its own continuous animation loop, purely to show small preview thumbnails
+    // — real, avoidable CPU/GPU cost for a picker UI that's just showing static previews.
+    // Only the actual full-screen active wallpaper needs to animate.
+    animated: Boolean = true
+) {
     // 10s cycle (was 20s) — the previous speed combined with the soft, low-opacity shapes
     // in Aurora/Bokeh made their motion too subtle to read as animated at a glance.
-    val t by infinite.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(10000, easing = LinearEasing), RepeatMode.Restart),
-        label = "live_wallpaper_t"
-    )
+    //
+    // Only create the InfiniteTransition when actually animating — merely not READING its
+    // value isn't enough to stop the cost: rememberInfiniteTransition registers a
+    // continuously-ticking animation with the composition regardless of whether anything
+    // reads its output, so the picker's 4 simultaneous "previews" were still each running
+    // a real per-frame animation loop even though they only ever showed a static frame.
+    val t = if (animated) {
+        val infinite = rememberInfiniteTransition(label = "live_wallpaper")
+        val animatedT by infinite.animateFloat(
+            initialValue = 0f, targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(10000, easing = LinearEasing), RepeatMode.Restart),
+            label = "live_wallpaper_t"
+        )
+        animatedT
+    } else {
+        0.35f  // fixed mid-cycle frame — a more representative still than t=0 for some designs
+    }
     Canvas(modifier = modifier) {
         val w = size.width; val h = size.height
         when (type) {
@@ -455,7 +476,7 @@ enum class DesktopItemType {
 }
 
 enum class DesktopIconSize { SMALL, MEDIUM, LARGE }
-enum class DesktopSortMode { NAME, DATE_MODIFIED, TYPE, SIZE }
+enum class DesktopSortMode { NONE, NAME, DATE_MODIFIED, TYPE, SIZE }
 
 data class InlineRenameState(
     val targetId: String,
@@ -497,7 +518,7 @@ fun getFileIcon(file: File): ImageVector = when {
     file.extension.lowercase() in setOf("doc","docx") -> Icons.Default.Article
     file.extension.lowercase() in setOf("xls","xlsx") -> Icons.Default.TableChart
     file.extension.lowercase() == "webapp" -> Icons.Default.Public
-    file.extension.lowercase() == "io.github.norbertweb.io.github.norbertweb.bluebird" -> Icons.Default.Apps
+    file.extension.lowercase() == "desktop" -> Icons.Default.Apps
     else -> Icons.Default.InsertDriveFile
 }
 
@@ -513,7 +534,7 @@ fun getFileIconColor(file: File): Color = when {
     file.extension.lowercase() in setOf("xls","xlsx") -> Color(0xFF217346)
     file.extension.lowercase() in setOf("zip","rar","7z") -> Color(0xFF8B6914)
     file.extension.lowercase() == "webapp" -> Color(0xFF0078D4)
-    file.extension.lowercase() == "io.github.norbertweb.io.github.norbertweb.bluebird" -> Color(0xFF0078D4)
+    file.extension.lowercase() == "desktop" -> Color(0xFF0078D4)
     else -> Color(0xFF9E9E9E)
 }
 
@@ -533,7 +554,7 @@ private val MEDIA_THUMB_SAMPLE = BitmapFactory.Options().apply { inSampleSize = 
 // ─────────────────────────────────────────────────────────────────
 // Unified press/tap/long-press/drag gesture detector.
 //
-// Previously, icons (and the io.github.norbertweb.io.github.norbertweb.bluebird background) each stacked TWO
+// Previously, icons (and the desktop background) each stacked TWO
 // separate, independent pointerInput gesture detectors covering the
 // identical hit area — e.g. a parent doing detectDragGesturesAfterLongPress
 // while a child did its own detectTapGestures. In Compose, ancestor and
@@ -637,7 +658,7 @@ suspend fun PointerInputScope.detectPressDragGestures(
 // FileObserver's own debounced triggers), and was previously re-decoding
 // every icon from scratch every single time — including PackageManager app
 // icon lookups, which are a real binder-IPC cost, not just a bitmap decode.
-// This is very likely the main contributor to "io.github.norbertweb.io.github.norbertweb.bluebird takes long to load,
+// This is very likely the main contributor to "desktop takes long to load,
 // especially on other phones". Keyed so a changed/replaced file naturally
 // invalidates its own stale entry without needing explicit eviction.
 // ─────────────────────────────────────────────────────────────────
@@ -666,7 +687,7 @@ fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFi
             id = file.absolutePath, file = file, name = file.name, type = DesktopItemType.FOLDER
         )
 
-        ext == "io.github.norbertweb.io.github.norbertweb.bluebird" -> {
+        ext == "desktop" -> {
             val lines = file.readLines()
             val pkg   = lines.find { it.startsWith("package=") }?.removePrefix("package=")?.trim() ?: ""
             val label = lines.find { it.startsWith("label=") }?.removePrefix("label=")?.trim()
@@ -722,7 +743,7 @@ fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFi
 } catch (_: Exception) { null }
 
 /**
- * Opens any io.github.norbertweb.io.github.norbertweb.bluebird-backed item the same way regardless of which screen triggered it
+ * Opens any desktop-backed item the same way regardless of which screen triggered it
  * (Desktop icon double-tap, or File Explorer "Open"). Keeps open-behavior in one place.
  */
 fun openDesktopItem(
@@ -828,7 +849,7 @@ private fun autoGridPos(
     // FIX: Do NOT clamp idx to totalSlots-1.  The old code forced every icon
     // beyond the grid capacity onto the very last cell, causing them all to
     // stack on top of each other.  Instead let col/row grow naturally — extra
-    // columns simply extend to the right, which is harmless (the io.github.norbertweb.io.github.norbertweb.bluebird Box
+    // columns simply extend to the right, which is harmless (the desktop Box
     // is not scroll-limited and icons remain individually draggable).
     val col = idx / safeRows
     val row = idx % safeRows
@@ -940,7 +961,7 @@ private val DEFAULT_SHORTCUTS = listOf(
     DefaultShortcut("Maps",       "com.google.android.apps.maps"),
 )
 
-/** Creates .io.github.norbertweb.io.github.norbertweb.bluebird shortcut files for installed apps on first launch. */
+/** Creates .desktop shortcut files for installed apps on first launch. */
 private fun createDefaultShortcuts(desktopDir: File, pm: PackageManager) {
     desktopDir.mkdirs()
     DEFAULT_SHORTCUTS.forEach { shortcut ->
@@ -952,7 +973,7 @@ private fun createDefaultShortcuts(desktopDir: File, pm: PackageManager) {
 
         if (!installed) return@forEach
 
-        val file = File(desktopDir, "${shortcut.label}.io.github.norbertweb.io.github.norbertweb.bluebird")
+        val file = File(desktopDir, "${shortcut.label}.desktop")
         if (file.exists()) return@forEach          // never overwrite existing
 
         file.writeText("package=${shortcut.packageName}\nlabel=${shortcut.label}\n")
@@ -972,7 +993,7 @@ fun Desktop(
     wallpaper: WallpaperState,
     viewModel: LauncherViewModel,
     modifier: Modifier = Modifier,
-    // Reserved space at the bottom of the io.github.norbertweb.io.github.norbertweb.bluebird's own drag/layout area — e.g. real
+    // Reserved space at the bottom of the desktop's own drag/layout area — e.g. real
     // taskbar height, if the caller lays Desktop() out full-screen with the taskbar
     // drawn as a separate overlay on top rather than reducing Desktop()'s own measured
     // height. Defaults to 0 (no change from previous behavior) if the caller doesn't
@@ -983,7 +1004,7 @@ fun Desktop(
     // *actual* layout pixel dimensions.  LocalConfiguration.screenWidthDp is
     // already in dp units, so doing `.dp.toPx()` on it was a double-conversion
     // that produced a value far too small whenever a high smallest-width is
-    // forced in the activity (io.github.norbertweb.io.github.norbertweb.bluebird mode).  constraints.maxWidth/maxHeight
+    // forced in the activity (desktop mode).  constraints.maxWidth/maxHeight
     // are always correct regardless of forced density.
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val screenWPxTotal = constraints.maxWidth.toFloat()
@@ -1001,7 +1022,7 @@ fun Desktop(
         // ── Persistence ───────────────────────────────────────────────
         val prefs = remember { DesktopPreferences(context) }
 
-        // Live io.github.norbertweb.io.github.norbertweb.bluebird contents now come from the ViewModel's single shared file-state
+        // Live desktop contents now come from the ViewModel's single shared file-state
         // layer (uiState.desktopFiles) — the same list File Explorer and Recycle Bin see.
         // Desktop no longer keeps its own separate FileObserver/scan; it just renders
         // whatever the ViewModel currently has.
@@ -1011,7 +1032,30 @@ fun Desktop(
         // ── Core state (FIX: initialised from prefs, not just remember{}) ──
         var selectedIds         by remember { mutableStateOf(setOf<String>()) }
         var iconSize            by remember { mutableStateOf(prefs.iconSize) }
-        var sortMode            by remember { mutableStateOf(prefs.sortMode) }
+
+        // Self-contained store for two new settings — kept separate from the existing
+        // DesktopPreferences class (not among the files I have access to, so I can't
+        // safely change ITS baked-in defaults) rather than risk guessing wrong there.
+        //
+        // 1. "Has the user ever explicitly chosen a sort mode?" — if not, default to
+        //    NONE regardless of whatever DesktopPreferences.sortMode's own raw default
+        //    is, matching real Windows: sort isn't "on" until you turn it on, and files
+        //    you create/paste stay exactly where you put them until you do.
+        // 2. "Align icons to grid" — this toggle previously existed in the UI but did
+        //    nothing at all (its onClick was an empty {} lambda). Now wired for real:
+        //    ON (the default, matching current/prior always-snap behavior) means drops
+        //    snap to the nearest free grid cell; OFF allows free pixel placement.
+        val layoutPrefsStore = remember { context.getSharedPreferences("desktop_layout_prefs_v2", Context.MODE_PRIVATE) }
+        var alignToGrid by remember { mutableStateOf(layoutPrefsStore.getBoolean("align_to_grid", true)) }
+        fun setAlignToGrid(v: Boolean) {
+            alignToGrid = v
+            layoutPrefsStore.edit().putBoolean("align_to_grid", v).apply()
+        }
+        var sortMode by remember {
+            mutableStateOf(
+                if (layoutPrefsStore.getBoolean("user_set_sort", false)) prefs.sortMode else DesktopSortMode.NONE
+            )
+        }
         var sortAscending       by remember { mutableStateOf(prefs.sortAscending) }
         var autoArrange         by remember { mutableStateOf(prefs.autoArrange) }
         var showIconsOnDesktop  by remember { mutableStateOf(prefs.showIconsOnDesktop) }
@@ -1099,7 +1143,8 @@ fun Desktop(
         // ── Context menus ──
         var showDesktopCtx      by remember { mutableStateOf(false) }
         var desktopCtxOffset    by remember { mutableStateOf(Offset.Zero) }
-        // Real screen coordinates of the io.github.norbertweb.io.github.norbertweb.bluebird canvas layer — captured once via
+        var desktopCtxLocalOffset by remember { mutableStateOf(Offset.Zero) }
+        // Real screen coordinates of the desktop canvas layer — captured once via
         // onGloballyPositioned below, used to convert local tap positions (measured
         // relative to that layer) into true absolute screen coordinates for the context
         // menus' Popup-based positioning, via the same trueScreenPosition() helper the
@@ -1269,9 +1314,9 @@ fun Desktop(
         }
 
         // ── Windows-style refresh effect — icons vanish then reappear across the whole
-        //    io.github.norbertweb.io.github.norbertweb.bluebird whenever the shared desktopRefreshTick advances (i.e. a real change
+        //    desktop whenever the shared desktopRefreshTick advances (i.e. a real change
         //    was detected and re-scanned), skipping the very first load so opening the
-        //    io.github.norbertweb.io.github.norbertweb.bluebird doesn't flicker. Window is long enough to cover the slowest per-icon
+        //    desktop doesn't flicker. Window is long enough to cover the slowest per-icon
         //    stagger + fade-out + gap + fade-in in DesktopIcon's own animation.
         //
         //    Driven off vmUiState (already collected via collectAsStateWithLifecycle, so
@@ -1280,7 +1325,7 @@ fun Desktop(
         //    read doesn't count, so that version only ever fired once for the whole screen's
         //    lifetime instead of on every refresh. ──
         // ── Windows-style refresh effect — icons vanish then reappear together, but ONLY
-        //    for an explicit "Refresh" from the io.github.norbertweb.io.github.norbertweb.bluebird context menu (manualDesktopRefreshTick),
+        //    for an explicit "Refresh" from the desktop context menu (manualDesktopRefreshTick),
         //    not for silent rescans the FileObserver triggers after a paste/delete/rename.
         //
         //    Driven by ONE shared Animatable owned here, instead of each icon running its
@@ -1315,13 +1360,23 @@ fun Desktop(
         }
 
         val sortedItems = remember(items, sortMode, sortAscending) {
-            val s = when (sortMode) {
-                DesktopSortMode.NAME          -> items.sortedBy { it.name.lowercase() }
-                DesktopSortMode.DATE_MODIFIED -> items.sortedBy { it.file.lastModified() }
-                DesktopSortMode.TYPE          -> items.sortedBy { it.file.extension }
-                DesktopSortMode.SIZE          -> items.sortedBy { it.file.length() }
+            if (sortMode == DesktopSortMode.NONE) {
+                // No active sort — items keep whatever order the file system/ViewModel
+                // gave them in. Ascending/descending is meaningless here, and since every
+                // icon now gets a stable, persisted position (see the earlier fix), this
+                // order no longer even affects where anything visually appears — it only
+                // matters as a rendering/tab-order detail.
+                items
+            } else {
+                val s = when (sortMode) {
+                    DesktopSortMode.NAME          -> items.sortedBy { it.name.lowercase() }
+                    DesktopSortMode.DATE_MODIFIED -> items.sortedBy { it.file.lastModified() }
+                    DesktopSortMode.TYPE          -> items.sortedBy { it.file.extension }
+                    DesktopSortMode.SIZE          -> items.sortedBy { it.file.length() }
+                    DesktopSortMode.NONE          -> items  // unreachable, handled above
+                }
+                if (sortAscending) s else s.reversed()
             }
-            if (sortAscending) s else s.reversed()
         }
 
         val indexMap = remember(sortedItems) {
@@ -1483,7 +1538,13 @@ fun Desktop(
                             },
                             onLongPressReleased = { off ->
                                 if (draggedId == null) {
-                                    desktopCtxOffset = desktopLayerCoords?.let { it.trueScreenPosition(localView) + off } ?: off
+                                    desktopCtxOffset      = desktopLayerCoords?.let { it.trueScreenPosition(localView) + off } ?: off
+                                    // Local (grid-space) copy of the same click, kept separately from
+                                    // desktopCtxOffset above (which is screen-space, for Popup
+                                    // positioning only) — this is what "New > Folder/Text Document"
+                                    // uses to place the new item where the menu was actually opened,
+                                    // instead of it having no assigned position at all.
+                                    desktopCtxLocalOffset = off
                                     showDesktopCtx   = true
                                     iconCtxTarget    = null
                                 }
@@ -1521,6 +1582,42 @@ fun Desktop(
                     }
             )
 
+            // FIX: pre-compute the set of occupied grid cells for overlap detection.
+            //
+            // Previously this used remember(customPositions, ...) — but customPositions
+            // is a SnapshotStateMap that gets mutated IN PLACE (same object reference
+            // every time), so remember's key-equality check was comparing the map to
+            // itself and never saw a change, even after drags wrote new positions into
+            // it. That left this occupied-set stale, so every later snap decision (both
+            // the dragged icon's own and any group followers') was checking for overlaps
+            // against out-of-date positions — which is what let dropped icons land on
+            // top of each other and never really line up.
+            //
+            // derivedStateOf fixes this correctly: it tracks the actual per-entry
+            // snapshot reads of customPositions[item.id] made inside the block, so it
+            // recomputes whenever any of those entries actually change, not just when
+            // some other key happens to change at the same time.
+            //
+            // Hoisted to this outer scope (not nested inside the icons-layer Box below)
+            // since it's also needed by placeNewItemAtClickPosition and the stable-
+            // position effect further down, both of which run regardless of whether
+            // icons are currently shown.
+            val occupiedCells by remember(autoArrange, rows, maxCols, screenWPxTotal, screenHPxTotal) {
+                derivedStateOf {
+                    buildSet {
+                        sortedItems.forEachIndexed { idx, item ->
+                            val p = if (autoArrange) {
+                                autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
+                            } else {
+                                customPositions[item.id]
+                                    ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
+                            } ?: return@forEachIndexed  // grid full — skip icon
+                            add(posToCell(p, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                        }
+                    }
+                }
+            }
+
             // ── Icons layer ──
             if (showIconsOnDesktop) {
                 Box(Modifier.fillMaxSize()) {
@@ -1540,22 +1637,6 @@ fun Desktop(
                     // snapshot reads of customPositions[item.id] made inside the block, so it
                     // recomputes whenever any of those entries actually change, not just when
                     // some other key happens to change at the same time.
-                    val occupiedCells by remember(autoArrange, rows, maxCols, screenWPxTotal, screenHPxTotal) {
-                        derivedStateOf {
-                            buildSet {
-                                sortedItems.forEachIndexed { idx, item ->
-                                    val p = if (autoArrange) {
-                                        autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
-                                    } else {
-                                        customPositions[item.id]
-                                            ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
-                                    } ?: return@forEachIndexed  // grid full — skip icon
-                                    add(posToCell(p, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
-                                }
-                            }
-                        }
-                    }
-
                     // ── Performance: O(n) cached auto-arrange positions ──
                     // Build positions once per recomposition key instead of
                     // recomputing from scratch for every icon (was O(n²)).
@@ -1691,23 +1772,54 @@ fun Desktop(
                                         onDrag = { _, amt ->
                                             val maxX = screenWPxTotal - cellWPx
                                             val maxY = maxYBound
-                                            pos = Offset(
-                                                (pos.x + amt.x).coerceIn(padLeftPx, maxX),
-                                                (pos.y + amt.y).coerceIn(padTopPx, maxY)
-                                            )
-                                            // Broadcast current anchor position so group members can follow.
-                                            // groupRelativeOffsets (immutable during the drag) holds each
-                                            // follower's offset from the anchor; dragGroupOffsets is purely
-                                            // the live absolute target each follower's effect applies.
                                             if (isDraggingGroup) {
-                                                val anchorPos = pos
-                                                groupRelativeOffsets.forEach { (otherId, rel) ->
-                                                    val target = Offset(
-                                                        (anchorPos.x + rel.x).coerceIn(padLeftPx, maxX),
-                                                        (anchorPos.y + rel.y).coerceIn(padTopPx, maxY)
-                                                    )
-                                                    dragGroupOffsets[otherId] = target
+                                                // Clamp the WHOLE group's movement as one rigid unit, based on
+                                                // its combined bounding box — not each icon independently.
+                                                //
+                                                // Previously every follower's target was clamped on its own
+                                                // via .coerceIn(). Near an edge, a follower positioned further
+                                                // from the anchor (in the direction of travel) would hit that
+                                                // boundary before the anchor did — so it stopped while the
+                                                // anchor and other followers kept moving, breaking the rigid
+                                                // formation and causing icons to visually separate and pile up
+                                                // on top of each other, especially noticeable dragging down
+                                                // toward the taskbar/bottom edge.
+                                                //
+                                                // Fix: find the group's min/max relative offset in each axis
+                                                // (including the anchor itself at rel = 0,0), then clamp the
+                                                // ANCHOR's proposed position so that even the group's most
+                                                // extreme member stays in bounds. Every member then gets the
+                                                // exact same (possibly-limited) delta, so relative positions
+                                                // — and therefore the whole formation — are always preserved.
+                                                var minRelX = 0f; var maxRelX = 0f
+                                                var minRelY = 0f; var maxRelY = 0f
+                                                groupRelativeOffsets.values.forEach { rel ->
+                                                    if (rel.x < minRelX) minRelX = rel.x
+                                                    if (rel.x > maxRelX) maxRelX = rel.x
+                                                    if (rel.y < minRelY) minRelY = rel.y
+                                                    if (rel.y > maxRelY) maxRelY = rel.y
                                                 }
+                                                val proposedX = pos.x + amt.x
+                                                val proposedY = pos.y + amt.y
+                                                // Guard against an inverted range (selection wider/taller than
+                                                // the available screen space) — coerceIn(min, max) throws if
+                                                // min > max, so fall back to unclamped movement in that case
+                                                // rather than crash.
+                                                val lowX = padLeftPx - minRelX
+                                                val highX = maxX - maxRelX
+                                                val lowY = padTopPx - minRelY
+                                                val highY = maxY - maxRelY
+                                                val anchorX = if (lowX <= highX) proposedX.coerceIn(lowX, highX) else proposedX
+                                                val anchorY = if (lowY <= highY) proposedY.coerceIn(lowY, highY) else proposedY
+                                                pos = Offset(anchorX, anchorY)
+                                                groupRelativeOffsets.forEach { (otherId, rel) ->
+                                                    dragGroupOffsets[otherId] = Offset(anchorX + rel.x, anchorY + rel.y)
+                                                }
+                                            } else {
+                                                pos = Offset(
+                                                    (pos.x + amt.x).coerceIn(padLeftPx, maxX),
+                                                    (pos.y + amt.y).coerceIn(padTopPx, maxY)
+                                                )
                                             }
                                         },
                                         onDragEnd = {
@@ -1718,6 +1830,15 @@ fun Desktop(
                                             val maxY = maxYBound
                                             if (autoArrange) {
                                                 pos = basePos  // snap-back animation plays automatically
+                                            } else if (!alignToGrid) {
+                                                // Align-to-grid off: free pixel placement, like real Windows
+                                                // with that box unchecked — no snapping, and icons ARE
+                                                // allowed to visually overlap if you drop them on top of each
+                                                // other, since there's no grid to rearrange them onto.
+                                                val finalPos = Offset(pos.x.coerceIn(padLeftPx, maxX), pos.y.coerceIn(padTopPx, maxY))
+                                                pos = finalPos
+                                                customPositions[item.id] = finalPos
+                                                prefs.saveCustomPositions(customPositions)
                                             } else {
                                                 val otherCells = occupiedCells - posToCell(
                                                     customPositions[item.id] ?: basePos,
@@ -1746,7 +1867,7 @@ fun Desktop(
                                             // persist it — previously followers just froze at their last
                                             // live-drag pixel position (unsnapped, unsaved), so they'd
                                             // silently revert or look "stuck" off-grid after the drag.
-                                            if (wasGroup && !autoArrange) {
+                                            if (wasGroup && !autoArrange && alignToGrid) {
                                                 val occupiedNow = occupiedCells.toMutableSet()
                                                 customPositions[item.id]?.let {
                                                     occupiedNow.add(posToCell(it, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
@@ -1768,6 +1889,23 @@ fun Desktop(
                                                     customPositions[otherId] = finalPos
                                                     dragGroupOffsets[otherId] = finalPos  // last broadcast: followers apply this final settle
                                                     occupiedNow.add(posToCell(finalPos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                                                }
+                                                prefs.saveCustomPositions(customPositions)
+                                            } else if (wasGroup && !autoArrange && !alignToGrid) {
+                                                // Align-to-grid off: persist each follower's raw last-drag
+                                                // position exactly as-is (bounds-clamped only) — no snapping,
+                                                // matching the anchor's free-placement behavior above. Without
+                                                // this branch, followers' positions were never written to
+                                                // customPositions at all in free mode, so they'd silently
+                                                // revert to an auto-assigned spot on the next refresh.
+                                                groupRelativeOffsets.keys.forEach { otherId ->
+                                                    val lastPos = dragGroupOffsets[otherId] ?: return@forEach
+                                                    val finalPos = Offset(
+                                                        lastPos.x.coerceIn(padLeftPx, maxX),
+                                                        lastPos.y.coerceIn(padTopPx, maxY)
+                                                    )
+                                                    customPositions[otherId] = finalPos
+                                                    dragGroupOffsets[otherId] = finalPos
                                                 }
                                                 prefs.saveCustomPositions(customPositions)
                                             }
@@ -1822,7 +1960,7 @@ fun Desktop(
                                 .padding(horizontal = 16.dp, vertical = 10.dp)
                         ) {
                             Text(
-                                "No space available on io.github.norbertweb.io.github.norbertweb.bluebird",
+                                "No space available on desktop",
                                 color    = Color.White,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Normal
@@ -1889,6 +2027,63 @@ fun Desktop(
                 }
             }
 
+        // Places a brand-new item at (near) wherever the "New" context menu was opened
+        // from, like real Windows — snapped to the nearest free grid cell so it never
+        // lands on top of an existing icon. Previously new items got no position
+        // assigned at all, so they fell back to pure index-based auto-placement
+        // (wherever their alphabetical/sort position happened to put them).
+        fun placeNewItemAtClickPosition(id: String) {
+            if (autoArrange) return  // auto-arrange mode computes positions from index by design
+            val maxX = screenWPxTotal - cellWPx
+            val finalPos = if (alignToGrid) {
+                val snapped = snapToGrid(
+                    desktopCtxLocalOffset, cellWPx, cellHPx, padLeftPx, padTopPx,
+                    screenWPxTotal, screenHPxTotal, occupiedCells
+                )
+                Offset(snapped.x.coerceIn(padLeftPx, maxX), snapped.y.coerceIn(padTopPx, maxYBound))
+            } else {
+                // Align-to-grid off: place at the exact click point, like real Windows —
+                // no snapping.
+                Offset(
+                    desktopCtxLocalOffset.x.coerceIn(padLeftPx, maxX),
+                    desktopCtxLocalOffset.y.coerceIn(padTopPx, maxYBound)
+                )
+            }
+            customPositions[id] = finalPos
+            prefs.saveCustomPositions(customPositions)
+        }
+
+        // Assigns every un-positioned item a STABLE, persisted grid cell the moment it
+        // first appears — fixes a real bug where icons with no customPositions entry
+        // (e.g. default shortcuts, or anything created before this fix existed) fell
+        // back to autoGridPos(idx, ...) for their visual position. Since idx is just
+        // that item's position within the current sort order, inserting or removing ANY
+        // item could shift everyone else's idx and visibly reshuffle the whole desktop —
+        // which is what made creating one new file look like it "disorganized
+        // everything". Once an item has a real customPositions entry (assigned here, or
+        // from a drag, or from placeNewItemAtClickPosition above), it never depends on
+        // idx again, so later insertions/removals can't move it.
+        LaunchedEffect(items, autoArrange) {
+            if (autoArrange) return@LaunchedEffect
+            val maxX = screenWPxTotal - cellWPx
+            val occupied = occupiedCells.toMutableSet()
+            var changed = false
+            sortedItems.forEachIndexed { idx, item ->
+                if (customPositions.containsKey(item.id)) return@forEachIndexed
+                val fallback = autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
+                    ?: return@forEachIndexed  // grid full — nothing we can do yet
+                val snapped = snapToGrid(
+                    fallback, cellWPx, cellHPx, padLeftPx, padTopPx,
+                    screenWPxTotal, screenHPxTotal, occupied
+                )
+                val finalPos = Offset(snapped.x.coerceIn(padLeftPx, maxX), snapped.y.coerceIn(padTopPx, maxYBound))
+                customPositions[item.id] = finalPos
+                occupied.add(posToCell(finalPos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                changed = true
+            }
+            if (changed) prefs.saveCustomPositions(customPositions)
+        }
+
             // ── Desktop context menu ──
             if (showDesktopCtx) {
                 Win11DesktopContextMenu(
@@ -1903,6 +2098,12 @@ fun Desktop(
                     onSortChange        = { m, a ->
                         sortMode = m; sortAscending = a
                         prefs.sortMode = m; prefs.sortAscending = a
+                        // Marks that the user has explicitly chosen a sort mode now — from
+                        // here on, launches read the real saved mode instead of defaulting
+                        // to NONE. (Explicitly picking "None" itself also sets this flag,
+                        // so it correctly stays None on the next launch too, rather than
+                        // being indistinguishable from "never touched".)
+                        layoutPrefsStore.edit().putBoolean("user_set_sort", true).apply()
                         showDesktopCtx = false
                     },
                     autoArrange         = autoArrange,
@@ -1911,6 +2112,8 @@ fun Desktop(
                         if (it) { customPositions.clear(); prefs.clearCustomPositions() }
                         showDesktopCtx = false
                     },
+                    alignToGrid         = alignToGrid,
+                    onAlignToGridToggle = { setAlignToGrid(it) },
                     showIcons           = showIconsOnDesktop,
                     onShowIconsToggle   = { showIconsOnDesktop = it; prefs.showIconsOnDesktop = it; showDesktopCtx = false },
                     onRefresh           = { viewModel.requestDesktopRefresh(); showDesktopCtx = false },
@@ -1923,6 +2126,7 @@ fun Desktop(
                         val name   = uniqueName(desktopDir, "New folder")
                         val newDir = File(desktopDir, name)
                         newDir.mkdirs()
+                        placeNewItemAtClickPosition(newDir.absolutePath)
                         pendingRenameId = newDir.absolutePath
                         showDesktopCtx  = false
                         scheduleRefresh()
@@ -1931,6 +2135,7 @@ fun Desktop(
                         val name    = uniqueName(desktopDir, "New Text Document", "txt")
                         val newFile = File(desktopDir, name)
                         try { newFile.createNewFile() } catch (_: Exception) {}
+                        placeNewItemAtClickPosition(newFile.absolutePath)
                         pendingRenameId = newFile.absolutePath
                         showDesktopCtx  = false
                         scheduleRefresh()
@@ -2034,7 +2239,7 @@ fun Desktop(
                         iconCtxTarget = null
                     }) else null,
                     onCreateShortcut = {
-                        val f = File(desktopDir, uniqueName(desktopDir, target.file.nameWithoutExtension, "io.github.norbertweb.io.github.norbertweb.bluebird"))
+                        val f = File(desktopDir, uniqueName(desktopDir, target.file.nameWithoutExtension, "desktop"))
                         f.writeText("type=file\npath=${target.file.absolutePath}\nlabel=${target.file.nameWithoutExtension}\n")
                         iconCtxTarget = null
                         scheduleRefresh()
@@ -2047,8 +2252,9 @@ fun Desktop(
             if (showShortcutDialog) {
                 ShortcutDialog(
                     onConfirm = { pkg, label ->
-                        val f = File(desktopDir, uniqueName(desktopDir, label, "io.github.norbertweb.io.github.norbertweb.bluebird"))
+                        val f = File(desktopDir, uniqueName(desktopDir, label, "desktop"))
                         f.writeText("type=app\npackage=$pkg\nlabel=$label\n")
+                        placeNewItemAtClickPosition(f.absolutePath)
                         showShortcutDialog = false
                         scheduleRefresh()
                     },
@@ -2060,8 +2266,9 @@ fun Desktop(
                 AppPickerDialog(
                     isDark       = isDark,
                     onAppSelected = { pkg, label ->
-                        val f = File(desktopDir, uniqueName(desktopDir, label, "io.github.norbertweb.io.github.norbertweb.bluebird"))
+                        val f = File(desktopDir, uniqueName(desktopDir, label, "desktop"))
                         f.writeText("type=app\npackage=$pkg\nlabel=$label\n")
+                        placeNewItemAtClickPosition(f.absolutePath)
                         showAppPickerDialog = false
                         scheduleRefresh()
                     },
@@ -2123,7 +2330,7 @@ private fun DesktopIcon(
     onLiveTextChange: (String) -> Unit,
     onInlineRenameConfirm: () -> Unit,
     // Shared, parent-owned refresh-flicker value (0f..1f) — every icon reads the exact
-    // same value each frame, so the whole io.github.norbertweb.io.github.norbertweb.bluebird fades out/in in perfect sync, and
+    // same value each frame, so the whole desktop fades out/in in perfect sync, and
     // there's no per-icon coroutine that can get interrupted and freeze an icon invisible.
     refreshFlickerAlpha: Float = 1f
 ) {
@@ -2247,7 +2454,7 @@ private fun DesktopIcon(
 
             // ── Win11 inline rename field ──
             // White background, tight padding, blue 1.5dp border — matches
-            // the Windows 11 io.github.norbertweb.io.github.norbertweb.bluebird rename UX exactly.
+            // the Windows 11 desktop rename UX exactly.
             if (inlineRenaming) {
                 BasicTextField(
                     value         = textValue,
@@ -2673,7 +2880,7 @@ fun WallpaperPersonalisePanel(
                                         )
                                         .clickable { viewModel.setLiveWallpaper(lw) }
                                 ) {
-                                    LiveWallpaperRenderer(type = lw, modifier = Modifier.fillMaxSize())
+                                    LiveWallpaperRenderer(type = lw, modifier = Modifier.fillMaxSize(), animated = false)
                                     if (isActive) {
                                         Box(
                                             Modifier.fillMaxSize().background(acc.copy(alpha = 0.2f)),
@@ -2853,6 +3060,8 @@ fun Win11DesktopContextMenu(
     onSortChange: (DesktopSortMode, Boolean) -> Unit,
     autoArrange: Boolean,
     onAutoArrangeToggle: (Boolean) -> Unit,
+    alignToGrid: Boolean,
+    onAlignToGridToggle: (Boolean) -> Unit,
     showIcons: Boolean,
     onShowIconsToggle: (Boolean) -> Unit,
     onRefresh: () -> Unit,
@@ -2900,9 +3109,9 @@ fun Win11DesktopContextMenu(
                             W11SubRow("Small icons",  viewMode == DesktopIconSize.SMALL,  tc, accent) { onViewChange(DesktopIconSize.SMALL) }
                             W11CtxDivider(divColor)
                             W11SubRow("Auto arrange icons",  autoArrange, tc, accent) { onAutoArrangeToggle(!autoArrange) }
-                            W11SubRow("Align icons to grid", true,        tc, accent) {}
+                            W11SubRow("Align icons to grid", alignToGrid, tc, accent) { onAlignToGridToggle(!alignToGrid) }
                             W11CtxDivider(divColor)
-                            W11SubRow("Show io.github.norbertweb.io.github.norbertweb.bluebird icons", showIcons, tc, accent) { onShowIconsToggle(!showIcons) }
+                            W11SubRow("Show desktop icons", showIcons, tc, accent) { onShowIconsToggle(!showIcons) }
                         }
                     }
                 }
@@ -2918,6 +3127,10 @@ fun Win11DesktopContextMenu(
                         shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
                     ) {
                         Column(Modifier.padding(vertical = 5.dp)) {
+                            // "None" — the default, matching real Windows (sort isn't on until you
+                            // turn it on). Files stay exactly where created/pasted/dropped.
+                            W11SubRow("(None)",        sortMode == DesktopSortMode.NONE,          tc, accent) { onSortChange(DesktopSortMode.NONE,          sortAscending) }
+                            W11CtxDivider(divColor)
                             W11SubRow("Name",          sortMode == DesktopSortMode.NAME,          tc, accent) { onSortChange(DesktopSortMode.NAME,          sortAscending) }
                             W11SubRow("Size",          sortMode == DesktopSortMode.SIZE,          tc, accent) { onSortChange(DesktopSortMode.SIZE,          sortAscending) }
                             W11SubRow("Item type",     sortMode == DesktopSortMode.TYPE,          tc, accent) { onSortChange(DesktopSortMode.TYPE,          sortAscending) }

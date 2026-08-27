@@ -45,7 +45,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.norbertweb.bluebird.RealNotification
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -60,7 +60,7 @@ data class ToastNotifData(
     val appLabel: String,
     val title: String,
     val body: String,
-    val accent: Color = Win11Colors.AccentBlue,
+    val accent: Color = bluebirdColors.AccentBlue,
     val actionLabel: String? = null,
     val actionUrl: String? = null,
     val packageName: String? = null,
@@ -72,7 +72,7 @@ fun RealNotification.toToastData(): ToastNotifData = ToastNotifData(
     appLabel    = appName,
     title       = title,
     body        = body,
-    accent      = Win11Colors.AccentBlue,
+    accent      = bluebirdColors.AccentBlue,
     packageName = packageName,
     createdAt   = time
 )
@@ -80,7 +80,7 @@ fun RealNotification.toToastData(): ToastNotifData = ToastNotifData(
 fun BluebirdRemoteNotification.toToastData(): ToastNotifData {
     val accent = try {
         Color(android.graphics.Color.parseColor(badgeColor))
-    } catch (e: Exception) { Win11Colors.AccentBlue }
+    } catch (e: Exception) { bluebirdColors.AccentBlue }
 
     return ToastNotifData(
         id          = id,
@@ -125,7 +125,7 @@ fun NotificationToastHost(
         ) {
             toasts.takeLast(maxVisible).forEach { toast ->
                 key(toast.id) {
-                    Win11Toast(
+                    bluebirdToast(
                         toast             = toast,
                         isDark            = isDark,
                         textScale         = textScale,
@@ -143,7 +143,7 @@ fun NotificationToastHost(
 // ─── Single Toast ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun Win11Toast(
+private fun bluebirdToast(
     toast: ToastNotifData,
     isDark: Boolean,
     textScale: Float,
@@ -159,7 +159,7 @@ private fun Win11Toast(
     var remainingFraction  by remember { mutableStateOf(1f) }
     val dismissThreshold   = 260f
 
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     LaunchedEffect(Unit) { entered = true }
 

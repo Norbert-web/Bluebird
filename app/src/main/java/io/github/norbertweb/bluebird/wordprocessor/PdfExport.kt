@@ -1,4 +1,4 @@
-package io.github.norbertweb.bluebird.ui.screens
+package io.github.norbertweb.bluebird.wordprocessor
 
 // ============================================================================================
 // PdfExport.kt — walks the block tree onto pages sized per doc.pageSettings, using
@@ -7,6 +7,8 @@ package io.github.norbertweb.bluebird.ui.screens
 // ============================================================================================
 
 import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import androidx.compose.ui.graphics.toArgb
@@ -33,7 +35,7 @@ fun exportDocToPdf(doc: WordDocument): PdfDocument {
     val bottomLimit = pageHeight - marginBottom - (if (doc.showFooter) 24f else 0f)
 
     fun drawHeaderFooter(onPage: Int) {
-        val hfPaint = Paint().apply { textSize = 10f; isAntiAlias = true; color = android.graphics.Color.DKGRAY }
+        val hfPaint = Paint().apply { textSize = 10f; isAntiAlias = true; color = Color.DKGRAY }
         if (doc.showHeader && doc.headerParagraph.field.text.isNotBlank()) {
             val text = doc.headerParagraph.field.text.replace(PAGE_NUMBER_TOKEN, onPage.toString())
             canvas.drawText(text, marginLeft, marginTop, hfPaint)
@@ -106,7 +108,7 @@ fun exportDocToPdf(doc: WordDocument): PdfDocument {
                     val h = w * bmp.height / bmp.width.toFloat()
                     if (y + h > bottomLimit) newPage()
                     val rotated = if (block.rotationDeg != 0) {
-                        val matrix = android.graphics.Matrix().apply { postRotate(block.rotationDeg.toFloat()) }
+                        val matrix = Matrix().apply { postRotate(block.rotationDeg.toFloat()) }
                         Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
                     } else bmp
                     val scaled = Bitmap.createScaledBitmap(rotated, w.toInt().coerceAtLeast(1), h.toInt().coerceAtLeast(1), true)
@@ -121,8 +123,8 @@ fun exportDocToPdf(doc: WordDocument): PdfDocument {
             }
 
             is TableBlock -> {
-                val textPaint = Paint().apply { textSize = 11f; isAntiAlias = true; color = android.graphics.Color.BLACK }
-                val borderPaint = Paint().apply { style = Paint.Style.STROKE; strokeWidth = 1f; color = android.graphics.Color.GRAY }
+                val textPaint = Paint().apply { textSize = 11f; isAntiAlias = true; color = Color.BLACK }
+                val borderPaint = Paint().apply { style = Paint.Style.STROKE; strokeWidth = 1f; color = Color.GRAY }
                 val fillPaint = Paint().apply { style = Paint.Style.FILL }
                 val cols = block.rows.firstOrNull()?.cells?.size ?: 0
                 if (cols > 0) {
@@ -147,8 +149,8 @@ fun exportDocToPdf(doc: WordDocument): PdfDocument {
             }
 
             is TocBlock -> {
-                val headingPaint = Paint().apply { textSize = 16f; isFakeBoldText = true; isAntiAlias = true; color = android.graphics.Color.BLACK }
-                val entryPaint = Paint().apply { textSize = 12f; isAntiAlias = true; color = android.graphics.Color.DKGRAY }
+                val headingPaint = Paint().apply { textSize = 16f; isFakeBoldText = true; isAntiAlias = true; color = Color.BLACK }
+                val entryPaint = Paint().apply { textSize = 12f; isAntiAlias = true; color = Color.DKGRAY }
                 if (y + 24f > bottomLimit) newPage()
                 canvas.drawText("Table of Contents", marginLeft, y + 16f, headingPaint)
                 y += 28f

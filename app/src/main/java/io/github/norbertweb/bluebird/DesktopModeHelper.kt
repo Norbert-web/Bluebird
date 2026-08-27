@@ -89,7 +89,7 @@ object DesktopModeHelper {
  *
  *   setContent {
  *       DesktopDensityOverride {
- *           Win11Theme { ... }
+ *           bluebirdTheme { ... }
  *       }
  *   }
  */

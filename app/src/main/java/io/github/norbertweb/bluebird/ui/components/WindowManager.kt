@@ -72,7 +72,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.win11launcher.ui.screens.BrowserScreen
+import com.bluebirdlauncher.ui.screens.BrowserScreen
 import io.github.norbertweb.bluebird.CopyJobStatus
 import io.github.norbertweb.bluebird.CopyOpType
 import io.github.norbertweb.bluebird.LauncherScreen
@@ -86,11 +86,11 @@ import io.github.norbertweb.bluebird.ui.screens.FileExplorerScreen
 import io.github.norbertweb.bluebird.ui.screens.ImageViewerScreen
 import io.github.norbertweb.bluebird.ui.screens.MediaPlayerScreen
 import io.github.norbertweb.bluebird.ui.screens.MessagesScreen
-import io.github.norbertweb.bluebird.ui.screens.PhoneScreen
+import io.github.norbertweb.bluebird.wordprocessor.PhoneScreen
 import io.github.norbertweb.bluebird.ui.screens.RecycleBinScreen
 import io.github.norbertweb.bluebird.ui.screens.SettingsScreen
 import io.github.norbertweb.bluebird.ui.screens.TaskManagerScreen
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import java.io.File
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -336,7 +336,7 @@ fun FloatingWindow(
     )
     val windowBg = if (isDark) Color(0xFF1C1C1C) else Color(0xFFF5F5F5)
     val borderColor = if (isActive)
-        Win11Colors.AccentBlue.copy(alpha = if (isSnapping) 0.9f else 0.45f)
+        bluebirdColors.AccentBlue.copy(alpha = if (isSnapping) 0.9f else 0.45f)
     else
         Color.White.copy(alpha = 0.1f)
     val borderWidth = if (isActive) (if (isSnapping) 2.dp else 1.dp) else 0.5.dp
@@ -615,7 +615,7 @@ private fun SnapLayoutPicker(
     onLayoutSelected: (SnapLayout) -> Unit
 ) {
     val bg     = if (isDark) Color(0xFF2C2C2C) else Color(0xFFFFFFFF)
-    val accent = Win11Colors.AccentBlue
+    val accent = bluebirdColors.AccentBlue
     val cell   = if (isDark) Color(0xFF3A3A3A) else Color(0xFFE0E0E0)
     val hover  = accent.copy(alpha = 0.7f)
 
@@ -760,7 +760,7 @@ private fun WindowContextMenu(
                             modifier = Modifier
                                 .size(28.dp, 20.dp)
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(if (isSelected) Win11Colors.AccentBlue else divider)
+                                .background(if (isSelected) bluebirdColors.AccentBlue else divider)
                                 .pointerInput(Unit) { detectTapGestures { onOpacityChange(v) } },
                             contentAlignment = Alignment.Center
                         ) {
@@ -783,7 +783,7 @@ private fun ContextMenuItem(label: String, color: Color, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
-            .background(if (hovered) Win11Colors.AccentBlue.copy(alpha = 0.15f) else Color.Transparent)
+            .background(if (hovered) bluebirdColors.AccentBlue.copy(alpha = 0.15f) else Color.Transparent)
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .pointerInput(Unit) {
                 awaitPointerEventScope {
@@ -839,7 +839,7 @@ private fun PipThumbnail(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
-                    .background(Win11Colors.AccentBlue)
+                    .background(bluebirdColors.AccentBlue)
                     .padding(horizontal = 10.dp, vertical = 4.dp)
                     .pointerInput(Unit) { detectTapGestures { onExpand() } }
             ) {
@@ -1078,7 +1078,7 @@ fun WindowContent(
 // ─────────────────────────────────────────────────────────────────────────────
 // WindowTitleBar — Windows 11 style
 //   • Icon + title (left-aligned)
-//   • Minimize, Maximize/Restore, Close buttons (right-aligned, Win11 look)
+//   • Minimize, Maximize/Restore, Close buttons (right-aligned, bluebird look)
 //   • Maximize button: tap = maximize/restore, long-press = snap picker
 //   • "Always on Top" pin badge shown when active
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1150,7 +1150,7 @@ fun WindowTitleBar(
 
         // ── Windows 11 style control buttons ─────────────────────────────────
         // Minimize —
-        Win11TitleButton(
+        bluebirdTitleButton(
             label   = "—",
             hoverBg = if (isDark) Color(0xFF3A3A3A) else Color(0xFFD0D0D0),
             onClick = onMinimize
@@ -1160,7 +1160,7 @@ fun WindowTitleBar(
         // windows that don't support it (e.g. the copy/move progress dialog), matching
         // real Windows 11 behavior where non-resizable dialogs simply omit this button.
         if (canMaximize) {
-            Win11TitleButton(
+            bluebirdTitleButton(
                 label        = if (isMaximized) "❐" else "□",
                 hoverBg      = if (isDark) Color(0xFF3A3A3A) else Color(0xFFD0D0D0),
                 onClick      = onMaximize,
@@ -1169,7 +1169,7 @@ fun WindowTitleBar(
         }
 
         // Close ✕ — red hover
-        Win11TitleButton(
+        bluebirdTitleButton(
             label        = "✕",
             hoverBg      = Color(0xFFC42B1C),
             hoverTextCol = Color.White,
@@ -1179,10 +1179,10 @@ fun WindowTitleBar(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Win11TitleButton — flat, hover-highlighted, supports long-press
+// bluebirdTitleButton — flat, hover-highlighted, supports long-press
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-private fun Win11TitleButton(
+private fun bluebirdTitleButton(
     label: String,
     hoverBg: Color,
     hoverTextCol: Color = Color.Unspecified,

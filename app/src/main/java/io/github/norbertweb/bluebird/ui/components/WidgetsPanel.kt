@@ -52,7 +52,7 @@ import coil.compose.AsyncImage
 import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
 import io.github.norbertweb.bluebird.ui.theme.LocalTextScale
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.net.URL
@@ -180,7 +180,7 @@ fun WidgetsPanel(
 ) {
     val context    = LocalContext.current
     val isDark     = uiState.isDarkTheme
-    val textColor  = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor  = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val scope      = rememberCoroutineScope()
     val textScale  = LocalTextScale.current
 
@@ -240,7 +240,7 @@ fun WidgetsPanel(
                         modifier = Modifier.size(32.dp)) {
                         Icon(
                             if (editMode) Icons.Default.Check else Icons.Default.Edit,
-                            null, tint = if (editMode) Win11Colors.AccentBlue else textColor.copy(alpha = 0.6f),
+                            null, tint = if (editMode) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.6f),
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -334,7 +334,7 @@ private fun WidgetEditPanel(
     ) {
         Text(
             "Edit Widgets",
-            color      = Win11Colors.AccentBlue,
+            color      = bluebirdColors.AccentBlue,
             fontSize   = (12 * textScale).sp,
             fontWeight = FontWeight.SemiBold,
             modifier   = Modifier.padding(bottom = 4.dp)
@@ -350,7 +350,7 @@ private fun WidgetEditPanel(
                 Switch(
                     checked  = visible,
                     onCheckedChange = { onToggle(id) },
-                    colors   = SwitchDefaults.colors(checkedThumbColor = Win11Colors.AccentBlue),
+                    colors   = SwitchDefaults.colors(checkedThumbColor = bluebirdColors.AccentBlue),
                     modifier = Modifier.size(36.dp, 20.dp)
                 )
                 Text(
@@ -391,7 +391,7 @@ private fun WidgetCard(
 private fun WidgetHeader(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, textColor: Color, textScale: Float) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(title, style = MaterialTheme.typography.titleMedium, color = textColor, fontSize = (14 * textScale).sp)
-        Icon(icon, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(18.dp))
+        Icon(icon, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -400,7 +400,7 @@ private fun WidgetHeader(title: String, icon: androidx.compose.ui.graphics.vecto
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun ClockWidget(isDark: Boolean, context: Context, textScale: Float) {
-    val textColor  = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor  = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val worldClocks by remember { mutableStateOf(loadWorldClocks(context)) }
 
     // Tick every second
@@ -448,7 +448,7 @@ private fun ClockWidget(isDark: Boolean, context: Context, textScale: Float) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Language, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(14.dp))
+                        Icon(Icons.Default.Language, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
                         Text(wc.label, color = textColor.copy(alpha = 0.7f), fontSize = (12 * textScale).sp)
                     }
                     Text(time, color = textColor, fontSize = (13 * textScale).sp, fontWeight = FontWeight.Medium)
@@ -654,7 +654,7 @@ private fun WeatherWidget(isDark: Boolean, context: Context, textScale: Float, r
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun NowPlayingWidget(isDark: Boolean, context: Context, textScale: Float) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     var title    by remember { mutableStateOf<String?>(null) }
     var artist   by remember { mutableStateOf<String?>(null) }
@@ -710,9 +710,9 @@ private fun NowPlayingWidget(isDark: Boolean, context: Context, textScale: Float
                 } else {
                     Box(
                         modifier = Modifier.size(52.dp).clip(RoundedCornerShape(8.dp))
-                            .background(Win11Colors.AccentBlue.copy(alpha = 0.2f)),
+                            .background(bluebirdColors.AccentBlue.copy(alpha = 0.2f)),
                         contentAlignment = Alignment.Center
-                    ) { Icon(Icons.Default.MusicNote, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(24.dp)) }
+                    ) { Icon(Icons.Default.MusicNote, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(24.dp)) }
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
@@ -734,7 +734,7 @@ private fun NowPlayingWidget(isDark: Boolean, context: Context, textScale: Float
                 Spacer(Modifier.width(8.dp))
                 Box(
                     modifier = Modifier.size(42.dp).clip(CircleShape)
-                        .background(Win11Colors.AccentBlue)
+                        .background(bluebirdColors.AccentBlue)
                         .clickable {
                             if (isPlaying) ctrl?.transportControls?.pause()
                             else ctrl?.transportControls?.play()
@@ -758,7 +758,7 @@ private fun NowPlayingWidget(isDark: Boolean, context: Context, textScale: Float
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun StepsWidget(isDark: Boolean, context: Context, textScale: Float) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     var steps by remember { mutableStateOf(0) }
     val goal  = 10000
 
@@ -799,7 +799,7 @@ private fun StepsWidget(isDark: Boolean, context: Context, textScale: Float) {
                         drawArc(color = if (isDark) Color(0xFF3A3A3A) else Color(0xFFDDDDDD),
                             startAngle = -90f, sweepAngle = 360f, useCenter = false,
                             style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round))
-                        drawArc(color = Win11Colors.AccentBlue,
+                        drawArc(color = bluebirdColors.AccentBlue,
                             startAngle = -90f, sweepAngle = sweep, useCenter = false,
                             style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round))
                     }
@@ -815,7 +815,7 @@ private fun StepsWidget(isDark: Boolean, context: Context, textScale: Float) {
                     LinearProgressIndicator(
                         progress = { steps.toFloat() / goal },
                         modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                        color      = Win11Colors.AccentBlue,
+                        color      = bluebirdColors.AccentBlue,
                         trackColor = if (isDark) Color(0xFF3A3A3A) else Color(0xFFDDDDDD)
                     )
                     Spacer(Modifier.height(4.dp))
@@ -831,7 +831,7 @@ private fun StepsWidget(isDark: Boolean, context: Context, textScale: Float) {
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun StockWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     var stocks  by remember { mutableStateOf(stableStockData()) }
     var loading by remember { mutableStateOf(false) }
 
@@ -846,8 +846,8 @@ private fun StockWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
     WidgetCard(isDark) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Markets", style = MaterialTheme.typography.titleMedium, color = textColor, fontSize = (14 * textScale).sp)
-            if (loading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Win11Colors.AccentBlue)
-            else Icon(Icons.Default.TrendingUp, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(18.dp))
+            if (loading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = bluebirdColors.AccentBlue)
+            else Icon(Icons.Default.TrendingUp, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(18.dp))
         }
         Spacer(Modifier.height(10.dp))
         stocks.forEach { stock ->
@@ -869,12 +869,12 @@ private fun StockWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
                         if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                     }
                     drawPath(path,
-                        color = if (stock.isUp) Win11Colors.SuccessGreen else Win11Colors.DangerRed,
+                        color = if (stock.isUp) bluebirdColors.SuccessGreen else bluebirdColors.DangerRed,
                         style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
                 }
                 Text(
                     stock.change,
-                    color      = if (stock.isUp) Win11Colors.SuccessGreen else Win11Colors.DangerRed,
+                    color      = if (stock.isUp) bluebirdColors.SuccessGreen else bluebirdColors.DangerRed,
                     fontSize   = (12 * textScale).sp,
                     fontWeight = FontWeight.Medium,
                     modifier   = Modifier.weight(0.25f)
@@ -898,7 +898,7 @@ private fun stableStockData() = listOf(
 @Composable
 private fun NewsWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
     val context   = LocalContext.current
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     var articles  by remember { mutableStateOf(fallbackNews()) }
     var loading   by remember { mutableStateOf(false) }
 
@@ -911,8 +911,8 @@ private fun NewsWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
     WidgetCard(isDark) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("News", style = MaterialTheme.typography.titleMedium, color = textColor, fontSize = (14 * textScale).sp)
-            if (loading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Win11Colors.AccentBlue)
-            else Icon(Icons.Default.Article, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(18.dp))
+            if (loading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = bluebirdColors.AccentBlue)
+            else Icon(Icons.Default.Article, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(18.dp))
         }
         Spacer(Modifier.height(10.dp))
         articles.take(4).forEach { article ->
@@ -924,9 +924,9 @@ private fun NewsWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Box(
-                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)).background(Win11Colors.AccentBlue.copy(alpha = 0.15f)),
+                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)).background(bluebirdColors.AccentBlue.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
-                ) { Icon(Icons.Default.Article, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(22.dp)) }
+                ) { Icon(Icons.Default.Article, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(22.dp)) }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(article.title, style = MaterialTheme.typography.labelLarge, color = textColor,
                         fontSize = (12 * textScale).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -950,7 +950,7 @@ private fun fallbackNews() = listOf(
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun CalendarWidget(isDark: Boolean, context: Context, textScale: Float) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     var hasPermission by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED)
@@ -1003,7 +1003,7 @@ private fun getUpcomingEvents(context: Context, maxResults: Int): List<CalendarE
             while (it.moveToNext()) {
                 val title = it.getString(0) ?: "Event"
                 val start = it.getLong(1)
-                val color = try { Color(it.getInt(2)) } catch (e: Exception) { Win11Colors.AccentBlue }
+                val color = try { Color(it.getInt(2)) } catch (e: Exception) { bluebirdColors.AccentBlue }
                 events.add(CalendarEvent(title, SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(start)), color))
             }
         }
@@ -1016,7 +1016,7 @@ private fun getUpcomingEvents(context: Context, maxResults: Int): List<CalendarE
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun PhotosWidget(isDark: Boolean, context: Context, textScale: Float) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES
     else Manifest.permission.READ_EXTERNAL_STORAGE
@@ -1080,7 +1080,7 @@ private fun getRecentPhotos(context: Context, maxCount: Int): List<Uri> {
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun SportsWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val scores = remember {
         listOf(
             MatchScore("Warriors",   "98",  "Celtics",    "102"),
@@ -1100,7 +1100,7 @@ private fun SportsWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
             ) {
                 Text(team1, color = textColor, fontSize = (12 * textScale).sp, modifier = Modifier.weight(1f))
                 Box(
-                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Win11Colors.AccentBlue.copy(alpha = 0.12f))
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(bluebirdColors.AccentBlue.copy(alpha = 0.12f))
                         .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
                     Text("$score1 – $score2", color = textColor, fontSize = (12 * textScale).sp, fontWeight = FontWeight.Bold)
@@ -1117,7 +1117,7 @@ private fun SportsWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun TrafficWidget(isDark: Boolean, textScale: Float) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     WidgetCard(isDark) {
         WidgetHeader("Traffic", Icons.Default.DirectionsCar, textColor, textScale)
         Spacer(Modifier.height(10.dp))
@@ -1135,7 +1135,7 @@ private fun TrafficWidget(isDark: Boolean, textScale: Float) {
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     var tasks        by remember { mutableStateOf(loadTodos(context)) }
     var newTaskText  by remember { mutableStateOf("") }
     var showAddField by remember { mutableStateOf(false) }
@@ -1150,7 +1150,7 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                 Text("$done/${tasks.size}", color = textColor.copy(alpha = 0.45f), fontSize = (11 * textScale).sp,
                     modifier = Modifier.align(Alignment.CenterVertically).padding(end = 6.dp))
                 IconButton(onClick = { showAddField = !showAddField }, modifier = Modifier.size(22.dp)) {
-                    Icon(Icons.Default.Add, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Add, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(16.dp))
                 }
             }
         }
@@ -1168,7 +1168,7 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                 if (offsetX < -30f) {
                     Box(
                         modifier = Modifier.matchParentSize().clip(RoundedCornerShape(8.dp))
-                            .background(Win11Colors.Error.copy(alpha = (-offsetX / 200f).coerceIn(0f, 1f))),
+                            .background(bluebirdColors.Error.copy(alpha = (-offsetX / 200f).coerceIn(0f, 1f))),
                         contentAlignment = Alignment.CenterEnd
                     ) { Icon(Icons.Default.Delete, null, tint = Color.White, modifier = Modifier.padding(end = 12.dp).size(16.dp)) }
                 }
@@ -1189,7 +1189,7 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                     Checkbox(
                         checked = task.done,
                         onCheckedChange = { checked -> save(tasks.toMutableList().also { it[idx] = it[idx].copy(done = checked) }) },
-                        colors   = CheckboxDefaults.colors(checkedColor = Win11Colors.AccentBlue, checkmarkColor = Color.White),
+                        colors   = CheckboxDefaults.colors(checkedColor = bluebirdColors.AccentBlue, checkmarkColor = Color.White),
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
@@ -1216,7 +1216,7 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                         save(tasks + TodoTask(newTaskText.trim(), false))
                         newTaskText = ""; showAddField = false
                     }
-                }) { Icon(Icons.Default.Check, null, tint = Win11Colors.SuccessGreen) }
+                }) { Icon(Icons.Default.Check, null, tint = bluebirdColors.SuccessGreen) }
             }
         }
     }
@@ -1227,7 +1227,7 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun AlarmWidget(isDark: Boolean, context: Context, textScale: Float) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     val nextAlarm = remember {
         try {
@@ -1245,7 +1245,7 @@ private fun AlarmWidget(isDark: Boolean, context: Context, textScale: Float) {
             Text("No alarm set", color = textColor.copy(alpha = 0.5f), fontSize = (12 * textScale).sp)
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Alarm, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.Alarm, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(20.dp))
                 Text(nextAlarm, color = textColor, fontSize = (14 * textScale).sp, fontWeight = FontWeight.Medium)
             }
         }
@@ -1257,7 +1257,7 @@ private fun AlarmWidget(isDark: Boolean, context: Context, textScale: Float) {
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun NetworkSpeedWidget(isDark: Boolean, textScale: Float) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     var rxSpeed by remember { mutableStateOf("— KB/s") }
     var txSpeed by remember { mutableStateOf("— KB/s") }
 
@@ -1282,7 +1282,7 @@ private fun NetworkSpeedWidget(isDark: Boolean, textScale: Float) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Default.ArrowDownward, null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.ArrowDownward, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
                     Text("Download", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textScale).sp)
                 }
                 Text(rxSpeed, color = textColor, fontSize = (15 * textScale).sp, fontWeight = FontWeight.SemiBold)
@@ -1290,7 +1290,7 @@ private fun NetworkSpeedWidget(isDark: Boolean, textScale: Float) {
             Box(modifier = Modifier.width(1.dp).height(36.dp).background(if (isDark) Color(0xFF3A3A3A) else Color(0xFFCCCCCC)))
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Default.ArrowUpward, null, tint = Win11Colors.Success, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.ArrowUpward, null, tint = bluebirdColors.Success, modifier = Modifier.size(14.dp))
                     Text("Upload", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textScale).sp)
                 }
                 Text(txSpeed, color = textColor, fontSize = (15 * textScale).sp, fontWeight = FontWeight.SemiBold)
@@ -1312,7 +1312,7 @@ private fun formatSpeed(bytesPerSec: Long): String {
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun ScreenTimeWidget(isDark: Boolean, context: Context, textScale: Float) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     val hasPermission = remember {
         try {
@@ -1377,7 +1377,7 @@ private fun ScreenTimeWidget(isDark: Boolean, context: Context, textScale: Float
                     LinearProgressIndicator(
                         progress = { app.fraction },
                         modifier = Modifier.weight(1f).height(5.dp).clip(RoundedCornerShape(3.dp)),
-                        color      = Win11Colors.AccentBlue,
+                        color      = bluebirdColors.AccentBlue,
                         trackColor = if (isDark) Color(0xFF3A3A3A) else Color(0xFFDDDDDD)
                     )
                     Text("${app.minutes}m", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textScale).sp,

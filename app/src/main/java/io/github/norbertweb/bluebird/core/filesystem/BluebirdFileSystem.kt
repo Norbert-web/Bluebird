@@ -1,5 +1,9 @@
 package io.github.norbertweb.bluebird.core.filesystem
 
+// NOTE ON PACKAGE PATH: guessed as io.github.norbertweb.bluebird.core.filesystem to sit
+// alongside io.github.norbertweb.bluebird.ui.components. Adjust the package line (and
+// the matching import in TerminalScreen.kt) to wherever this actually
+// lives in the project.
 
 import android.os.Environment
 import android.os.StatFs
@@ -95,21 +99,38 @@ object BluebirdFileSystem {
 
     // ── Virtual <-> real path translation ───────────────────────────
 
-    /** Collapses ../ segments etc. via the JVM's own canonicalization,
-     *  falling back to the un-normalized file if that fails. */
-    private fun normalize(f: File): File =
-        try { File(f.canonicalPath) } catch (_: Exception) { f }
+    /** Collapses ../ and ./ segments via pure string manipulation.
+     *  Deliberately NOT File.canonicalPath: that touches the real
+     *  filesystem to resolve the path, and on Android, external
+     *  device storage (D:\) is mounted through a FUSE layer for
+     *  scoped storage — canonicalPath calls on paths outside the
+     *  app's own directories can throw or behave inconsistently on
+     *  that layer even when the file is genuinely readable. This
+     *  never touches the filesystem and can't throw. */
+    private fun collapse(path: String): String {
+        val isAbsolute = path.startsWith("/")
+        val stack = mutableListOf<String>()
+        path.split("/").forEach { part ->
+            when (part) {
+                "", "." -> { }
+                ".." -> if (stack.isNotEmpty() && stack.last() != "..") stack.removeAt(stack.lastIndex)
+                        else if (!isAbsolute) stack.add("..")
+                else -> stack.add(part)
+            }
+        }
+        return (if (isAbsolute) "/" else "") + stack.joinToString("/")
+    }
+
+    private fun normalize(f: File): File = File(collapse(f.path))
 
     /** The security boundary: every mutating command must check this
      *  before touching a resolved path. A path outside Bluebird/ is
      *  never valid input, regardless of what the user typed. */
-    fun isInsideBluebird(real: File): Boolean =
-        try {
-            real.canonicalPath == root.canonicalPath ||
-                real.canonicalPath.startsWith(root.canonicalPath + File.separator)
-        } catch (_: Exception) {
-            false
-        }
+    fun isInsideBluebird(real: File): Boolean {
+        val r = normalize(real).absolutePath
+        val rootPath = root.absolutePath
+        return r == rootPath || r.startsWith(rootPath + File.separator)
+    }
 
     /** Free space on the volume backing the Bluebird root, for `dir`
      *  and `vol` output. */
@@ -153,11 +174,13 @@ object BluebirdFileSystem {
     /** Access check that accounts for D:\ when explorer mode is on.
      *  Every command must go through this (or the C:\-only overload
      *  above) — never through a raw File check. */
-    fun isAccessAllowed(real: File, allowDeviceDrive: Boolean): Boolean =
-        isInsideBluebird(real) || (allowDeviceDrive && try {
-            real.canonicalPath == deviceRoot.canonicalPath ||
-                real.canonicalPath.startsWith(deviceRoot.canonicalPath + File.separator)
-        } catch (_: Exception) { false })
+    fun isAccessAllowed(real: File, allowDeviceDrive: Boolean): Boolean {
+        if (isInsideBluebird(real)) return true
+        if (!allowDeviceDrive) return false
+        val r = normalize(real).absolutePath
+        val devicePath = deviceRoot.absolutePath
+        return r == devicePath || r.startsWith(devicePath + File.separator)
+    }
 
     fun toVirtual(real: File, allowDeviceDrive: Boolean = false): String {
         val rootPath = root.absolutePath

@@ -1,4 +1,4 @@
-package com.win11launcher.browser.ui.webview
+package com.io.github.norbertweb.bluebird.browser.ui.webview
 
 import android.graphics.Bitmap
 import android.net.http.SslError
@@ -24,15 +24,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import com.win11launcher.browser.model.BrowserSettings
-import com.win11launcher.browser.model.BrowserTab
-import com.win11launcher.browser.model.JsDialogState
-import com.win11launcher.browser.model.JsDialogType
-import com.win11launcher.browser.model.SslDialogState
-import com.win11launcher.browser.utils.AdBlocker
-import com.win11launcher.browser.utils.UserAgents
-import com.win11launcher.browser.utils.onMain
-import com.win11launcher.browser.model.PermissionRequest as BrowserPermissionRequest
+import com.io.github.norbertweb.bluebird.browser.model.BrowserSettings
+import com.io.github.norbertweb.bluebird.browser.model.BrowserTab
+import com.io.github.norbertweb.bluebird.browser.model.JsDialogState
+import com.io.github.norbertweb.bluebird.browser.model.JsDialogType
+import com.io.github.norbertweb.bluebird.browser.model.SslDialogState
+import com.io.github.norbertweb.bluebird.browser.utils.AdBlocker
+import com.io.github.norbertweb.bluebird.browser.utils.UserAgents
+import com.io.github.norbertweb.bluebird.browser.utils.onMain
+import com.io.github.norbertweb.bluebird.browser.model.PermissionRequest as BrowserPermissionRequest
 
 // ═══════════════════════════════════════════════════════════════════════
 // BrowserWebView — fully featured WebView with:

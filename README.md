@@ -450,7 +450,7 @@ Bluebird/
 │           │   │   ├── SetupScreen.kt        # First-launch OOBE wizard
 │           │   │   └── TextEditorScreen.kt   # In-launcher text/code editor
 │           │   └── theme/
-│           │       └── Theme.kt              # Win11Colors, dark/light Material3 themes
+│           │       └── Theme.kt              # bluebirdColors, dark/light Material3 themes
 │           │
 │           └── update/
 │               ├── UpdateManager.kt          # GitHub-based update checker & downloader

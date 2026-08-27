@@ -1,4 +1,4 @@
-package com.win11launcher.browser.ui.newtab
+package com.io.github.norbertweb.bluebird.browser.ui.newtab
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -49,9 +49,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.win11launcher.browser.model.Bookmark
-import com.win11launcher.browser.model.BrowserSettings
-import com.win11launcher.browser.model.HistoryEntry
+import com.io.github.norbertweb.bluebird.browser.model.Bookmark
+import com.io.github.norbertweb.bluebird.browser.model.BrowserSettings
+import com.io.github.norbertweb.bluebird.browser.model.HistoryEntry
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale

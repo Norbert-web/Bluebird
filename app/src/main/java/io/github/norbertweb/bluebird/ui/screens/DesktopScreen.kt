@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
@@ -38,7 +39,7 @@ import io.github.norbertweb.bluebird.PowerAction // Imported enum type safely
 import io.github.norbertweb.bluebird.ui.components.*
 import io.github.norbertweb.bluebird.ui.components.wallpaperGradients
 import io.github.norbertweb.bluebird.ui.theme.LocalTextScale
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 
 @Composable
 fun DesktopScreen(viewModel: LauncherViewModel) {
@@ -46,7 +47,15 @@ fun DesktopScreen(viewModel: LauncherViewModel) {
     val context = LocalContext.current
     val textScale = LocalTextScale.current
 
-    // Floating Win11-style toast popups — fed by the ViewModel's one-shot
+    // Real, measured taskbar height in px — fed into Desktop() below so it knows to
+    // reserve that space at the bottom when placing/clamping icon drag positions.
+    // Measuring the actual rendered taskbar (rather than duplicating its settings-driven
+    // height calculation here) means this stays correct automatically whatever taskbar
+    // height/rounded-corner setting the user has chosen, without this file needing to
+    // know about TaskbarPrefs at all.
+    var taskbarHeightPx by remember { mutableStateOf(0f) }
+
+    // Floating bluebird-style toast popups — fed by the ViewModel's one-shot
     // toastEvents flow (fires exactly once per new device notification).
     val activeToasts = remember { mutableStateListOf<ToastNotifData>() }
     LaunchedEffect(Unit) {
@@ -92,7 +101,8 @@ fun DesktopScreen(viewModel: LauncherViewModel) {
         Desktop(
             wallpaper = uiState.wallpaper,
             viewModel = viewModel,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+            bottomSafeAreaPx = if (uiState.isTaskbarVisible) taskbarHeightPx else 0f
         )
 
         // ── 2. Windows ──
@@ -218,10 +228,19 @@ fun DesktopScreen(viewModel: LauncherViewModel) {
             enter = slideInVertically(initialOffsetY = { it }),
             exit = slideOutVertically(targetOffsetY = { it })
         ) {
-            Win11Taskbar(
+            bluebirdTaskbar(
                 uiState = uiState,
                 viewModel = viewModel,
-                modifier = Modifier.fillMaxWidth().height(44.dp)
+                // Was previously forced to a hardcoded 44.dp here regardless of the
+                // user's actual taskbar height setting (Compact/Normal/Large all have
+                // different real heights) — that mismatch meant Compact left dead
+                // space in this box while Large could clip/overflow it. bluebirdTaskbar
+                // already sizes itself correctly via its own settings-driven height
+                // internally, so just measure whatever it actually renders at instead
+                // of fighting it with an external fixed height.
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned { taskbarHeightPx = it.size.height.toFloat() }
             )
         }
 
@@ -258,7 +277,7 @@ fun DesktopScreen(viewModel: LauncherViewModel) {
             }
         }
 
-        // ── 12. Notification Toasts — floating Win11-style popups, drawn above
+        // ── 12. Notification Toasts — floating bluebird-style popups, drawn above
         //    everything else (windows, overlays, taskbar) so a new notification
         //    is always visible regardless of what's currently open. ──
         NotificationToastHost(
@@ -398,7 +417,7 @@ fun WallpaperPickerDialog(
     onBrowse: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val textColor = if (isDark) Win11Colors.TextPrimary else Win11Colors.TextPrimaryLight
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -406,7 +425,7 @@ fun WallpaperPickerDialog(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(
                     if (target == WallpaperTarget.LOCK_SCREEN) Icons.Default.Lock else Icons.Default.Wallpaper,
-                    null, tint = Win11Colors.AccentBlue, modifier = Modifier.size(20.dp)
+                    null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(20.dp)
                 )
                 Text(if (target == WallpaperTarget.LOCK_SCREEN) "Lock Screen Wallpaper" else "Desktop Wallpaper", fontWeight = FontWeight.Medium)
             }
@@ -426,7 +445,7 @@ fun WallpaperPickerDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
-                            .border(if (isSelected) 2.dp else 0.dp, Win11Colors.AccentBlue, RoundedCornerShape(8.dp))
+                            .border(if (isSelected) 2.dp else 0.dp, bluebirdColors.AccentBlue, RoundedCornerShape(8.dp))
                             .clickable { onSelectBuiltIn(index) }
                             .padding(2.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -450,8 +469,8 @@ fun WallpaperPickerDialog(
                 OutlinedButton(
                     onClick = onBrowse,
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Win11Colors.AccentBlue),
-                    border = BorderStroke(1.dp, Win11Colors.AccentBlue)
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = bluebirdColors.AccentBlue),
+                    border = BorderStroke(1.dp, bluebirdColors.AccentBlue)
                 ) {
                     Icon(Icons.Default.Image, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
@@ -541,7 +560,7 @@ fun LockScreenOverlay(
                 Box(
                     modifier = Modifier
                         .size(72.dp)
-                        .background(Win11Colors.AccentBlue.copy(alpha = 0.8f), CircleShape),
+                        .background(bluebirdColors.AccentBlue.copy(alpha = 0.8f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(

@@ -1,4 +1,4 @@
-package io.github.norbertweb.bluebird.ui.screens
+package io.github.norbertweb.bluebird.wordprocessor
 
 // ============================================================================================
 // BlockViews.kt — renders the block tree: individual block composables, the paginated document
@@ -8,7 +8,6 @@ package io.github.norbertweb.bluebird.ui.screens
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
@@ -27,13 +26,14 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.norbertweb.bluebird.ui.theme.Win11Colors
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 
 // ---- search ------------------------------------------------------------------------------
 
@@ -90,11 +90,11 @@ fun ParagraphView(
                     else normalizeAndMerge(para.spans, para.field.text.length, style.baseAttrs()),
                     highlightRange
                 ),
-                textStyle = androidx.compose.ui.text.TextStyle(
+                textStyle = TextStyle(
                     color = textColor, fontSize = (style.fontSize * zoom).sp, textAlign = align,
                     lineHeight = (style.fontSize * 1.4f * zoom).sp
                 ),
-                cursorBrush = SolidColor(Win11Colors.AccentBlue),
+                cursorBrush = SolidColor(bluebirdColors.AccentBlue),
                 modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused && !readOnly) onFocus() }
             )
             if (showPlaceholder && para.field.text.isEmpty()) {
@@ -272,7 +272,7 @@ fun TocView(toc: TocBlock, textColor: Color, readOnly: Boolean, onRegenerate: ()
         }
         toc.entries.forEach { entry ->
             Text(
-                entry.text, fontSize = 12.sp, color = Win11Colors.AccentBlue,
+                entry.text, fontSize = 12.sp, color = bluebirdColors.AccentBlue,
                 modifier = Modifier.padding(start = (entry.level * 14).dp, top = 2.dp).clickable { onJump(entry.targetBlockId) }
             )
         }
@@ -424,8 +424,7 @@ fun NavigationPanel(doc: WordDocument, textColor: Color, onJump: (String) -> Uni
                     h.field.text.ifBlank { "(untitled)" }, fontSize = 12.sp, color = textColor,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth().padding(start = (level * 12).dp, top = 4.dp, bottom = 4.dp)
-                        .clickable { onJump(h.id) }
-                )
+                        .clickable { onJump(h.id) })
             }
         }
     }
