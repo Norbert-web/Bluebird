@@ -45,7 +45,6 @@ import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
@@ -53,7 +52,6 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Person
@@ -197,30 +195,6 @@ fun SetupScreen(
                     )
                 )
             }
-            add(
-                PermissionItem(
-                    "Contacts & Calls",
-                    "View contacts and make calls from the launcher",
-                    Icons.Default.Contacts,
-                    listOf(
-                        Manifest.permission.READ_CONTACTS,
-                        Manifest.permission.CALL_PHONE
-                    ),
-                    optional = true
-                )
-            )
-            add(
-                PermissionItem(
-                    "Messages",
-                    "Read and send text messages",
-                    Icons.Default.Message,
-                    listOf(
-                        Manifest.permission.READ_SMS,
-                        Manifest.permission.SEND_SMS
-                    ),
-                    optional = true
-                )
-            )
             add(
                 PermissionItem(
                     "Camera",

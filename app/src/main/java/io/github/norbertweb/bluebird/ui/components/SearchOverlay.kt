@@ -1,5 +1,6 @@
 package io.github.norbertweb.bluebird.ui.components
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.*
@@ -15,9 +16,11 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -34,6 +37,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +63,40 @@ private enum class SearchFilter(val label: String, val icon: ImageVector) {
 }
 
 // ─────────────────────────────────────────────
+// Panel size — now 3 steps instead of a plain expand/collapse boolean, and
+// persisted so it survives the overlay being dismissed and reopened (fixes:
+// the size previously always reset to Compact via `remember { mutableStateOf(false) }`).
+// ─────────────────────────────────────────────
+private enum class SearchSizeMode { COMPACT, EXPANDED, FULLSCREEN }
+
+private const val SEARCH_OVERLAY_PREFS = "search_overlay_prefs"
+
+private fun getSavedSearchSizeMode(context: Context): SearchSizeMode {
+    val prefs = context.getSharedPreferences(SEARCH_OVERLAY_PREFS, Context.MODE_PRIVATE)
+    val name = prefs.getString("size_mode", SearchSizeMode.COMPACT.name)
+    return runCatching { SearchSizeMode.valueOf(name ?: "COMPACT") }
+        .getOrDefault(SearchSizeMode.COMPACT)
+}
+
+private fun saveSearchSizeMode(context: Context, mode: SearchSizeMode) {
+    context.getSharedPreferences(SEARCH_OVERLAY_PREFS, Context.MODE_PRIVATE)
+        .edit().putString("size_mode", mode.name).apply()
+}
+
+// Recent searches are also persisted now — previously `mutableStateListOf()` meant
+// they vanished every time the overlay closed.
+private fun loadRecentSearches(context: Context): List<String> {
+    val prefs = context.getSharedPreferences(SEARCH_OVERLAY_PREFS, Context.MODE_PRIVATE)
+    val raw = prefs.getString("recent_searches", null) ?: return emptyList()
+    return raw.split("\u0001").filter { it.isNotBlank() }
+}
+
+private fun saveRecentSearches(context: Context, searches: List<String>) {
+    context.getSharedPreferences(SEARCH_OVERLAY_PREFS, Context.MODE_PRIVATE)
+        .edit().putString("recent_searches", searches.joinToString("\u0001")).apply()
+}
+
+// ─────────────────────────────────────────────
 // SearchOverlay
 // ─────────────────────────────────────────────
 @Composable
@@ -70,29 +109,53 @@ fun SearchOverlay(
     val isDark = uiState.isDarkTheme
     val textColor = if (isDark) Color.White else Color(0xFF1A1A1A)
     val searchQuery = uiState.searchQuery
+    val configuration = LocalConfiguration.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
-    // Expand state: compact vs expanded
-    var isExpanded by remember { mutableStateOf(false) }
+    // Panel size: Compact / Expanded / Full Screen. Persisted (fixes: this used to be a
+    // plain `remember { mutableStateOf(false) }` boolean that always reset to Compact
+    // whenever the overlay was dismissed and reopened).
+    var sizeMode by remember { mutableStateOf(getSavedSearchSizeMode(context)) }
+    val isExpanded = sizeMode != SearchSizeMode.COMPACT // kept for the child views' grid sizing
+    val isFullscreen = sizeMode == SearchSizeMode.FULLSCREEN
+
+    fun changeSizeMode(mode: SearchSizeMode) {
+        sizeMode = mode
+        saveSearchSizeMode(context, mode)
+    }
 
     // Active filter tab
     var activeFilter by remember { mutableStateOf(SearchFilter.All) }
 
-    // Recent searches
-    val recentSearches = remember { mutableStateListOf<String>() }
+    // Recent searches — persisted so they survive the overlay closing (previously lost on close).
+    val recentSearches = remember { mutableStateListOf<String>().apply { addAll(loadRecentSearches(context)) } }
 
-    // Animated width
+    // Animated width (ignored once fullscreen, which fills all available width instead)
     val panelWidth by animateDpAsState(
-        targetValue = if (isExpanded) 680.dp else 540.dp,
+        targetValue = when (sizeMode) {
+            SearchSizeMode.COMPACT    -> 540.dp
+            SearchSizeMode.EXPANDED   -> 680.dp
+            SearchSizeMode.FULLSCREEN -> configuration.screenWidthDp.dp
+        },
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         label = "panelWidth"
     )
+    // In full screen we want the panel to occupy essentially the whole screen height too,
+    // rather than the old `wrapContentHeight()` which let the keyboard cover most of it.
+    val maxPanelHeight = when (sizeMode) {
+        SearchSizeMode.FULLSCREEN -> configuration.screenHeightDp.dp
+        else -> configuration.screenHeightDp.dp * 0.85f
+    }
 
     // Focus requester for auto-focus
     val focusRequester = remember { FocusRequester() }
 
     fun performWebSearch(query: String) {
         if (query.isNotBlank()) {
-            if (!recentSearches.contains(query)) recentSearches.add(0, query)
+            if (!recentSearches.contains(query)) {
+                recentSearches.add(0, query)
+                saveRecentSearches(context, recentSearches)
+            }
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}"))
             context.startActivity(intent)
         }
@@ -108,14 +171,23 @@ fun SearchOverlay(
 
     LaunchedEffect(Unit) {
         runCatching { focusRequester.requestFocus() }
+        // Requesting focus doesn't guarantee the IME actually appears — explicitly show it,
+        // which was missing before (part of why the keyboard felt unreliable/inconsistent).
+        runCatching { keyboardController?.show() }
     }
+
+    val cornerRadius = if (isFullscreen) 0.dp else 16.dp
 
     Surface(
         modifier = modifier
             .width(panelWidth)
-            .wrapContentHeight()
-            .shadow(32.dp, RoundedCornerShape(16.dp)),
-        shape = RoundedCornerShape(16.dp),
+            .heightIn(max = maxPanelHeight)
+            .then(if (isFullscreen) Modifier.fillMaxHeight() else Modifier)
+            // Pushes this panel up above the keyboard instead of letting the IME cover it —
+            // this was the main cause of "keyboard blocks most parts".
+            .imePadding()
+            .shadow(if (isFullscreen) 0.dp else 32.dp, RoundedCornerShape(cornerRadius)),
+        shape = RoundedCornerShape(cornerRadius),
         color = surfaceBg,
         border = BorderStroke(0.5.dp, surfaceBorder)
     ) {
@@ -136,7 +208,13 @@ fun SearchOverlay(
                     )
             )
 
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    // Scrollable so content is never clipped/hidden when the keyboard
+                    // shrinks the available height — it just scrolls instead of disappearing.
+                    .verticalScroll(rememberScrollState())
+            ) {
 
                 // ── Search bar row ──
                 Row(
@@ -203,22 +281,61 @@ fun SearchOverlay(
                         }
                     }
 
-                    // Expand/collapse toggle
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isDark) Color(0xFF2E2E3E) else Color(0xFFE8E8F0))
-                            .border(0.5.dp, surfaceBorder, RoundedCornerShape(10.dp))
-                            .clickable { isExpanded = !isExpanded },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            if (isExpanded) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
-                            contentDescription = if (isExpanded) "Compact" else "Expand",
-                            tint = textColor.copy(0.6f),
-                            modifier = Modifier.size(15.dp)
-                        )
+                    // Size picker: Compact / Expanded / Full Screen (persisted).
+                    var showSizeMenu by remember { mutableStateOf(false) }
+                    Box {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isDark) Color(0xFF2E2E3E) else Color(0xFFE8E8F0))
+                                .border(0.5.dp, surfaceBorder, RoundedCornerShape(10.dp))
+                                .clickable { showSizeMenu = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                when (sizeMode) {
+                                    SearchSizeMode.COMPACT    -> Icons.Default.OpenInFull
+                                    SearchSizeMode.EXPANDED   -> Icons.Default.AspectRatio
+                                    SearchSizeMode.FULLSCREEN -> Icons.Default.CloseFullscreen
+                                },
+                                contentDescription = "Panel size: ${sizeMode.name}",
+                                tint = textColor.copy(0.6f),
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showSizeMenu,
+                            onDismissRequest = { showSizeMenu = false },
+                            modifier = Modifier
+                                .background(surfaceBg, RoundedCornerShape(12.dp))
+                                .border(0.5.dp, surfaceBorder, RoundedCornerShape(12.dp))
+                        ) {
+                            listOf(
+                                SearchSizeMode.COMPACT to "Compact",
+                                SearchSizeMode.EXPANDED to "Expanded",
+                                SearchSizeMode.FULLSCREEN to "Full Screen"
+                            ).forEach { (mode, label) ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            changeSizeMode(mode)
+                                            showSizeMenu = false
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    if (sizeMode == mode) {
+                                        Icon(Icons.Default.Check, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
+                                    } else {
+                                        Spacer(Modifier.size(14.dp))
+                                    }
+                                    Text(label, fontSize = 12.sp, color = textColor)
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -251,6 +368,7 @@ fun SearchOverlay(
                         isDark = isDark,
                         textColor = textColor,
                         isExpanded = isExpanded,
+                        isFullscreen = isFullscreen,
                         recentSearches = recentSearches,
                         onAppClick = { viewModel.openApp(context, it) },
                         onQuickSearch = { viewModel.updateSearchQuery(it) },
@@ -258,7 +376,10 @@ fun SearchOverlay(
                             viewModel.updateSearchQuery(it)
                             performWebSearch(it)
                         },
-                        onClearRecent = { recentSearches.clear() }
+                        onClearRecent = {
+                            recentSearches.clear()
+                            saveRecentSearches(context, emptyList())
+                        }
                     )
                 } else {
                     // ── RESULTS STATE ──
@@ -269,6 +390,7 @@ fun SearchOverlay(
                         isDark = isDark,
                         textColor = textColor,
                         isExpanded = isExpanded,
+                        isFullscreen = isFullscreen,
                         onAppClick = { viewModel.openApp(context, it) },
                         onWebSearch = { performWebSearch(it) }
                     )
@@ -287,6 +409,7 @@ private fun IdleSearchContent(
     isDark: Boolean,
     textColor: Color,
     isExpanded: Boolean,
+    isFullscreen: Boolean = false,
     recentSearches: List<String>,
     onAppClick: (AppInfo) -> Unit,
     onQuickSearch: (String) -> Unit,
@@ -294,7 +417,8 @@ private fun IdleSearchContent(
     onClearRecent: () -> Unit
 ) {
     val gridColumns = if (isExpanded) 8 else 6
-    val appCount = if (isExpanded) 16 else 12
+    val appCount = if (isFullscreen) 32 else if (isExpanded) 16 else 12
+    val gridMaxHeight = if (isFullscreen) 480.dp else if (isExpanded) 200.dp else 160.dp
 
     // ── Recommended / Top Apps ──
     SectionHeader(
@@ -307,7 +431,7 @@ private fun IdleSearchContent(
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(gridColumns),
-        modifier = Modifier.heightIn(max = if (isExpanded) 200.dp else 160.dp),
+        modifier = Modifier.heightIn(max = gridMaxHeight),
         contentPadding = PaddingValues(2.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -347,7 +471,7 @@ private fun IdleSearchContent(
         Spacer(Modifier.height(6.dp))
 
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            recentSearches.take(if (isExpanded) 8 else 5).forEach { query ->
+            recentSearches.take(if (isFullscreen) 15 else if (isExpanded) 8 else 5).forEach { query ->
                 RecentSearchRow(query = query, isDark = isDark, textColor = textColor, onClick = { onRecentClick(query) })
             }
         }
@@ -367,12 +491,14 @@ private fun SearchResultsContent(
     isDark: Boolean,
     textColor: Color,
     isExpanded: Boolean,
+    isFullscreen: Boolean = false,
     onAppClick: (AppInfo) -> Unit,
     onWebSearch: (String) -> Unit
 ) {
     val showApps = activeFilter == SearchFilter.All || activeFilter == SearchFilter.Apps
     val showWeb = activeFilter == SearchFilter.All || activeFilter == SearchFilter.Web
-    val maxResults = if (isExpanded) 10 else 6
+    val maxResults = if (isFullscreen) 24 else if (isExpanded) 10 else 6
+    val listMaxHeight = if (isFullscreen) 520.dp else if (isExpanded) 260.dp else 180.dp
 
     if (appResults.isEmpty() && showApps) {
         // No app results
@@ -412,7 +538,7 @@ private fun SearchResultsContent(
         // Rest of results
         if (appResults.size > 1) {
             LazyColumn(
-                modifier = Modifier.heightIn(max = if (isExpanded) 260.dp else 180.dp),
+                modifier = Modifier.heightIn(max = listMaxHeight),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 items(appResults.drop(1).take(maxResults - 1)) { app ->
@@ -444,7 +570,7 @@ private fun SearchResultsContent(
 
         // Suggested web queries
         val suggestions = generateWebSuggestions(query)
-        suggestions.take(if (isExpanded) 4 else 2).forEach { suggestion ->
+        suggestions.take(if (isFullscreen) 8 else if (isExpanded) 4 else 2).forEach { suggestion ->
             WebSuggestionRow(
                 suggestion = suggestion,
                 isDark = isDark,

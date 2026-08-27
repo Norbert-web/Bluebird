@@ -167,6 +167,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
@@ -264,6 +266,8 @@ fun SettingsScreen(isDark: Boolean, viewModel: LauncherViewModel? = null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { selectedCategory = SettingsCategory.ACCOUNTS }
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -284,16 +288,20 @@ fun SettingsScreen(isDark: Boolean, viewModel: LauncherViewModel? = null) {
                             }
                         }
                     }
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(uiState.userProfile.userName,
                             style      = MaterialTheme.typography.titleSmall,
                             color      = resolvedText,
                             fontWeight = FontWeight.SemiBold,
-                            fontSize   = (13 * uiState.textScale).sp)
+                            fontSize   = (13 * uiState.textScale).sp,
+                            maxLines   = 1, overflow = TextOverflow.Ellipsis)
                         Text("Local Account",
                             style    = MaterialTheme.typography.labelSmall,
                             color    = resolvedText.copy(alpha = 0.5f))
                     }
+                    Icon(Icons.Default.ChevronRight, null,
+                        tint = resolvedText.copy(alpha = 0.3f),
+                        modifier = Modifier.size(16.dp))
                 }
                 Divider(color = resolvedText.copy(alpha = 0.1f), modifier = Modifier.padding(horizontal = 8.dp))
             }
@@ -1186,8 +1194,43 @@ private fun AppsSettings(a: ScreenArgs) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
+private fun RenameAccountDialog(
+    currentName: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf(currentName) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Edit, contentDescription = null) },
+        title = { Text("Change username") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                placeholder = { Text("Display name") },
+                colors = OutlinedTextFieldDefaults.colors(),
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = name.isNotBlank(),
+                onClick = { onConfirm(name.trim()) }
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
 private fun AccountsSettings(a: ScreenArgs) {
     val scale = a.uiState?.textScale ?: 1f
+    var showRenameDialog by remember { mutableStateOf(false) }
 
     SettingsGroup("Your account", a) {
         if (a.uiState != null && a.vm != null) {
@@ -1210,10 +1253,23 @@ private fun AccountsSettings(a: ScreenArgs) {
                 }
             }
             Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-            SNav(Icons.Default.Edit,      "Change username",        "Update your display name",         a = a)
+            SNav(Icons.Default.Edit,      "Change username",        "Update your display name",         a = a) {
+                showRenameDialog = true
+            }
             Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
             SNav(Icons.Default.AddAPhoto, "Change profile picture", "Pick a photo from your gallery",   a = a) {
                 a.vm.openProfilePicturePicker()
+            }
+
+            if (showRenameDialog) {
+                RenameAccountDialog(
+                    currentName = a.uiState.userProfile.userName,
+                    onConfirm = { newName ->
+                        a.vm.setUserName(newName)
+                        showRenameDialog = false
+                    },
+                    onDismiss = { showRenameDialog = false }
+                )
             }
         }
     }

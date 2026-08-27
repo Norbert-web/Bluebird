@@ -46,6 +46,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -75,6 +77,8 @@ import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.NightsStay
+import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -108,6 +112,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.geometry.Offset
@@ -153,8 +158,14 @@ enum class LayoutMode {
     LARGE_GRID,
     LIST_VIEW,
     HORIZONTAL_SCROLL,
-    FAVORITES_BAR
+    FAVORITES_BAR,
+    MOBILE_HOME
 }
+
+// Start Menu window size. Persisted across opens (see getSavedSizeMode/saveSizeMode) —
+// previously this was a plain `remember { mutableStateOf(false) }` boolean which reset
+// to compact every time the Start Menu left composition (i.e. every time it was closed).
+enum class StartMenuSizeMode { COMPACT, EXPANDED, FULLSCREEN }
 
 enum class AppCategory {
     PINNED, RECENT, SYSTEM, FREQUENT, ALL
@@ -184,6 +195,36 @@ private fun incrementAppOpenCount(context: Context, packageName: String) {
     val prefs = context.getSharedPreferences("start_menu_usage_prefs", Context.MODE_PRIVATE)
     val current = prefs.getInt("open_cnt_$packageName", 0)
     prefs.edit().putInt("open_cnt_$packageName", current + 1).apply()
+}
+
+// ─────────────────────────────────────────────────────────
+// Persisted Start Menu size + layout preference
+// (fixes: size choice previously reset every time the Start Menu closed)
+// ─────────────────────────────────────────────────────────
+private const val START_MENU_PREFS = "start_menu_layout_prefs"
+
+private fun getSavedSizeMode(context: Context): StartMenuSizeMode {
+    val prefs = context.getSharedPreferences(START_MENU_PREFS, Context.MODE_PRIVATE)
+    val name = prefs.getString("size_mode", StartMenuSizeMode.COMPACT.name)
+    return runCatching { StartMenuSizeMode.valueOf(name ?: "COMPACT") }
+        .getOrDefault(StartMenuSizeMode.COMPACT)
+}
+
+private fun saveSizeMode(context: Context, mode: StartMenuSizeMode) {
+    context.getSharedPreferences(START_MENU_PREFS, Context.MODE_PRIVATE)
+        .edit().putString("size_mode", mode.name).apply()
+}
+
+private fun getSavedLayoutMode(context: Context): LayoutMode {
+    val prefs = context.getSharedPreferences(START_MENU_PREFS, Context.MODE_PRIVATE)
+    val name = prefs.getString("layout_mode", LayoutMode.COMPACT_GRID.name)
+    return runCatching { LayoutMode.valueOf(name ?: "COMPACT_GRID") }
+        .getOrDefault(LayoutMode.COMPACT_GRID)
+}
+
+private fun saveLayoutMode(context: Context, mode: LayoutMode) {
+    context.getSharedPreferences(START_MENU_PREFS, Context.MODE_PRIVATE)
+        .edit().putString("layout_mode", mode.name).apply()
 }
 
 // ─────────────────────────────────────────────────────────
@@ -271,13 +312,50 @@ fun StartMenu(
 ) {
     val context = LocalContext.current
     var activeTab by remember { mutableStateOf(StartMenuTab.PINNED) }
-    var isExpanded by remember { mutableStateOf(false) }
+    // Persisted (not just `remember`ed) so the size survives the Start Menu being closed/reopened.
+    var sizeMode by remember { mutableStateOf(getSavedSizeMode(context)) }
     var editMode by remember { mutableStateOf(false) }
-    var layoutPrefs by remember { mutableStateOf(LayoutPreferences()) }
+    var layoutPrefs by remember { mutableStateOf(LayoutPreferences(mode = getSavedLayoutMode(context))) }
     var showLayoutMenu by remember { mutableStateOf(false) }
+    var showSizeMenu by remember { mutableStateOf(false) }
 
-    val menuWidth  = if (isExpanded) DS.menuWidthExpanded  else DS.menuWidthCompact
-    val menuHeight = if (isExpanded) DS.menuHeightExpanded else DS.menuHeightCompact
+    fun changeSizeMode(mode: StartMenuSizeMode) {
+        sizeMode = mode
+        saveSizeMode(context, mode)
+    }
+
+    fun changeLayoutMode(mode: LayoutMode) {
+        layoutPrefs = layoutPrefs.copy(
+            mode = mode,
+            columns = when (mode) {
+                LayoutMode.COMPACT_GRID -> 6
+                LayoutMode.LARGE_GRID -> 4
+                else -> 6
+            }
+        )
+        saveLayoutMode(context, mode)
+        // Mobile home screen needs the whole screen to feel like a phone launcher.
+        if (mode == LayoutMode.MOBILE_HOME && sizeMode != StartMenuSizeMode.FULLSCREEN) {
+            changeSizeMode(StartMenuSizeMode.FULLSCREEN)
+        }
+    }
+
+    val isMobileHome = layoutPrefs.mode == LayoutMode.MOBILE_HOME
+    val isFullscreen = sizeMode == StartMenuSizeMode.FULLSCREEN
+
+    val menuWidth  = when (sizeMode) {
+        StartMenuSizeMode.COMPACT    -> DS.menuWidthCompact
+        StartMenuSizeMode.EXPANDED   -> DS.menuWidthExpanded
+        StartMenuSizeMode.FULLSCREEN -> DS.menuWidthExpanded // ignored, fillMaxSize used instead
+    }
+    val menuHeight = when (sizeMode) {
+        StartMenuSizeMode.COMPACT    -> DS.menuHeightCompact
+        StartMenuSizeMode.EXPANDED   -> DS.menuHeightExpanded
+        StartMenuSizeMode.FULLSCREEN -> DS.menuHeightExpanded // ignored, fillMaxSize used instead
+    }
+    // Fullscreen reads as a real "home screen" rather than a floating panel, so drop the
+    // rounded corners/border in that mode.
+    val cornerRadius = if (isFullscreen) 0.dp else DS.cornerRadius
 
     val isDark       = uiState.isDarkTheme
     val bgColor      = if (isDark) DS.glassDark else DS.glassLight
@@ -286,12 +364,16 @@ fun StartMenu(
 
     Box(
         modifier = modifier
-            .width(menuWidth)
-            .height(menuHeight)
-            .shadow(elevation = 24.dp, shape = RoundedCornerShape(DS.cornerRadius), clip = false)
-            .clip(RoundedCornerShape(DS.cornerRadius))
+            .then(
+                if (isFullscreen) Modifier.fillMaxSize()
+                else Modifier.width(menuWidth).height(menuHeight)
+            )
+            .shadow(elevation = if (isFullscreen) 0.dp else 24.dp, shape = RoundedCornerShape(cornerRadius), clip = false)
+            .clip(RoundedCornerShape(cornerRadius))
             .background(bgColor)
-            .border(1.dp, borderColor, RoundedCornerShape(DS.cornerRadius))
+            .then(
+                if (isFullscreen) Modifier else Modifier.border(1.dp, borderColor, RoundedCornerShape(cornerRadius))
+            )
     ) {
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
             Spacer(Modifier.height(16.dp))
@@ -352,14 +434,7 @@ fun StartMenu(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        layoutPrefs = layoutPrefs.copy(
-                                            mode = mode,
-                                            columns = when (mode) {
-                                                LayoutMode.COMPACT_GRID -> 6
-                                                LayoutMode.LARGE_GRID -> 4
-                                                else -> 6
-                                            }
-                                        )
+                                        changeLayoutMode(mode)
                                         showLayoutMenu = false
                                     }
                                     .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -378,113 +453,183 @@ fun StartMenu(
                                         LayoutMode.LIST_VIEW        -> "List View"
                                         LayoutMode.HORIZONTAL_SCROLL -> "Horizontal Strip"
                                         LayoutMode.FAVORITES_BAR    -> "Favorites Bar"
+                                        LayoutMode.MOBILE_HOME      -> "Mobile Layout (phone-style)"
                                     },
                                     fontSize = 12.sp,
-                                    color = if (isDark) Color.White else Color.Black
+                                    color = if (isDark) Color.White else Color.Black,
+                                    modifier = Modifier.weight(1f)
                                 )
+                                if (mode == LayoutMode.MOBILE_HOME) {
+                                    Icon(
+                                        Icons.Default.PhoneAndroid,
+                                        null,
+                                        tint = (if (isDark) Color.White else Color.Black).copy(alpha = 0.45f),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
 
-                // Expand/Collapse
-                IconToggleButton(
-                    checked = isExpanded,
-                    onCheckedChange = { isExpanded = it },
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(DS.chipCorner))
-                        .background(
-                            if (isExpanded) DS.accentStart.copy(alpha = 0.15f)
-                            else Color.Transparent
-                        )
-                ) {
-                    Icon(
-                        imageVector = if (isExpanded) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                        contentDescription = if (isExpanded) "Collapse" else "Expand",
-                        tint = if (isExpanded) DS.accentStart else textPrimary.copy(alpha = 0.5f),
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
+                // Size picker: Compact / Expanded / Full Screen — replaces the old
+                // two-state expand toggle and is now persisted (see changeSizeMode()).
+                if (!isMobileHome) {
+                    Box {
+                        IconToggleButton(
+                            checked = showSizeMenu,
+                            onCheckedChange = { showSizeMenu = it },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(DS.chipCorner))
+                                .background(
+                                    if (sizeMode != StartMenuSizeMode.COMPACT) DS.accentStart.copy(alpha = 0.15f)
+                                    else Color.Transparent
+                                )
+                        ) {
+                            Icon(
+                                imageVector = when (sizeMode) {
+                                    StartMenuSizeMode.COMPACT    -> Icons.Default.Fullscreen
+                                    StartMenuSizeMode.EXPANDED   -> Icons.Default.AspectRatio
+                                    StartMenuSizeMode.FULLSCREEN -> Icons.Default.FullscreenExit
+                                },
+                                contentDescription = "Window size: ${sizeMode.name}",
+                                tint = if (sizeMode != StartMenuSizeMode.COMPACT) DS.accentStart else textPrimary.copy(alpha = 0.5f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
 
-            Spacer(Modifier.height(14.dp))
-
-            // ── Tab Navigation (hidden during search) ──
-            if (activeTab != StartMenuTab.SEARCH) {
-                PremiumTabRow(
-                    activeTab = activeTab,
-                    onTabChange = { activeTab = it },
-                    isDark = isDark
-                )
-                Spacer(Modifier.height(12.dp))
-            }
-
-            // ── Content with Windows 11 Transitions ──
-            Box(modifier = Modifier.weight(1f)) {
-                AnimatedContent(
-                    targetState = activeTab,
-                    transitionSpec = { fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180)) },
-                    label = "tab_switching"
-                ) { targetTab ->
-                    when (targetTab) {
-                        StartMenuTab.PINNED -> PinnedView(
-                            uiState = uiState,
-                            viewModel = viewModel,
-                            isDark = isDark,
-                            isExpanded = isExpanded,
-                            editMode = editMode,
-                            onEditModeToggle = { editMode = !editMode },
-                            context = context,
-                            layoutPrefs = layoutPrefs
-                        )
-                        StartMenuTab.ALL_APPS -> AllAppsView(
-                            uiState = uiState,
-                            viewModel = viewModel,
-                            isDark = isDark,
-                            isExpanded = isExpanded,
-                            context = context,
-                            layoutPrefs = layoutPrefs
-                        )
-                        StartMenuTab.RECENT -> RecentAppsView(
-                            uiState = uiState,
-                            viewModel = viewModel,
-                            isDark = isDark,
-                            context = context,
-                            layoutPrefs = layoutPrefs
-                        )
-                        StartMenuTab.SEARCH -> SearchResultsView(
-                            query = uiState.searchQuery,
-                            uiState = uiState,
-                            viewModel = viewModel,
-                            isDark = isDark,
-                            onClearSearch = {
-                                viewModel.updateSearchQuery("")
-                                activeTab = StartMenuTab.PINNED
-                            },
-                            context = context,
-                            layoutPrefs = layoutPrefs
-                        )
+                        DropdownMenu(
+                            expanded = showSizeMenu,
+                            onDismissRequest = { showSizeMenu = false },
+                            modifier = Modifier
+                                .background(
+                                    if (isDark) DS.surfaceDark else DS.glassLight,
+                                    RoundedCornerShape(DS.sectionCorner)
+                                )
+                                .border(1.dp, borderColor, RoundedCornerShape(DS.sectionCorner))
+                        ) {
+                            listOf(
+                                StartMenuSizeMode.COMPACT to "Compact",
+                                StartMenuSizeMode.EXPANDED to "Expanded",
+                                StartMenuSizeMode.FULLSCREEN to "Full Screen"
+                            ).forEach { (mode, label) ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            changeSizeMode(mode)
+                                            showSizeMenu = false
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    if (sizeMode == mode) {
+                                        Icon(Icons.Default.Check, null, tint = DS.accentStart, modifier = Modifier.size(14.dp))
+                                    } else {
+                                        Spacer(Modifier.size(14.dp))
+                                    }
+                                    Text(label, fontSize = 12.sp, color = if (isDark) Color.White else Color.Black)
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            // ── Quick Actions Strip ──
-            if (layoutPrefs.showQuickActions && activeTab != StartMenuTab.SEARCH) {
-                Spacer(Modifier.height(10.dp))
-                QuickActionsStrip(isDark = isDark, context = context)
-            }
-
-            // ── Bottom User Bar ──
-            Spacer(Modifier.height(8.dp))
-            HorizontalDivider(color = borderColor, thickness = 0.5.dp)
-            Spacer(Modifier.height(8.dp))
-            BottomUserBar(
-                uiState = uiState,
-                viewModel = viewModel,
-                isDark = isDark
-            )
             Spacer(Modifier.height(14.dp))
+
+            if (isMobileHome) {
+                // ── Mobile-style home screen: full-bleed paginated app grid + dock ──
+                MobileHomeView(
+                    uiState = uiState,
+                    viewModel = viewModel,
+                    isDark = isDark,
+                    context = context,
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                // `isExpanded` is used by the existing grid views only to pick icon/column
+                // sizing, so any non-compact size counts as "expanded" for that purpose.
+                val isExpandedLayout = sizeMode != StartMenuSizeMode.COMPACT
+
+                // ── Tab Navigation (hidden during search) ──
+                if (activeTab != StartMenuTab.SEARCH) {
+                    PremiumTabRow(
+                        activeTab = activeTab,
+                        onTabChange = { activeTab = it },
+                        isDark = isDark
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
+
+                // ── Content with Windows 11 Transitions ──
+                Box(modifier = Modifier.weight(1f)) {
+                    AnimatedContent(
+                        targetState = activeTab,
+                        transitionSpec = { fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180)) },
+                        label = "tab_switching"
+                    ) { targetTab ->
+                        when (targetTab) {
+                            StartMenuTab.PINNED -> PinnedView(
+                                uiState = uiState,
+                                viewModel = viewModel,
+                                isDark = isDark,
+                                isExpanded = isExpandedLayout,
+                                editMode = editMode,
+                                onEditModeToggle = { editMode = !editMode },
+                                context = context,
+                                layoutPrefs = layoutPrefs
+                            )
+                            StartMenuTab.ALL_APPS -> AllAppsView(
+                                uiState = uiState,
+                                viewModel = viewModel,
+                                isDark = isDark,
+                                isExpanded = isExpandedLayout,
+                                context = context,
+                                layoutPrefs = layoutPrefs
+                            )
+                            StartMenuTab.RECENT -> RecentAppsView(
+                                uiState = uiState,
+                                viewModel = viewModel,
+                                isDark = isDark,
+                                context = context,
+                                layoutPrefs = layoutPrefs
+                            )
+                            StartMenuTab.SEARCH -> SearchResultsView(
+                                query = uiState.searchQuery,
+                                uiState = uiState,
+                                viewModel = viewModel,
+                                isDark = isDark,
+                                onClearSearch = {
+                                    viewModel.updateSearchQuery("")
+                                    activeTab = StartMenuTab.PINNED
+                                },
+                                context = context,
+                                layoutPrefs = layoutPrefs
+                            )
+                        }
+                    }
+                }
+
+                // ── Quick Actions Strip ──
+                if (layoutPrefs.showQuickActions && activeTab != StartMenuTab.SEARCH) {
+                    Spacer(Modifier.height(10.dp))
+                    QuickActionsStrip(isDark = isDark, context = context)
+                }
+
+                // ── Bottom User Bar ──
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(color = borderColor, thickness = 0.5.dp)
+                Spacer(Modifier.height(8.dp))
+                BottomUserBar(
+                    uiState = uiState,
+                    viewModel = viewModel,
+                    isDark = isDark
+                )
+                Spacer(Modifier.height(14.dp))
+            }
         }
     }
 }
@@ -680,6 +825,158 @@ private fun PinnedView(
                 )
                 Spacer(Modifier.height(8.dp))
             }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// MOBILE HOME VIEW — phone-launcher-style paginated app grid + dock
+// ─────────────────────────────────────────────────────────
+private const val MOBILE_HOME_APPS_PER_PAGE = 20 // 4 columns × 5 rows
+
+@Composable
+private fun MobileHomeView(
+    uiState: LauncherUiState,
+    viewModel: LauncherViewModel,
+    isDark: Boolean,
+    context: Context,
+    modifier: Modifier = Modifier
+) {
+    val sortedApps = remember(uiState.installedApps) {
+        uiState.installedApps.sortedBy { it.name.lowercase() }
+    }
+    val pages = remember(sortedApps) {
+        val chunks = sortedApps.chunked(MOBILE_HOME_APPS_PER_PAGE)
+        if (chunks.isEmpty()) listOf(emptyList()) else chunks
+    }
+    val pagerState = rememberPagerState(pageCount = { pages.size })
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val dockApps = uiState.pinnedTaskbarApps.take(5)
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) { pageIndex ->
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(4),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(pages[pageIndex], key = { it.packageName }) { app ->
+                    MobileAppIcon(
+                        app = app,
+                        isDark = isDark,
+                        onClick = {
+                            incrementAppOpenCount(context, app.packageName)
+                            viewModel.openApp(context, app)
+                        }
+                    )
+                }
+            }
+        }
+
+        // Page indicator dots (only shown when apps span more than one page)
+        if (pages.size > 1) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                repeat(pages.size) { i ->
+                    val active = pagerState.currentPage == i
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 3.dp)
+                            .size(if (active) 7.dp else 5.dp)
+                            .clip(CircleShape)
+                            .background(if (active) DS.accentStart else textPrimary.copy(alpha = 0.25f))
+                    )
+                }
+            }
+        }
+
+        // Bottom dock — pinned/taskbar apps, phone-style
+        if (dockApps.isNotEmpty()) {
+            HorizontalDivider(color = if (isDark) DS.borderDark else DS.borderLight, thickness = 0.5.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(if (isDark) DS.surfaceDark.copy(alpha = 0.5f) else DS.surfaceLight.copy(alpha = 0.5f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                dockApps.forEach { app ->
+                    MobileAppIcon(
+                        app = app,
+                        isDark = isDark,
+                        showLabel = false,
+                        iconSize = 48,
+                        onClick = {
+                            incrementAppOpenCount(context, app.packageName)
+                            viewModel.openApp(context, app)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobileAppIcon(
+    app: AppInfo,
+    isDark: Boolean,
+    showLabel: Boolean = true,
+    iconSize: Int = 56,
+    onClick: () -> Unit
+) {
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(targetValue = if (pressed) 0.92f else 1f, label = "mobile_icon_scale")
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .scale(scale)
+            .pointerInput(app.packageName) {
+                detectTapGestures(
+                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
+                    onTap = { onClick() }
+                )
+            }
+    ) {
+        Box(
+            modifier = Modifier
+                .size(iconSize.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (isDark) DS.surfaceDark else DS.surfaceLight),
+            contentAlignment = Alignment.Center
+        ) {
+            if (app.icon != null) {
+                val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
+                Image(bitmap = bmp, contentDescription = app.name, modifier = Modifier.size((iconSize - 12).dp))
+            } else {
+                Icon(Icons.Default.Apps, null, tint = DS.accentStart, modifier = Modifier.size((iconSize / 2.5).dp))
+            }
+        }
+        if (showLabel) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                app.name,
+                fontSize = 10.sp,
+                color = textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width((iconSize + 16).dp)
+            )
         }
     }
 }
@@ -1107,7 +1404,7 @@ private fun AppGridLayout(
 ) {
     if (apps.isEmpty()) return
     when (layoutPrefs.mode) {
-        LayoutMode.COMPACT_GRID, LayoutMode.LARGE_GRID -> {
+        LayoutMode.COMPACT_GRID, LayoutMode.LARGE_GRID, LayoutMode.MOBILE_HOME -> {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(layoutPrefs.columns),
                 modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp),
