@@ -21,6 +21,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import androidx.core.content.FileProvider
 import android.os.ParcelFileDescriptor
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -58,6 +59,8 @@ import androidx.compose.ui.unit.sp
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -73,7 +76,7 @@ private object WordTheme {
 }
 
 @Composable
-fun PhoneScreen(isDark: Boolean) {
+fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -100,7 +103,7 @@ fun PhoneScreen(isDark: Boolean) {
     var navPanelOpen by remember { mutableStateOf(false) }
     var readingMode by remember { mutableStateOf(false) }
     var zoom by remember { mutableStateOf(1f) }
-    var pdfPages by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
+    var pdfPages by remember { mutableStateOf<List<PdfPageInfo>>(emptyList()) }
 
     var showSaveAsDialog by remember { mutableStateOf(false) }
     var showTableDialog by remember { mutableStateOf(false) }
@@ -124,7 +127,7 @@ fun PhoneScreen(isDark: Boolean) {
 
     // ---- crash recovery: check once for leftover drafts from an unclean shutdown -------------
     LaunchedEffect(Unit) {
-        val drafts = listDraftFiles(context)
+        val drafts = withContext(kotlinx.coroutines.Dispatchers.IO) { listDraftFiles(context) }
         if (drafts.isNotEmpty()) {
             recoveredDraftFiles = drafts
             showRecoveryDialog = true
@@ -134,43 +137,78 @@ fun PhoneScreen(isDark: Boolean) {
     // ---- autosave: writes a local draft every tick, and silently saves to the real file ------
     // (when one is already chosen) so the person never loses more than one interval of work.
     LaunchedEffect(currentDoc.id) {
-        while (true) {
+        while (isActive) {
             delay(appSettings.autosaveIntervalSec.coerceAtLeast(5).toLong() * 1000L)
-            if (!appSettings.autosaveEnabled) continue
-            if (currentDoc.kind != DocKind.RICH_TEXT) continue
-            saveDraft(context, currentDoc)
-            val uri = currentDoc.savedUri
-            if (uri != null && currentDoc.isDirty) {
-                try {
-                    context.contentResolver.openOutputStream(uri)?.use { it.write(serializeDocumentZip(currentDoc)) }
-                    currentDoc.isDirty = false
-                } catch (_: Exception) { /* try again next tick */ }
+            if (!appSettings.autosaveEnabled || currentDoc.kind != DocKind.RICH_TEXT) continue
+
+            val doc = currentDoc
+            val uri = doc.savedUri
+            val wasDirty = doc.isDirty
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                saveDraft(context, doc)
+                if (uri != null && wasDirty) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { it.write(serializeDocumentZip(doc)) }
+                    }
+                }
+            }
+            if (wasDirty && uri != null && doc === currentDoc) {
+                currentDoc.isDirty = false
             }
         }
     }
 
     fun loadPdfPages(uri: Uri) {
-        try {
-            val pfd: ParcelFileDescriptor? = context.contentResolver.openFileDescriptor(uri, "r")
-            if (pfd == null) { notify("Couldn't open PDF"); return }
-            val renderer = PdfRenderer(pfd)
-            val pages = mutableListOf<Bitmap>()
-            for (i in 0 until renderer.pageCount) {
-                renderer.openPage(i).use { page ->
-                    val bmp = Bitmap.createBitmap(page.width * 2, page.height * 2, Bitmap.Config.ARGB_8888)
-                    bmp.eraseColor(android.graphics.Color.WHITE)
-                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    pages.add(bmp)
-                }
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    PdfRenderer(pfd).use { renderer ->
+                        val pages = ArrayList<PdfPageInfo>(renderer.pageCount)
+                        for (i in 0 until renderer.pageCount) {
+                            renderer.openPage(i).use { page ->
+                                pages.add(PdfPageInfo(i, page.width, page.height))
+                            }
+                        }
+                        withContext(kotlinx.coroutines.Dispatchers.Main) { pdfPages = pages }
+                    }
+                } ?: withContext(kotlinx.coroutines.Dispatchers.Main) { notify("Couldn't open PDF") }
+            } catch (e: Exception) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) { notify("Failed to read PDF: ${e.message}") }
             }
-            renderer.close()
-            pfd.close()
-            pdfPages = pages
-        } catch (e: Exception) {
-            e.printStackTrace()
-            notify("Failed to read PDF: ${e.message}")
         }
     }
+
+
+    // Files launched from Bluebird File Explorer open directly in Word Impress.
+    // Use the app's FileProvider URI so PDF/document loading follows the same
+    // content-URI path as the built-in picker.
+    LaunchedEffect(initialPath) {
+        if (initialPath.isBlank()) return@LaunchedEffect
+        val file = File(initialPath)
+        if (!file.isFile) return@LaunchedEffect
+        try {
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            val mime = context.contentResolver.getType(uri) ?: ""
+            if (file.extension.equals("pdf", true) || mime.contains("pdf")) {
+                val doc = WordDocument(file.name, appSettings.defaultPageSettings).apply {
+                    kind = DocKind.PDF
+                    pdfUri = uri
+                }
+                documents.add(doc)
+                currentIndex = documents.lastIndex
+                loadPdfPages(uri)
+            } else {
+                val bytes = withContext(kotlinx.coroutines.Dispatchers.IO) { file.readBytes() }
+                val doc = openAnyDocument(bytes, file.name).apply { savedUri = uri }
+                documents.add(doc)
+                currentIndex = documents.lastIndex
+            }
+            notify("Opened ${file.name}")
+        } catch (e: Exception) {
+            notify("Couldn't open ${file.name}")
+        }
+    }
+
 
     // ---- file pickers -------------------------------------------------------------------
     val openDocLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -711,7 +749,7 @@ fun PhoneScreen(isDark: Boolean) {
 
                 Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                     if (currentDoc.kind == DocKind.PDF) {
-                        PdfViewerPane(pages = pdfPages, zoom = zoom, isDark = isDark)
+                        PdfViewerPane(pages = pdfPages, pdfUri = currentDoc.pdfUri, zoom = zoom, isDark = isDark)
                     } else {
                         PagedDocumentView(
                             doc = currentDoc, zoom = zoom, pageColor = pageColor, textColor = textColor,
@@ -832,8 +870,10 @@ fun PhoneScreen(isDark: Boolean) {
 // SHELL PIECES — status bar, document sidebar, file backstage, PDF viewer
 // ============================================================================================
 
+private data class PdfPageInfo(val index: Int, val width: Int, val height: Int)
+
 @Composable
-private fun PdfViewerPane(pages: List<Bitmap>, zoom: Float, isDark: Boolean) {
+private fun PdfViewerPane(pages: List<PdfPageInfo>, pdfUri: Uri?, zoom: Float, isDark: Boolean) {
     if (pages.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -849,18 +889,58 @@ private fun PdfViewerPane(pages: List<Bitmap>, zoom: Float, isDark: Boolean) {
         horizontalAlignment = Alignment.CenterHorizontally,
         contentPadding = PaddingValues(vertical = 16.dp)
     ) {
-        itemsIndexed(pages) { index, bmp ->
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Image(
-                    bitmap = bmp.asImageBitmap(), contentDescription = "Page ${index + 1}",
-                    modifier = Modifier.width((360 * zoom).dp).shadow(4.dp).background(Color.White)
-                )
-                Text("Page ${index + 1} of ${pages.size}", fontSize = 11.sp, modifier = Modifier.padding(8.dp))
+        if (pdfUri != null) {
+            itemsIndexed(pages, key = { _, page -> page.index }) { _, page ->
+                PdfPagePreview(page, pages.size, pdfUri, zoom)
             }
         }
     }
 }
 
+@Composable
+private fun PdfPagePreview(page: PdfPageInfo, total: Int, pdfUri: Uri, zoom: Float) {
+    val context = LocalContext.current
+    var bitmap by remember(page.index, pdfUri) { mutableStateOf<Bitmap?>(null) }
+    var failed by remember(page.index, pdfUri) { mutableStateOf(false) }
+
+    LaunchedEffect(page.index, pdfUri) {
+        val rendered = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openFileDescriptor(pdfUri, "r")?.use { pfd ->
+                    PdfRenderer(pfd).use { renderer ->
+                        renderer.openPage(page.index).use { pdfPage ->
+                            val targetWidth = 900
+                            val targetHeight = (targetWidth * pdfPage.height.toFloat() / pdfPage.width.coerceAtLeast(1)).toInt().coerceAtLeast(1)
+                            Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888).also { bmp ->
+                                bmp.eraseColor(android.graphics.Color.WHITE)
+                                pdfPage.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            }
+                        }
+                    }
+                }
+            }.getOrNull()
+        }
+        if (rendered != null) bitmap = rendered else failed = true
+    }
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        when {
+            bitmap != null -> Image(
+                bitmap = bitmap!!.asImageBitmap(), contentDescription = "Page ${page.index + 1}",
+                modifier = Modifier.width((360 * zoom).dp).shadow(4.dp).background(Color.White)
+            )
+            failed -> Box(
+                Modifier.width((360 * zoom).dp).aspectRatio(page.width.toFloat() / page.height.coerceAtLeast(1)).background(Color.White),
+                contentAlignment = Alignment.Center
+            ) { Text("Unable to render page", fontSize = 12.sp) }
+            else -> Box(
+                Modifier.width((360 * zoom).dp).aspectRatio(page.width.toFloat() / page.height.coerceAtLeast(1)).background(Color.White),
+                contentAlignment = Alignment.Center
+            ) { CircularProgressIndicator(modifier = Modifier.size(22.dp)) }
+        }
+        Text("Page ${page.index + 1} of $total", fontSize = 11.sp, modifier = Modifier.padding(8.dp))
+    }
+}
 @Composable
 private fun StatusBar(doc: WordDocument, zoom: Float, textColor: Color, ribbonStripBg: Color, onZoomChange: (Float) -> Unit) {
     val paragraphs = doc.blocks.filterIsInstance<ParagraphBlock>()

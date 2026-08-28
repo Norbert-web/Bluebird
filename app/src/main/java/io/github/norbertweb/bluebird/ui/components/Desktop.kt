@@ -48,6 +48,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -313,6 +315,10 @@ private fun BackgroundAnimationLayer(
                 particles.forEach { stepBgParticle(it, dt, sizeW, sizeH, rng) }
             }
             tick++
+            // Background particles do not need a 60 Hz simulation. Limiting the
+            // animation to ~30 Hz cuts wakeups and snapshot invalidations roughly
+            // in half while retaining smooth motion for this decorative layer.
+            delay(33)
         }
     }
 
@@ -467,7 +473,11 @@ data class DesktopFileInfo(
     // Only populated for WEB_APP_SHORTCUT items — parsed from the .webapp file
     val webAppId: String? = null,
     val webAppUrl: String? = null,
-    val webAppIconPath: String? = null   // path relative to context.filesDir
+    val webAppIconPath: String? = null,  // path relative to context.filesDir
+    // Non-package Bluebird-native app target (e.g. Text Editor, Terminal).
+    val builtInScreen: LauncherScreen? = null,
+    // For .desktop shortcuts that point to a real file rather than an app.
+    val targetFilePath: String? = null
 )
 
 enum class DesktopItemType {
@@ -583,6 +593,10 @@ private suspend fun AwaitPointerEventScope.awaitReleaseOrSlop(
             val change = event.changes.firstOrNull { it.id == pid }
                 ?: return@withTimeoutOrNull "cancel"
             if (!change.pressed) return@withTimeoutOrNull "released"
+            // A child surface (for example a desktop icon) may own this pointer.
+            // If it has already consumed the movement, the background must never
+            // interpret the same gesture as a lasso drag.
+            if (change.isConsumed) return@withTimeoutOrNull "consumed"
             val d = change.position - downPos
             if (kotlin.math.abs(d.x) > slop || kotlin.math.abs(d.y) > slop)
                 return@withTimeoutOrNull "moved"
@@ -607,9 +621,15 @@ private suspend fun AwaitPointerEventScope.performDrag(
 }
 
 suspend fun PointerInputScope.detectPressDragGestures(
+    consumeDown: Boolean = false,
     onTap: (Offset) -> Unit = {},
     onDoubleTap: (Offset) -> Unit = {},
     onLongPressReleased: (Offset) -> Unit = {},
+    // When true, long-press is committed as soon as the timeout is reached.
+    // This makes touch context menus feel immediate instead of requiring a precise
+    // stationary release, while movement before the timeout still starts a drag.
+    longPressOnTimeout: Boolean = false,
+    onSecondaryTap: (Offset) -> Unit = {},
     onDragStart: (Offset) -> Unit = {},
     onDrag: (change: PointerInputChange, dragAmount: Offset) -> Unit = { _, _ -> },
     onDragEnd: () -> Unit = {},
@@ -620,9 +640,38 @@ suspend fun PointerInputScope.detectPressDragGestures(
     val slop              = viewConfiguration.touchSlop
 
     awaitEachGesture {
-        val down    = awaitFirstDown(requireUnconsumed = false)
+        val down    = awaitFirstDown(requireUnconsumed = !consumeDown)
         val downPos = down.position
+        if (consumeDown) down.consume()
         val pid     = down.id
+
+        // Mouse secondary-click owns the gesture immediately. This prevents a
+        // right-click from also becoming a selection/drag gesture on desktop-mode devices.
+        //
+        // BUGFIX: this used to call awaitPointerEvent(PointerEventPass.Initial) here,
+        // which BLOCKS until the next pointer event arrives. That's fine for a mouse
+        // (a button-state event follows immediately), but for touch it's broken: a
+        // stationary long-press produces NO further events until the finger moves or
+        // lifts — Android doesn't synthesize periodic move events for a held-still
+        // touch. So this call sat blocked for the entire hold, only unblocking on the
+        // UP event. That UP event was then consumed here (buttons check false, falls
+        // through), leaving nothing for awaitReleaseOrSlop() below to read: its own
+        // awaitPointerEvent() call had nothing left in the queue and just waited out
+        // its own timeout, so it reported "timeout" long after the finger had already
+        // lifted. That's what made ordinary taps feel ~500ms slow (every tap paid the
+        // timeout penalty) and made real long-presses/context-menus never fire during
+        // the actual hold.
+        //
+        // Fix: read currentEvent instead of awaiting a new one. currentEvent reflects
+        // the most recently processed event in this gesture — i.e. the down we just
+        // got from awaitFirstDown() above — so this check is instant and non-blocking,
+        // and awaitReleaseOrSlop() below is left free to see every subsequent event
+        // (move/up) as it actually happens.
+        if (currentEvent.buttons.isSecondaryPressed) {
+            down.consume()
+            onSecondaryTap(downPos)
+            return@awaitEachGesture
+        }
 
         when (awaitReleaseOrSlop(pid, downPos, slop, longPressTimeout)) {
             "released" -> {
@@ -639,15 +688,35 @@ suspend fun PointerInputScope.detectPressDragGestures(
                 }
             }
             "timeout" -> {
-                // Long-press threshold reached while still down and unmoved.
-                when (awaitReleaseOrSlop(pid, downPos, slop, Long.MAX_VALUE / 2)) {
-                    "released" -> onLongPressReleased(downPos)
-                    "moved"    -> performDrag(pid, downPos, onDragStart, onDrag, onDragEnd, onDragCancel)
-                    else       -> onDragCancel()
+                // Long-press threshold reached while still down and unmoved. For background
+                // surfaces we can commit immediately, which is much more reliable on touch
+                // devices than waiting for the exact release event. Icon drags keep the old
+                // release-based behavior by leaving this flag false.
+                if (longPressOnTimeout) {
+                    onLongPressReleased(downPos)
+                    when (awaitReleaseOrSlop(pid, downPos, slop, Long.MAX_VALUE / 2)) {
+                        "released", "consumed" -> Unit
+                        "moved" -> onDragCancel()
+                        else -> onDragCancel()
+                    }
+                } else {
+                    when (awaitReleaseOrSlop(pid, downPos, slop, Long.MAX_VALUE / 2)) {
+                        "released" -> onLongPressReleased(downPos)
+                        "moved"    -> performDrag(pid, downPos, onDragStart, onDrag, onDragEnd, onDragCancel)
+                        else       -> onDragCancel()
+                    }
                 }
             }
-            "moved"  -> { /* moved before the long-press threshold — ignored, same as before */ }
-            "cancel" -> onDragCancel()
+            "moved"  -> {
+                // A real desktop drag should not require a long-press first. The old
+                // detector silently discarded movement that happened before the long-press
+                // timeout, which made icon dragging feel sticky and caused users to move an
+                // icon only after an awkward hold. Once touch-slop is crossed, treat it as a
+                // drag immediately. The long-press path above is still reserved for the
+                // context-menu gesture when the pointer remains stationary.
+                performDrag(pid, downPos, onDragStart, onDrag, onDragEnd, onDragCancel)
+            }
+            "cancel", "consumed" -> onDragCancel()
         }
     }
 }
@@ -670,14 +739,23 @@ private object DesktopIconCache {
     // "slow on other phones" symptom on lower-RAM devices. LinkedHashMap's access-order
     // mode + removeEldestEntry gives simple, correct LRU behavior; synchronized because
     // this can be hit from concurrent IO-dispatcher refreshes.
-    private const val MAX_ENTRIES = 200
-    private val cache = object : LinkedHashMap<String, Bitmap>(MAX_ENTRIES, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>?): Boolean =
-            size > MAX_ENTRIES
-    }
+    private const val MAX_BYTES = 24L * 1024L * 1024L
+    private val cache = object : LinkedHashMap<String, Bitmap>(64, 0.75f, true) {}
+    private var cachedBytes = 0L
 
     @Synchronized fun get(key: String): Bitmap? = cache[key]
-    @Synchronized fun put(key: String, bitmap: Bitmap): Bitmap { cache[key] = bitmap; return bitmap }
+
+    @Synchronized fun put(key: String, bitmap: Bitmap): Bitmap {
+        cache.remove(key)?.let { cachedBytes -= it.allocationByteCount.toLong() }
+        cache[key] = bitmap
+        cachedBytes += bitmap.allocationByteCount.toLong()
+        while (cachedBytes > MAX_BYTES && cache.isNotEmpty()) {
+            val eldest = cache.entries.iterator().next()
+            cachedBytes -= eldest.value.allocationByteCount.toLong()
+            cache.remove(eldest.key)
+        }
+        return bitmap
+    }
 }
 
 fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFileInfo? = try {
@@ -690,6 +768,13 @@ fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFi
         ext == "desktop" -> {
             val lines = file.readLines()
             val pkg   = lines.find { it.startsWith("package=") }?.removePrefix("package=")?.trim() ?: ""
+            val builtInName = lines.find { it.startsWith("bluebirdScreen=") }?.removePrefix("bluebirdScreen=")?.trim()
+            val builtInScreen = builtInName?.let { name ->
+                runCatching { LauncherScreen.valueOf(name) }.getOrNull()
+            }
+            val shortcutType = lines.find { it.startsWith("type=") }?.removePrefix("type=")?.trim()
+            val targetFilePath = lines.find { it.startsWith("path=") }?.removePrefix("path=")?.trim()
+                ?.takeIf { shortcutType == "file" && it.isNotBlank() }
             val label = lines.find { it.startsWith("label=") }?.removePrefix("label=")?.trim()
                 ?: file.nameWithoutExtension
             val iconBmp: Bitmap? = if (pkg.isNotBlank()) {
@@ -700,7 +785,8 @@ fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFi
             } else null
             DesktopFileInfo(
                 id = file.absolutePath, file = file, name = label,
-                type = DesktopItemType.APP_SHORTCUT, packageName = pkg, iconBitmap = iconBmp
+                type = DesktopItemType.APP_SHORTCUT, packageName = pkg.ifBlank { null },
+                iconBitmap = iconBmp, builtInScreen = builtInScreen, targetFilePath = targetFilePath
             )
         }
 
@@ -757,13 +843,25 @@ fun openDesktopItem(
                 LauncherScreen.FILE_EXPLORER,
                 extras = mapOf("path" to item.file.absolutePath)
             )
-        DesktopItemType.APP_SHORTCUT ->
-            item.packageName?.let { pkg ->
-                try {
-                    val intent = context.packageManager.getLaunchIntentForPackage(pkg)
-                    if (intent != null) context.startActivity(intent)
-                } catch (_: Exception) {}
+        DesktopItemType.APP_SHORTCUT -> {
+            // File shortcuts (.desktop with type=file) must open the TARGET file,
+            // not merely launch the shortcut container.
+            if (item.targetFilePath != null) {
+                if (!viewModel.openFileInternally(context, item.targetFilePath)) {
+                    viewModel.openFileWithSystem(context, item.targetFilePath)
+                }
+            // Bluebird-native shortcuts launch directly inside the desktop shell.
+            } else if (item.builtInScreen != null) {
+                viewModel.openWindow(item.builtInScreen)
+            } else {
+                item.packageName?.let { pkg ->
+                    try {
+                        val intent = context.packageManager.getLaunchIntentForPackage(pkg)
+                        if (intent != null) context.startActivity(intent)
+                    } catch (_: Exception) {}
+                }
             }
+        }
         DesktopItemType.WEB_APP_SHORTCUT ->
             viewModel.openWebAppWindow(
                 id = item.webAppId ?: item.id,
@@ -771,7 +869,13 @@ fun openDesktopItem(
                 url = item.webAppUrl ?: "",
                 iconPath = item.webAppIconPath
             )
-        else -> viewModel.openFileWithSystem(context, item.file.absolutePath)
+        else -> {
+            // Desktop files use the exact same native Bluebird routing as File Explorer.
+            // Only unsupported formats fall through to the Android chooser.
+            if (!viewModel.openFileInternally(context, item.file.absolutePath)) {
+                viewModel.openFileWithSystem(context, item.file.absolutePath)
+            }
+        }
     }
 }
 
@@ -846,11 +950,12 @@ private fun autoGridPos(
         return null
     }
     // Fast path: no collision tracking needed — use direct index formula.
-    // FIX: Do NOT clamp idx to totalSlots-1.  The old code forced every icon
-    // beyond the grid capacity onto the very last cell, causing them all to
-    // stack on top of each other.  Instead let col/row grow naturally — extra
-    // columns simply extend to the right, which is harmless (the desktop Box
-    // is not scroll-limited and icons remain individually draggable).
+    // Keep the fallback layout inside the actual grid. The old implementation
+    // allowed columns to grow past the visible desktop, making arrangements
+    // become screen-unaware on small/rotated displays. Callers that need collision
+    // avoidance use the taken-set path above.
+    val totalSlots = (maxCols * safeRows).coerceAtLeast(1)
+    if (idx >= totalSlots) return null
     val col = idx / safeRows
     val row = idx % safeRows
     return Offset(col * cellWidthPx + startPaddingPx, row * cellHeightPx + topPaddingPx)
@@ -868,10 +973,15 @@ private fun snapToGrid(
     topPaddingPx: Float,
     screenWidthPx: Float,
     screenHeightPx: Float,
-    occupiedPositions: Set<Pair<Int, Int>> = emptySet()
-): Offset {
+    occupiedPositions: Set<Pair<Int, Int>> = emptySet(),
+    bottomSafeAreaPx: Float = 0f
+): Offset? {
+    // Use the actual usable canvas, not the raw screen height. This keeps grid snapping
+    // out of taskbars/navigation overlays and makes portrait/landscape transitions agree
+    // with the same bounds used by dragging.
+    val usableHeight = (screenHeightPx - bottomSafeAreaPx).coerceAtLeast(topPaddingPx + cellHeightPx)
     val maxCols = ((screenWidthPx - startPaddingPx) / cellWidthPx).toInt().coerceAtLeast(1)
-    val maxRows = ((screenHeightPx - topPaddingPx) / cellHeightPx).toInt().coerceAtLeast(1)
+    val maxRows = ((usableHeight - topPaddingPx) / cellHeightPx).toInt().coerceAtLeast(1)
 
     val preferredCol = ((pos.x - startPaddingPx) / cellWidthPx).roundToInt()
         .coerceIn(0, maxCols - 1)
@@ -885,21 +995,33 @@ private fun snapToGrid(
         )
     }
 
-    // Search for nearest free cell in a spiral-like scan
-    for (radius in 1..(maxCols + maxRows)) {
-        for (dc in -radius..radius) {
-            for (dr in -radius..radius) {
-                if (abs(dc) != radius && abs(dr) != radius) continue
-                val c = (preferredCol + dc).coerceIn(0, maxCols - 1)
-                val r = (preferredRow + dr).coerceIn(0, maxRows - 1)
-                if (Pair(c, r) !in occupiedPositions) {
-                    return Offset(c * cellWidthPx + startPaddingPx, r * cellHeightPx + topPaddingPx)
-                }
+    // Search every valid cell by distance. Unlike the old clamped spiral, this never
+    // examines the same edge cell dozens of times, and it cannot accidentally skip a
+    // genuinely free cell near an edge after a rotation or resize.
+    var best: Pair<Int, Int>? = null
+    var bestDistance = Float.POSITIVE_INFINITY
+    for (row in 0 until maxRows) {
+        for (col in 0 until maxCols) {
+            val cell = Pair(col, row)
+            if (cell in occupiedPositions) continue
+            val dx = (col - preferredCol).toFloat()
+            val dy = (row - preferredRow).toFloat()
+            val distance = dx * dx + dy * dy
+            if (distance < bestDistance) {
+                bestDistance = distance
+                best = cell
             }
         }
     }
-    // Absolute fallback: preferred position even if occupied
-    return Offset(preferredCol * cellWidthPx + startPaddingPx, preferredRow * cellHeightPx + topPaddingPx)
+    if (best != null) {
+        return Offset(
+            best.first * cellWidthPx + startPaddingPx,
+            best.second * cellHeightPx + topPaddingPx
+        )
+    }
+    // No free cell exists. Returning null lets the caller keep the icon at its
+    // previous position instead of deliberately creating an overlap.
+    return null
 }
 
 // Convert pixel position → grid cell (col, row)
@@ -943,41 +1065,60 @@ private fun animateOffsetAsState(
 // Default shortcuts created on first launch (only if app is installed)
 // Groups: System, Social, Utilities
 // ─────────────────────────────────────────────────────────────────
-private data class DefaultShortcut(val label: String, val packageName: String)
+private data class DefaultShortcut(val label: String, val packageName: String? = null, val builtInScreen: LauncherScreen? = null)
 
-private val DEFAULT_SHORTCUTS = listOf(
-    // System
-    DefaultShortcut("Settings",   "com.android.settings"),
-    DefaultShortcut("Phone",      "com.android.dialer"),
-    DefaultShortcut("Messages",   "com.android.mms"),
-    DefaultShortcut("Camera",     "com.android.camera2"),
-    // Social / Entertainment
-    DefaultShortcut("TikTok",     "com.zhiliaoapp.musically"),
-    DefaultShortcut("WhatsApp",   "com.whatsapp"),
-    DefaultShortcut("Instagram",  "com.instagram.android"),
-    DefaultShortcut("YouTube",    "com.google.android.youtube"),
-    // Utilities
-    DefaultShortcut("Chrome",     "com.android.chrome"),
-    DefaultShortcut("Maps",       "com.google.android.apps.maps"),
+// Bluebird-native apps are real desktop shortcuts, not a special protected layer.
+// They are created once on first launch, so deleting one is permanent until the user
+// explicitly adds it again from Add apps / Start Menu.
+private val BLUEBIRD_DEFAULT_APPS = listOf(
+    DefaultShortcut("Files", builtInScreen = LauncherScreen.FILE_EXPLORER),
+    DefaultShortcut("Settings", builtInScreen = LauncherScreen.SETTINGS),
+    DefaultShortcut("Browser", builtInScreen = LauncherScreen.BROWSER),
+    DefaultShortcut("Calculator", builtInScreen = LauncherScreen.CALCULATOR),
+    DefaultShortcut("Calendar", builtInScreen = LauncherScreen.CALENDAR),
+    DefaultShortcut("Photos", builtInScreen = LauncherScreen.PHOTOS),
+    DefaultShortcut("Media Player", builtInScreen = LauncherScreen.MEDIA_PLAYER),
+    DefaultShortcut("Image Viewer", builtInScreen = LauncherScreen.IMAGE_VIEWER),
+    DefaultShortcut("Word Impress", builtInScreen = LauncherScreen.WORD_IMPRESS),
+    DefaultShortcut("Text Editor", builtInScreen = LauncherScreen.PremiumTextEditorScreen),
+    DefaultShortcut("Terminal", builtInScreen = LauncherScreen.TERMINAL),
+    DefaultShortcut("Task Manager", builtInScreen = LauncherScreen.TASK_MANAGER),
+    DefaultShortcut("Recycle Bin", builtInScreen = LauncherScreen.RECYCLE_BIN),
+    DefaultShortcut("Bluebird Store", builtInScreen = LauncherScreen.BLUEBIRD_STORE),
+    DefaultShortcut("Web App Manager", builtInScreen = LauncherScreen.WEB_APP_MANAGER)
 )
 
-/** Creates .desktop shortcut files for installed apps on first launch. */
-private fun createDefaultShortcuts(desktopDir: File, pm: PackageManager) {
+// Kept as optional Android defaults for devices where these packages actually exist.
+private val ANDROID_DEFAULT_SHORTCUTS = listOf(
+    DefaultShortcut("Phone", "com.android.dialer"),
+    DefaultShortcut("Messages", "com.android.mms"),
+    DefaultShortcut("Camera", "com.android.camera2"),
+    DefaultShortcut("Chrome", "com.android.chrome"),
+    DefaultShortcut("Maps", "com.google.android.apps.maps")
+)
+
+/** Creates the initial desktop apps exactly once. Deleting a default shortcut never recreates it. */
+private fun createDefaultShortcuts(desktopDir: File, pm: PackageManager, prefs: android.content.SharedPreferences) {
     desktopDir.mkdirs()
-    DEFAULT_SHORTCUTS.forEach { shortcut ->
-        // Only create if the app is actually installed
-        val installed = try {
-            pm.getApplicationInfo(shortcut.packageName, 0)
-            true
-        } catch (_: PackageManager.NameNotFoundException) { false }
+    val initializedKey = "desktop_default_apps_initialized_v2"
+    if (prefs.getBoolean(initializedKey, false)) return
 
-        if (!installed) return@forEach
-
+    (BLUEBIRD_DEFAULT_APPS + ANDROID_DEFAULT_SHORTCUTS).forEach { shortcut ->
         val file = File(desktopDir, "${shortcut.label}.desktop")
-        if (file.exists()) return@forEach          // never overwrite existing
-
-        file.writeText("package=${shortcut.packageName}\nlabel=${shortcut.label}\n")
+        if (file.exists()) return@forEach
+        if (shortcut.packageName != null) {
+            try { pm.getApplicationInfo(shortcut.packageName, 0) }
+            catch (_: PackageManager.NameNotFoundException) { return@forEach }
+        }
+        val content = buildString {
+            append("type=app\n")
+            append("label=${shortcut.label}\n")
+            shortcut.packageName?.let { append("package=$it\n") }
+            shortcut.builtInScreen?.let { append("bluebirdScreen=${it.name}\n") }
+        }
+        runCatching { file.writeText(content) }
     }
+    prefs.edit().putBoolean(initializedKey, true).apply()
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1031,6 +1172,9 @@ fun Desktop(
 
         // ── Core state (FIX: initialised from prefs, not just remember{}) ──
         var selectedIds         by remember { mutableStateOf(setOf<String>()) }
+        var selectionAnchorId   by remember { mutableStateOf<String?>(null) }
+        var ctrlMouseSelection  by remember { mutableStateOf(false) }
+        var shiftMouseSelection by remember { mutableStateOf(false) }
         var iconSize            by remember { mutableStateOf(prefs.iconSize) }
 
         // Self-contained store for two new settings — kept separate from the existing
@@ -1209,58 +1353,56 @@ fun Desktop(
         // a downward drag. Keeping one shared value means every drag/clamp site now agrees.
         val maxYBound = screenHPxTotal - cellHPx - padTopPx - bottomSafeAreaPx
 
-        // FIX: Re-clamp all saved custom positions whenever screen dimensions change
-        // (e.g. on orientation flip).  Without this, icons whose saved pixel X/Y
-        // are larger than the new screen size stay off-screen after rotation.
-        LaunchedEffect(screenWPxTotal, screenHPxTotal, bottomSafeAreaPx) {
-            val maxX = screenWPxTotal - cellWPx
-            val maxY = maxYBound
+        // Screen-aware layout repair. Saved positions are pixel coordinates, so a
+        // portrait/landscape change can make two previously separate icons collapse onto
+        // the same edge. Clamp first, then (when grid alignment is enabled) resolve cells
+        // in stable visual order. This preserves as much of the user's arrangement as the
+        // new viewport permits instead of blindly stacking icons at the boundary.
+        LaunchedEffect(screenWPxTotal, screenHPxTotal, bottomSafeAreaPx, iconSize, alignToGrid) {
+            if (customPositions.isEmpty()) return@LaunchedEffect
+            val maxX = (screenWPxTotal - cellWPx).coerceAtLeast(padLeftPx)
+            val maxY = maxYBound.coerceAtLeast(padTopPx)
             var changed = false
-            customPositions.keys.toList().forEach { id ->
-                val old = customPositions[id] ?: return@forEach
-                val clamped = Offset(
-                    old.x.coerceIn(padLeftPx, maxX),
-                    old.y.coerceIn(padTopPx, maxY)
-                )
-                if (clamped != old) {
-                    customPositions[id] = clamped
-                    changed = true
+
+            if (!alignToGrid) {
+                customPositions.keys.toList().forEach { id ->
+                    val old = customPositions[id] ?: return@forEach
+                    val clamped = Offset(
+                        old.x.coerceIn(padLeftPx, maxX),
+                        old.y.coerceIn(padTopPx, maxY)
+                    )
+                    if (clamped != old) { customPositions[id] = clamped; changed = true }
                 }
+            } else {
+                val occupied = mutableSetOf<Pair<Int, Int>>()
+                customPositions.toList()
+                    .sortedWith(compareBy({ it.second.y }, { it.second.x }, { it.first }))
+                    .forEach { (id, oldPos) ->
+                        val snapped = snapToGrid(
+                            oldPos, cellWPx, cellHPx, padLeftPx, padTopPx,
+                            screenWPxTotal, screenHPxTotal, occupied, bottomSafeAreaPx
+                        )
+                        val finalPos = snapped?.let {
+                            Offset(
+                                it.x.coerceIn(padLeftPx, maxX),
+                                it.y.coerceIn(padTopPx, maxY)
+                            )
+                        } ?: Offset(
+                            oldPos.x.coerceIn(padLeftPx, maxX),
+                            oldPos.y.coerceIn(padTopPx, maxY)
+                        )
+                        val cell = posToCell(finalPos, cellWPx, cellHPx, padLeftPx, padTopPx,
+                            maxCols, maxRows)
+                        if (finalPos != oldPos) { customPositions[id] = finalPos; changed = true }
+                        occupied.add(cell)
+                    }
             }
             if (changed) prefs.saveCustomPositions(customPositions)
         }
 
-        // FIX: Re-snap all custom positions whenever the icon SIZE changes (not just
-        // screen bounds). Positions are stored as raw pixel coordinates, so switching to
-        // a larger icon size previously left old, tighter pixel spacing in place — icons
-        // that were fine at Small/Medium spacing would visually overlap once cells grew
-        // for Large. Re-snapping in a stable top-to-bottom, left-to-right order and
-        // tracking occupied cells as we go guarantees no two icons land on the same cell.
-        LaunchedEffect(iconSize, cellWPx, cellHPx, bottomSafeAreaPx) {
-            if (customPositions.isEmpty()) return@LaunchedEffect
-            val maxX = screenWPxTotal - cellWPx
-            val maxY = maxYBound
-            val occupied = mutableSetOf<Pair<Int, Int>>()
-            var changed = false
-            customPositions.toList()
-                .sortedWith(compareBy({ it.second.y }, { it.second.x }))
-                .forEach { (id, oldPos) ->
-                    val snapped = snapToGrid(
-                        oldPos, cellWPx, cellHPx, padLeftPx, padTopPx,
-                        screenWPxTotal, screenHPxTotal, occupied
-                    )
-                    val finalPos = Offset(
-                        snapped.x.coerceIn(padLeftPx, maxX),
-                        snapped.y.coerceIn(padTopPx, maxY)
-                    )
-                    occupied.add(posToCell(finalPos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
-                    if (finalPos != oldPos) {
-                        customPositions[id] = finalPos
-                        changed = true
-                    }
-                }
-            if (changed) prefs.saveCustomPositions(customPositions)
-        }
+        // Icon-size changes are handled by the same screen-aware repair above. Keeping
+        // one layout-repair effect avoids two coroutines competing to rewrite the same
+        // SnapshotStateMap during a rotation or settings change.
 
         // ── Debounced refresh (only used for explicit user-triggered mutations —
         //    e.g. right after a rename/delete/paste — so the UI feels instant instead
@@ -1291,23 +1433,38 @@ fun Desktop(
                 return@LaunchedEffect
             }
             if (!prefs.defaultShortcutsCreated) {
-                withContext(Dispatchers.IO) { createDefaultShortcuts(desktopDir, context.packageManager) }
+                withContext(Dispatchers.IO) { createDefaultShortcuts(desktopDir, context.packageManager, context.getSharedPreferences("launcher_prefs_v3", Context.MODE_PRIVATE)) }
                 prefs.defaultShortcutsCreated = true
             }
             viewModel.refreshDesktopFiles()
         }
 
-        // Keep customPositions in sync with whatever items currently exist, and resolve
-        // any pending inline-rename target once its freshly-created file appears.
+        // Keep transient desktop state aligned with the latest filesystem snapshot.
+        // Only persist when something actually changed: the old unconditional save ran
+        // on every refresh, including silent FileObserver refreshes, causing unnecessary
+        // disk I/O and making rapid create/delete/rename sequences more expensive.
         LaunchedEffect(items) {
-            customPositions.keys.retainAll(items.map { it.id }.toSet())
-            prefs.saveCustomPositions(customPositions)
-            val pendId = pendingRenameId
-            if (pendId != null) {
-                val newItem = items.find { it.id == pendId }
+            val liveIds = items.asSequence().map { it.id }.toSet()
+            var positionsChanged = false
+            customPositions.keys.toList().forEach { id ->
+                if (id !in liveIds) {
+                    customPositions.remove(id)
+                    positionsChanged = true
+                }
+            }
+            if (positionsChanged) prefs.saveCustomPositions(customPositions)
+
+            // Selection must never retain ids for files that no longer exist. Apart from
+            // stale highlighting, those ids can leak into group-drag calculations.
+            val validSelection = selectedIds.intersect(liveIds)
+            if (validSelection != selectedIds) selectedIds = validSelection
+
+            val pendingId = pendingRenameId
+            if (pendingId != null) {
+                val newItem = items.find { it.id == pendingId }
                 if (newItem != null) {
                     inlineRename = InlineRenameState(newItem.id, newItem.name)
-                    selectedIds  = setOf(newItem.id)
+                    selectedIds = setOf(newItem.id)
                     pendingRenameId = null
                 }
             }
@@ -1369,9 +1526,9 @@ fun Desktop(
                 items
             } else {
                 val s = when (sortMode) {
-                    DesktopSortMode.NAME          -> items.sortedBy { it.name.lowercase() }
+                    DesktopSortMode.NAME          -> items.sortedWith(compareBy<DesktopFileInfo> { it.name.lowercase(java.util.Locale.ROOT) }.thenBy { it.id })
                     DesktopSortMode.DATE_MODIFIED -> items.sortedBy { it.file.lastModified() }
-                    DesktopSortMode.TYPE          -> items.sortedBy { it.file.extension }
+                    DesktopSortMode.TYPE          -> items.sortedWith(compareBy<DesktopFileInfo> { it.file.extension.lowercase(java.util.Locale.ROOT) }.thenBy { it.name.lowercase(java.util.Locale.ROOT) }.thenBy { it.id })
                     DesktopSortMode.SIZE          -> items.sortedBy { it.file.length() }
                     DesktopSortMode.NONE          -> items  // unreachable, handled above
                 }
@@ -1437,14 +1594,40 @@ fun Desktop(
             if (finalName == target.file.name) return
             val dest = File(target.file.parent ?: return, finalName)
             if (dest.exists()) return
-            target.file.renameTo(dest)
+
+            // A regular file's desktop id is its absolute path, so a successful rename
+            // necessarily changes its id. Migrate the persisted position/selection to the
+            // new id before the FileObserver refresh replaces `items`; otherwise the icon
+            // briefly (and often permanently) loses its carefully arranged position.
+            val oldId = target.id
+            val oldPosition = customPositions[oldId]
+            if (!target.file.renameTo(dest)) return
+            if (oldPosition != null) {
+                customPositions.remove(oldId)
+                customPositions[dest.absolutePath] = oldPosition
+                prefs.saveCustomPositions(customPositions)
+            }
+            if (oldId in selectedIds) {
+                selectedIds = selectedIds - oldId + dest.absolutePath
+            }
+            if (inlineRename?.targetId == oldId) {
+                inlineRename = InlineRenameState(dest.absolutePath, base)
+            }
             scheduleRefresh()
         }
 
         // ─────────────────────────────────────────────────────────────
         // View hierarchy
         // ─────────────────────────────────────────────────────────────
-        Box(modifier = modifier.fillMaxSize()) {
+        Box(
+            modifier = modifier.fillMaxSize()
+                .focusable()
+                .onKeyEvent { event ->
+                    ctrlMouseSelection = event.nativeKeyEvent.isCtrlPressed
+                    shiftMouseSelection = event.nativeKeyEvent.isShiftPressed
+                    false
+                }
+        ) {
 
             // ── Wallpaper (FIX: mode-aware with crossfade transition) ──
             // Live wallpaper (when active) fully replaces the static wallpaper layer —
@@ -1524,6 +1707,7 @@ fun Desktop(
                     .onGloballyPositioned { desktopLayerCoords = it }
                     .pointerInput(Unit) {
                         detectPressDragGestures(
+                            longPressOnTimeout = true,
                             onTap = {
                                 val currentRename = inlineRename
                                 if (currentRename != null) {
@@ -1532,12 +1716,22 @@ fun Desktop(
                                     commitRename(currentRename, currentRename.initialName)
                                 } else {
                                     selectedIds = emptySet()
+                                    selectionAnchorId = null
                                 }
                                 showDesktopCtx = false
                                 iconCtxTarget  = null
                             },
+                            onSecondaryTap = { off ->
+                                if (draggedId == null) {
+                                    desktopCtxOffset = desktopLayerCoords?.let { it.trueScreenPosition(localView) + off } ?: off
+                                    desktopCtxLocalOffset = off
+                                    showDesktopCtx = true
+                                    iconCtxTarget = null
+                                }
+                            },
                             onLongPressReleased = { off ->
                                 if (draggedId == null) {
+                                     iconCtxTarget = null
                                     desktopCtxOffset      = desktopLayerCoords?.let { it.trueScreenPosition(localView) + off } ?: off
                                     // Local (grid-space) copy of the same click, kept separately from
                                     // desktopCtxOffset above (which is screen-space, for Popup
@@ -1656,6 +1850,7 @@ fun Desktop(
                     }
 
                     sortedItems.forEachIndexed { idx, item ->
+                        androidx.compose.runtime.key(item.id) {
                         // O(1) lookup from cached map
                         val basePos: Offset = if (autoArrange) {
                             autoArrangePositions[item.id] ?: return@forEachIndexed  // grid full → skip
@@ -1715,13 +1910,39 @@ fun Desktop(
                                 .offset { IntOffset(animatedPos.x.roundToInt(), animatedPos.y.roundToInt()) }
                                 .scale(dragScale)
                                 .zIndex(if (isDragged) 50f else if (isInGroup) 40f else 1f)
-                                .pointerInput(item.id, autoArrange, selectedIds) {
+                                .pointerInput(item.id) {
                                     detectPressDragGestures(
+                                        consumeDown = true,
+                                        // Commit touch long-press at the platform threshold.
+                                        // Waiting for the exact UP event was unreliable on some Android touch paths.
+                                        longPressOnTimeout = true,
+                                        onSecondaryTap = { localPoint ->
+                                            val r = inlineRename
+                                            if (r != null && r.targetId != item.id) commitRename(r, r.initialName)
+                                            if (item.id !in selectedIds) selectedIds = setOf(item.id)
+                                            iconCtxTarget = item
+                                            iconCtxOffset = desktopLayerCoords?.let { it.trueScreenPosition(localView) + localPoint } ?: localPoint
+                                            showDesktopCtx = false
+                                        },
                                         onTap = {
                                             val r = inlineRename
                                             if (r != null && r.targetId != item.id) commitRename(r, r.initialName)
-                                            selectedIds    = if (item.id in selectedIds)
-                                                selectedIds - item.id else setOf(item.id)
+                                            val currentIndex = indexMap[item.id] ?: 0
+                                            when {
+                                                shiftMouseSelection -> {
+                                                    val anchorIndex = selectionAnchorId?.let { indexMap[it] } ?: currentIndex
+                                                    val range = if (anchorIndex <= currentIndex) anchorIndex..currentIndex else currentIndex..anchorIndex
+                                                    selectedIds = range.mapNotNull { sortedItems.getOrNull(it)?.id }.toSet()
+                                                }
+                                                ctrlMouseSelection -> {
+                                                    selectedIds = if (item.id in selectedIds) selectedIds - item.id else selectedIds + item.id
+                                                    selectionAnchorId = item.id
+                                                }
+                                                else -> {
+                                                    selectedIds = setOf(item.id)
+                                                    selectionAnchorId = item.id
+                                                }
+                                            }
                                             showDesktopCtx = false
                                             iconCtxTarget  = null
                                         },
@@ -1744,9 +1965,16 @@ fun Desktop(
                                             showDesktopCtx = false
                                         },
                                         onDragStart = {
+                                             // A long-press that turns into a drag must not leave a stale menu.
+                                             iconCtxTarget = null
+                                             showDesktopCtx = false
                                             val r = inlineRename
                                             if (r != null) commitRename(r, r.initialName)
                                             draggedId = item.id
+                                            if (item.id !in selectedIds) {
+                                                selectedIds = setOf(item.id)
+                                                selectionAnchorId = item.id
+                                            }
                                             // The unified detector only calls onDragStart once real
                                             // movement is confirmed, so this is already a real drag.
                                             dragMoved = true
@@ -1828,7 +2056,60 @@ fun Desktop(
                                             isDraggingGroup = false
                                             val maxX = screenWPxTotal - cellWPx
                                             val maxY = maxYBound
-                                            if (autoArrange) {
+
+                                            // A dragged item/group dropped directly onto another desktop icon
+                                            // is never allowed to remain overlapped. Folders are valid drop
+                                            // targets (move the selected files into the folder); all other
+                                            // icons reject the drop and return the whole group to its original
+                                            // positions. This is the important distinction between a file-manager
+                                            // drop and accidental icon piling.
+                                            val anchorCenter = Offset(pos.x + cellWPx / 2f, pos.y + cellHPx / 2f)
+                                            val actualDropTarget = sortedItems.firstOrNull { candidate ->
+                                                if (candidate.id in selectedIds) return@firstOrNull false
+                                                val targetPos = if (autoArrange) autoArrangePositions[candidate.id]
+                                                else customPositions[candidate.id] ?: autoGridPos(
+                                                    indexMap[candidate.id] ?: 0, rows, maxCols, cellWPx, cellHPx,
+                                                    padLeftPx, padTopPx
+                                                )
+                                                targetPos != null &&
+                                                    anchorCenter.x >= targetPos.x && anchorCenter.x <= targetPos.x + cellWPx &&
+                                                    anchorCenter.y >= targetPos.y && anchorCenter.y <= targetPos.y + cellHPx
+                                            }
+                                            if (actualDropTarget != null) {
+                                                val sourceIds = if (wasGroup) selectedIds else setOf(item.id)
+                                                val sources = sourceIds
+                                                    .mapNotNull { id -> sortedItems.find { it.id == id }?.file }
+                                                    .filter { it.absolutePath != actualDropTarget.file.absolutePath }
+                                                val targetPath = actualDropTarget.file.absolutePath.trimEnd(File.separatorChar)
+                                                val validFolderDrop = actualDropTarget.file.isDirectory && sources.none { source ->
+                                                    val sourcePath = source.absolutePath.trimEnd(File.separatorChar)
+                                                    source.isDirectory && targetPath.startsWith(sourcePath + File.separator)
+                                                }
+                                                if (validFolderDrop && sources.isNotEmpty()) {
+                                                    // Dragging onto a folder is a real move operation, not an icon
+                                                    // placement operation. The copy engine handles it asynchronously.
+                                                    viewModel.enqueueFileOperation(sources, actualDropTarget.file, isCut = true)
+                                                }
+
+                                                // Never leave the icons stacked on the drop target. Restore the
+                                                // complete group to its pre-drag positions immediately. Followers
+                                                // receive the restoration through the same broadcast mechanism used
+                                                // during dragging; keep that broadcast alive for one frame so their
+                                                // LaunchedEffect cannot miss it when isDraggingGroup flips false.
+                                                pos = basePos
+                                                if (wasGroup) {
+                                                    groupRelativeOffsets.forEach { (otherId, rel) ->
+                                                        dragGroupOffsets[otherId] = basePos + rel
+                                                    }
+                                                    val restoreIds = groupRelativeOffsets.keys.toList()
+                                                    scope.launch {
+                                                        kotlinx.coroutines.yield()
+                                                        restoreIds.forEach { dragGroupOffsets.remove(it) }
+                                                    }
+                                                }
+                                                dragMoved = false
+                                                groupRelativeOffsets.clear()
+                                            } else if (autoArrange) {
                                                 pos = basePos  // snap-back animation plays automatically
                                             } else if (!alignToGrid) {
                                                 // Align-to-grid off: free pixel placement, like real Windows
@@ -1846,7 +2127,7 @@ fun Desktop(
                                                 )
                                                 val snapped = snapToGrid(
                                                     pos, cellWPx, cellHPx, padLeftPx, padTopPx,
-                                                    screenWPxTotal, screenHPxTotal, otherCells
+                                                    screenWPxTotal, screenHPxTotal, otherCells, bottomSafeAreaPx
                                                 )
                                                 @Suppress("SENSELESS_COMPARISON")
                                                 if (snapped == null) {
@@ -1880,11 +2161,16 @@ fun Desktop(
                                                     )
                                                     val snapped = snapToGrid(
                                                         lastPos, cellWPx, cellHPx, padLeftPx, padTopPx,
-                                                        screenWPxTotal, screenHPxTotal, freeCells
+                                                        screenWPxTotal, screenHPxTotal, freeCells, bottomSafeAreaPx
                                                     )
-                                                    val finalPos = Offset(
-                                                        snapped.x.coerceIn(padLeftPx, maxX),
-                                                        snapped.y.coerceIn(padTopPx, maxY)
+                                                    val finalPos = snapped?.let {
+                                                        Offset(
+                                                            it.x.coerceIn(padLeftPx, maxX),
+                                                            it.y.coerceIn(padTopPx, maxY)
+                                                        )
+                                                    } ?: lastPos.copy(
+                                                        x = lastPos.x.coerceIn(padLeftPx, maxX),
+                                                        y = lastPos.y.coerceIn(padTopPx, maxY)
                                                     )
                                                     customPositions[otherId] = finalPos
                                                     dragGroupOffsets[otherId] = finalPos  // last broadcast: followers apply this final settle
@@ -1930,19 +2216,29 @@ fun Desktop(
                                 dragGroupOffsets[item.id] ?: Offset.Zero
                             } else Offset.Zero
 
-                            DesktopIcon(
-                                item              = item,
-                                isSelected        = item.id in selectedIds,
-                                iconSize          = iconSize,
-                                inlineRenaming    = inlineRename?.targetId == item.id,
-                                initialRenameText = inlineRename?.initialName ?: item.name,
-                                onLiveTextChange  = { liveRenameText = it },
-                                onInlineRenameConfirm = {
-                                    inlineRename?.let { r -> commitRename(r, liveRenameText) }
-                                },
-                                refreshFlickerAlpha = desktopFlickerAlpha.value
+                            // Keep the visual/icon subtree in its own restartable + skippable
+                            // composition boundary. Desktop-level state (lasso movement, another
+                            // icon being dragged, selection changes, etc.) can now recompose the
+                            // parent without forcing every icon's expensive drawing/content tree
+                            // to execute again when that icon's inputs are unchanged.
+                            val iconOnLiveTextChange = remember(item.id) { { text: String -> liveRenameText = text } }
+                            val iconOnRenameConfirm = remember(item.id) {
+                                {
+                                    inlineRename?.let { r -> commitRename(r, liveRenameText) } ?: Unit
+                                }
+                            }
+                            DesktopIconRender(
+                                item                  = item,
+                                isSelected            = item.id in selectedIds,
+                                iconSize              = iconSize,
+                                inlineRenaming        = inlineRename?.targetId == item.id,
+                                initialRenameText     = inlineRename?.initialName ?: item.name,
+                                onLiveTextChange      = iconOnLiveTextChange,
+                                onInlineRenameConfirm = iconOnRenameConfirm,
+                                refreshFlickerAlpha   = desktopFlickerAlpha.value
                             )
                         }
+                        } // stable key: item.id
                     }
 
                     // ── Desktop-full toast ────────────────────────────────
@@ -2038,9 +2334,14 @@ fun Desktop(
             val finalPos = if (alignToGrid) {
                 val snapped = snapToGrid(
                     desktopCtxLocalOffset, cellWPx, cellHPx, padLeftPx, padTopPx,
-                    screenWPxTotal, screenHPxTotal, occupiedCells
+                    screenWPxTotal, screenHPxTotal, occupiedCells, bottomSafeAreaPx
                 )
-                Offset(snapped.x.coerceIn(padLeftPx, maxX), snapped.y.coerceIn(padTopPx, maxYBound))
+                snapped?.let {
+                    Offset(it.x.coerceIn(padLeftPx, maxX), it.y.coerceIn(padTopPx, maxYBound))
+                } ?: Offset(
+                    desktopCtxLocalOffset.x.coerceIn(padLeftPx, maxX),
+                    desktopCtxLocalOffset.y.coerceIn(padTopPx, maxYBound)
+                )
             } else {
                 // Align-to-grid off: place at the exact click point, like real Windows —
                 // no snapping.
@@ -2074,9 +2375,11 @@ fun Desktop(
                     ?: return@forEachIndexed  // grid full — nothing we can do yet
                 val snapped = snapToGrid(
                     fallback, cellWPx, cellHPx, padLeftPx, padTopPx,
-                    screenWPxTotal, screenHPxTotal, occupied
+                    screenWPxTotal, screenHPxTotal, occupied, bottomSafeAreaPx
                 )
-                val finalPos = Offset(snapped.x.coerceIn(padLeftPx, maxX), snapped.y.coerceIn(padTopPx, maxYBound))
+                val finalPos = snapped?.let {
+                    Offset(it.x.coerceIn(padLeftPx, maxX), it.y.coerceIn(padTopPx, maxYBound))
+                } ?: fallback
                 customPositions[item.id] = finalPos
                 occupied.add(posToCell(finalPos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
                 changed = true
@@ -2189,6 +2492,11 @@ fun Desktop(
                         viewModel.setClipboard(files, cut = false)
                         iconCtxTarget = null
                     },
+                    onPaste = if (target.type == DesktopItemType.FOLDER && vmUiState.clipboardFiles.isNotEmpty()) ({
+                        viewModel.pasteClipboard(target.file)
+                        iconCtxTarget = null
+                        scheduleRefresh()
+                    }) else null,
                     onDelete = {
                         val toDelete = selectedIds
                             .mapNotNull { id -> items.find { it.id == id }?.file }
@@ -2267,7 +2575,12 @@ fun Desktop(
                     isDark       = isDark,
                     onAppSelected = { pkg, label ->
                         val f = File(desktopDir, uniqueName(desktopDir, label, "desktop"))
-                        f.writeText("type=app\npackage=$pkg\nlabel=$label\n")
+                        val content = if (pkg.startsWith("bluebird:")) {
+                            "type=app\nlabel=$label\nbluebirdScreen=${pkg.removePrefix("bluebird:")}\n"
+                        } else {
+                            "type=app\npackage=$pkg\nlabel=$label\n"
+                        }
+                        f.writeText(content)
                         placeNewItemAtClickPosition(f.absolutePath)
                         showAppPickerDialog = false
                         scheduleRefresh()
@@ -2338,6 +2651,33 @@ private fun DesktopIcon(
     val cellW  = cellWidthDp(iconSize).dp
     val cellH  = cellHeightDp(iconSize).dp
     val focusRequester = remember { FocusRequester() }
+
+    // Performance: cache pure icon conversions. Desktop recomposition can be frequent
+    // while dragging/selecting, so avoid rebuilding ImageBitmap/vector wrappers.
+    val imageBitmap = remember(item.iconBitmap) { item.iconBitmap?.asImageBitmap() }
+    val fallbackIcon = remember(item.file.absolutePath, item.type, item.builtInScreen) {
+        when (item.builtInScreen) {
+            LauncherScreen.FILE_EXPLORER -> Icons.Default.Folder
+            LauncherScreen.SETTINGS -> Icons.Default.Settings
+            LauncherScreen.BROWSER -> Icons.Default.Language
+            LauncherScreen.CALCULATOR -> Icons.Default.Calculate
+            LauncherScreen.CALENDAR -> Icons.Default.CalendarMonth
+            LauncherScreen.PHOTOS -> Icons.Default.PhotoLibrary
+            LauncherScreen.MEDIA_PLAYER -> Icons.Default.LiveTv
+            LauncherScreen.IMAGE_VIEWER -> Icons.Default.Photo
+            LauncherScreen.WORD_IMPRESS -> Icons.Default.TextRotationAngledown
+            LauncherScreen.PremiumTextEditorScreen -> Icons.Default.TextFields
+            LauncherScreen.TERMINAL -> Icons.Default.Terminal
+            LauncherScreen.TASK_MANAGER -> Icons.Default.Assignment
+            LauncherScreen.RECYCLE_BIN -> Icons.Default.Delete
+            LauncherScreen.BLUEBIRD_STORE -> Icons.Default.NightsStay
+            LauncherScreen.WEB_APP_MANAGER -> Icons.Default.Language
+            else -> getFileIcon(item.file)
+        }
+    }
+    val fallbackTint = remember(item.file.absolutePath, item.type, item.builtInScreen) {
+        if (item.builtInScreen != null) Color(0xFF0078D4) else getFileIconColor(item.file)
+    }
 
     // FIX: KEY is item.id only — never changes on keystroke.
     // stripping extension for display (Windows UX convention)
@@ -2413,9 +2753,9 @@ private fun DesktopIcon(
                     }
                     else -> {
                         Icon(
-                            imageVector        = getFileIcon(item.file),
+                            imageVector        = fallbackIcon,
                             contentDescription = null,
-                            tint               = getFileIconColor(item.file),
+                            tint               = fallbackTint,
                             modifier           = Modifier.fillMaxSize()
                         )
                     }
@@ -3193,6 +3533,7 @@ fun Win11IconContextMenu(
     onOpenFileLocation: () -> Unit,
     onCut: () -> Unit,
     onCopy: () -> Unit,
+    onPaste: (() -> Unit)? = null,
     onDelete: () -> Unit,
     onRename: () -> Unit,
     onShare: () -> Unit,
@@ -3233,6 +3574,10 @@ fun Win11IconContextMenu(
 
                 W11CtxDivider(divColor)
                 W11CtxRow(Icons.Default.OpenInNew, "Open", tc, tcDim, isBold = true) { onOpen(); onDismiss() }
+
+                if (item.type == DesktopItemType.FOLDER && onPaste != null) {
+                    W11CtxRow(Icons.Default.ContentPaste, "Paste", tc, tcDim) { onPaste(); onDismiss() }
+                }
 
                 Win11FlyoutRow(
                     icon = Icons.Default.OpenWith, label = "Open with", tc = tc, tcDim = tcDim,
@@ -3537,6 +3882,40 @@ fun AppPickerDialog(
                         CircularProgressIndicator(color = Color(0xFF0078D4))
                     }
                 } else {
+                    val builtIns = remember(searchQuery) {
+                        listOf(
+                            "Files" to LauncherScreen.FILE_EXPLORER,
+                            "Settings" to LauncherScreen.SETTINGS,
+                            "Browser" to LauncherScreen.BROWSER,
+                            "Calculator" to LauncherScreen.CALCULATOR,
+                            "Calendar" to LauncherScreen.CALENDAR,
+                            "Photos" to LauncherScreen.PHOTOS,
+                            "Media Player" to LauncherScreen.MEDIA_PLAYER,
+                            "Image Viewer" to LauncherScreen.IMAGE_VIEWER,
+                            "Word Impress" to LauncherScreen.WORD_IMPRESS,
+                            "Text Editor" to LauncherScreen.PremiumTextEditorScreen,
+                            "Terminal" to LauncherScreen.TERMINAL,
+                            "Task Manager" to LauncherScreen.TASK_MANAGER,
+                            "Recycle Bin" to LauncherScreen.RECYCLE_BIN,
+                            "Bluebird Store" to LauncherScreen.BLUEBIRD_STORE,
+                            "Web App Manager" to LauncherScreen.WEB_APP_MANAGER
+                        ).filter { it.first.contains(searchQuery, true) }
+                    }
+                    if (builtIns.isNotEmpty()) {
+                        Text("Bluebird apps", color = tc.copy(alpha = 0.6f), fontSize = 11.sp, modifier = Modifier.padding(vertical = 4.dp))
+                        builtIns.forEach { (label, screen) ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    onAppSelected("bluebird:${screen.name}", label)
+                                }.padding(horizontal = 8.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Apps, null, tint = Color(0xFF0078D4), modifier = Modifier.size(22.dp))
+                                Spacer(Modifier.width(10.dp))
+                                Text(label, color = tc, fontSize = 12.sp)
+                            }
+                        }
+                    }
                     val filtered = remember(appsList, searchQuery) {
                         if (searchQuery.isBlank()) appsList
                         else appsList.filter {
@@ -3575,6 +3954,36 @@ fun AppPickerDialog(
         },
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Close", color = Color(0xFF0078D4)) } }
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Skippable desktop icon rendering boundary
+// ─────────────────────────────────────────────────────────────────
+// Keep this wrapper deliberately small. Gesture/state orchestration stays in Desktop(),
+// while the visual subtree gets its own Compose restart group. This is important during
+// lasso selection and dragging: a change to one icon's position should not require the
+// visual contents of every other icon to be rebuilt.
+@Composable
+private fun DesktopIconRender(
+    item: DesktopFileInfo,
+    isSelected: Boolean,
+    iconSize: DesktopIconSize,
+    inlineRenaming: Boolean,
+    initialRenameText: String,
+    onLiveTextChange: (String) -> Unit,
+    onInlineRenameConfirm: () -> Unit,
+    refreshFlickerAlpha: Float
+) {
+    DesktopIcon(
+        item                   = item,
+        isSelected             = isSelected,
+        iconSize               = iconSize,
+        inlineRenaming         = inlineRenaming,
+        initialRenameText      = initialRenameText,
+        onLiveTextChange       = onLiveTextChange,
+        onInlineRenameConfirm  = onInlineRenameConfirm,
+        refreshFlickerAlpha    = refreshFlickerAlpha
     )
 }
 

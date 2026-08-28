@@ -31,7 +31,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
+import io.github.norbertweb.bluebird.ui.components.LocalWindowRuntime
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlin.math.*
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1227,6 +1229,7 @@ data class ProcessInfo(
 
 @Composable
 fun TaskManagerScreen(isDark: Boolean) {
+    val windowRuntime = LocalWindowRuntime.current
     val bg     = if (isDark) Mac.surfaceDark  else Mac.surfaceLight
     val panel  = if (isDark) Mac.panelDark    else Mac.panelLight
     val text   = if (isDark) Mac.textPrimaryDark else Mac.textPrimaryLight
@@ -1262,8 +1265,14 @@ fun TaskManagerScreen(isDark: Boolean) {
     }
 
     // Animate CPU values
-    LaunchedEffect(Unit) {
-        while (true) {
+    LaunchedEffect(windowRuntime.isMinimized) {
+        while (isActive) {
+            if (windowRuntime.isMinimized) {
+                // Minimized Task Manager keeps its state but stops generating
+                // fake telemetry/recomposition work until restored.
+                delay(5_000)
+                continue
+            }
             delay(1000)
             processes = processes.map { p ->
                 val delta = (-3..3).random().toFloat()

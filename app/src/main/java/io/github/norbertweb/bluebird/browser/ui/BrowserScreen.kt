@@ -33,6 +33,7 @@ import androidx.compose.ui.zIndex
 import com.io.github.norbertweb.bluebird.browser.data.BrowserRepository
 import com.io.github.norbertweb.bluebird.browser.model.Bookmark
 import com.io.github.norbertweb.bluebird.browser.model.BrowserPanel
+import com.io.github.norbertweb.bluebird.browser.model.BrowserSettings
 import com.io.github.norbertweb.bluebird.browser.model.BrowserTab
 import com.io.github.norbertweb.bluebird.browser.model.DownloadItem
 import com.io.github.norbertweb.bluebird.browser.model.HistoryEntry
@@ -61,6 +62,8 @@ import com.io.github.norbertweb.bluebird.browser.utils.UrlUtils
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import com.io.github.norbertweb.bluebird.browser.model.PermissionRequest as BrowserPermissionRequest
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -69,6 +72,13 @@ import com.io.github.norbertweb.bluebird.browser.model.PermissionRequest as Brow
 // back on every meaningful change via a debounced coroutine.
 // ═══════════════════════════════════════════════════════════════════════
 
+private data class BrowserPersistedState(
+    val tabs: Pair<List<BrowserTab>, String>,
+    val settings: BrowserSettings,
+    val bookmarks: List<Bookmark>,
+    val history: List<HistoryEntry>,
+)
+
 @Composable
 fun BrowserScreen() {
     val context    = LocalContext.current
@@ -76,31 +86,37 @@ fun BrowserScreen() {
     val scope      = rememberCoroutineScope()
     val dlHelper   = remember { DownloadHelper(context) }
 
-    // ── Persistence: load once ────────────────────────────────────────
-    val (savedTabs, savedActiveId) = remember { repo.loadTabs() }
-    val savedSettings  = remember { repo.loadSettings() }
-    val savedBookmarks = remember { repo.loadBookmarks() }
-    val savedHistory   = remember { repo.loadHistory() }
-
-    // ── Mutable state ─────────────────────────────────────────────────
+    // ── Persistence: lazy, off-main initialization ────────────────────
+    // JSON parsing of history/tabs is deferred until after the first frame.
+    var browserInitialized by remember { mutableStateOf(false) }
     val tabs = remember {
-        val list = if (savedTabs.isEmpty()) mutableListOf(BrowserTab()) else savedTabs.toMutableList()
-        androidx.compose.runtime.snapshots.SnapshotStateList<BrowserTab>().also { it.addAll(list) }
+        androidx.compose.runtime.snapshots.SnapshotStateList<BrowserTab>().also { it.add(BrowserTab()) }
     }
-    var activeTabId by remember {
-        mutableStateOf(
-            if (savedActiveId.isNotEmpty() && savedTabs.any { it.id == savedActiveId })
-                savedActiveId
-            else tabs.first().id
-        )
+    var activeTabId by remember { mutableStateOf(tabs.first().id) }
+    var settings by remember { mutableStateOf(BrowserSettings()) }
+    val bookmarks = remember { androidx.compose.runtime.snapshots.SnapshotStateList<Bookmark>() }
+    val history = remember { androidx.compose.runtime.snapshots.SnapshotStateList<HistoryEntry>() }
+
+    LaunchedEffect(repo) {
+        val loaded = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            BrowserPersistedState(
+                tabs = repo.loadTabs(),
+                settings = repo.loadSettings(),
+                bookmarks = repo.loadBookmarks(),
+                history = repo.loadHistory()
+            )
+        }
+        if (!isActive) return@LaunchedEffect
+        val (savedTabs, savedActiveId) = loaded.tabs
+        tabs.clear()
+        tabs.addAll(if (savedTabs.isEmpty()) listOf(BrowserTab()) else savedTabs)
+        activeTabId = if (savedActiveId.isNotEmpty() && tabs.any { it.id == savedActiveId }) savedActiveId else tabs.first().id
+        settings = loaded.settings
+        bookmarks.clear(); bookmarks.addAll(loaded.bookmarks)
+        history.clear(); history.addAll(loaded.history)
+        browserInitialized = true
     }
-    var settings  by remember { mutableStateOf(savedSettings) }
-    val bookmarks = remember {
-        androidx.compose.runtime.snapshots.SnapshotStateList<Bookmark>().also { it.addAll(savedBookmarks) }
-    }
-    val history = remember {
-        androidx.compose.runtime.snapshots.SnapshotStateList<HistoryEntry>().also { it.addAll(savedHistory) }
-    }
+
     val downloads = remember {
         androidx.compose.runtime.snapshots.SnapshotStateList<DownloadItem>()
     }
@@ -142,6 +158,7 @@ fun BrowserScreen() {
 
     var saveJob by remember { mutableStateOf<Job?>(null) }
     fun scheduleSave() {
+        if (!browserInitialized) return
         saveJob?.cancel()
         saveJob = scope.launch {
             delay(800)
@@ -160,6 +177,7 @@ fun BrowserScreen() {
 
     DisposableEffect(Unit) {
         onDispose {
+            if (!browserInitialized) { dlHelper.destroy(); return@onDispose }
             repo.saveTabs(tabs, activeTabId)
             repo.saveBookmarks(bookmarks)
             repo.saveHistory(history)

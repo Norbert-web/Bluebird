@@ -137,6 +137,9 @@ import io.github.norbertweb.bluebird.WindowState
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Taskbar Settings State
@@ -689,8 +692,14 @@ private fun TaskbarCenterCluster(
         uiState.openWindows.groupBy { it.iconKey.ifBlank { it.title } }
     }
     val pinnedApps = uiState.pinnedTaskbarApps
-    val unpinnedWindows = uiState.openWindows.filter { w ->
-        pinnedApps.none { it.packageName == w.id }
+    val pinnedAppNames = remember(pinnedApps) { pinnedApps.map { it.name.lowercase(Locale.getDefault()) } }
+    val windowPinnedState = remember(uiState.openWindows, pinnedAppNames) {
+        uiState.openWindows.associate { window ->
+            window.id to pinnedAppNames.any { name -> name.isNotBlank() && window.title.contains(name, ignoreCase = true) }
+        }
+    }
+    val unpinnedWindows = remember(uiState.openWindows, windowPinnedState) {
+        uiState.openWindows.filterNot { windowPinnedState[it.id] == true }
     }
     val (visibleUnpinned, overflowWindows) = when (settings.iconOverflowMode) {
         IconOverflowMode.OVERFLOW_MENU -> {
@@ -726,10 +735,11 @@ private fun TaskbarCenterCluster(
         }
 
         pinnedApps.forEach { app ->
-            val runningWindow = uiState.openWindows.firstOrNull {
-                it.title.contains(app.name, true) && !it.isMinimized
+            val runningWindowsForApp = remember(uiState.openWindows, app.packageName, app.name) {
+                uiState.openWindows.filter { it.title.contains(app.name, ignoreCase = true) }
             }
-            val isRunning = uiState.openWindows.any { it.title.contains(app.name, true) }
+            val runningWindow = runningWindowsForApp.firstOrNull { !it.isMinimized }
+            val isRunning = runningWindowsForApp.isNotEmpty()
             val isActive  = runningWindow?.id == uiState.activeWindowId
             TaskbarAppIcon(
                 appInfo = app,
@@ -1606,13 +1616,31 @@ private fun SystemTray(
                 modifier = Modifier.size(13.dp))
         }
         if (settings.showClock) {
+            val nowText by produceState(initialValue = "") {
+                while (true) {
+                    val cal = Calendar.getInstance()
+                    val hour24 = cal.get(Calendar.HOUR_OF_DAY)
+                    val minute = cal.get(Calendar.MINUTE)
+                    val time = if (uiState.use24HourClock) {
+                        "${hour24.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}"
+                    } else {
+                        val hour12 = if (hour24 % 12 == 0) 12 else hour24 % 12
+                        val amPm = if (hour24 < 12) "AM" else "PM"
+                        "$hour12:${minute.toString().padStart(2, '0')} $amPm"
+                    }
+                    val date = SimpleDateFormat("M/d/yyyy", Locale.getDefault()).format(cal.time)
+                    value = "$time\u0000$date"
+                    kotlinx.coroutines.delay(30_000)
+                }
+            }
+            val parts = nowText.split('\u0000', limit = 2)
             Column(
                 horizontalAlignment = Alignment.End,
                 modifier = Modifier.padding(start = 2.dp)
             ) {
-                Text(uiState.currentTime, color = Color.White, fontSize = 10.sp,
+                Text(parts.getOrElse(0) { "" }, color = Color.White, fontSize = 10.sp,
                     fontWeight = FontWeight.Medium, lineHeight = 12.sp)
-                Text(uiState.currentDate, color = Color.White.copy(alpha = 0.55f),
+                Text(parts.getOrElse(1) { "" }, color = Color.White.copy(alpha = 0.55f),
                     fontSize = 8.5.sp, lineHeight = 10.sp)
             }
         }

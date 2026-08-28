@@ -69,6 +69,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import io.github.norbertweb.bluebird.ui.components.LocalWindowRuntime
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.*
@@ -166,9 +167,18 @@ private object ThemeHolder {
 
 private const val THEME_PREFS_KEY = "bluebird_theme"
 
-private fun loadTheme(ctx: Context) {
-    val name = prefs(ctx).getString(THEME_PREFS_KEY, BBTheme.FLUENT.name)
-    ThemeHolder.current = try { BBTheme.valueOf(name ?: BBTheme.FLUENT.name) } catch (_: Exception) { BBTheme.FLUENT }
+private data class LibraryLoadResult(
+    val tracks: List<MediaTrack>,
+    val recentPaths: List<String>,
+    val playlists: List<BBPlaylist>,
+    val theme: String
+)
+
+private fun loadThemeName(ctx: Context): String =
+    prefs(ctx).getString(THEME_PREFS_KEY, BBTheme.FLUENT.name) ?: BBTheme.FLUENT.name
+
+private fun applyThemeName(name: String) {
+    ThemeHolder.current = try { BBTheme.valueOf(name) } catch (_: Exception) { BBTheme.FLUENT }
 }
 
 private fun saveTheme(ctx: Context, theme: BBTheme) {
@@ -448,6 +458,7 @@ private class PlayerState {
     var isLoading   by mutableStateOf(false)
     var isLibraryReady by mutableStateOf(false)
     var hasRestoredQueue by mutableStateOf(false)
+    var hasHandledInitialPath by mutableStateOf(false)
 
     // Playlist — mirrors the controller's timeline; controller is the
     // source of truth, this is a display-friendly projection of it.
@@ -700,6 +711,7 @@ fun MediaPlayerScreen(
     onPickSubtitle: ((onPicked: (Uri) -> Unit) -> Unit)? = null
 ) {
     val ctx   = LocalContext.current
+    val windowRuntime = LocalWindowRuntime.current
     val state = rememberPlayerState()
     val scope = rememberCoroutineScope()
 
@@ -713,27 +725,30 @@ fun MediaPlayerScreen(
 
     // ── N-01: MediaStore-backed scan — no filesystem walk, no per-file
     // metadata retriever pass. This is the fix for the slow-open complaint.
-    LaunchedEffect(Unit) {
+    LaunchedEffect(windowRuntime.isMinimized) {
+        if (windowRuntime.isMinimized || state.isLibraryReady) return@LaunchedEffect
         state.isLoading = true
-        val scanned = withContext(Dispatchers.IO) { MediaLibraryRepository.scan(ctx) }
-        val tracks = scanned.map { it.toMediaTrack() }
-        tracks.forEach { loadTrackMeta(ctx, it) }
+        val libraryData = withContext(Dispatchers.IO) {
+            val scanned = MediaLibraryRepository.scan(ctx)
+            val tracks = scanned.map { it.toMediaTrack() }
+            tracks.forEach { loadTrackMeta(ctx, it) }
+            LibraryLoadResult(
+                tracks = tracks,
+                recentPaths = loadRecents(ctx),
+                playlists = loadPlaylists(ctx),
+                theme = loadThemeName(ctx)
+            )
+        }
+        val tracks = libraryData.tracks
         state.allTracks   = tracks
         state.videoTracks = tracks.filter { it.isVideo }
         state.audioTracks = tracks.filter { !it.isVideo }
         state.isLoading   = false
         state.isLibraryReady = true
-        state.recentPaths = loadRecents(ctx)
-        state.userPlaylists = loadPlaylists(ctx)
-        loadTheme(ctx)
+        state.recentPaths = libraryData.recentPaths
+        state.userPlaylists = libraryData.playlists
+        applyThemeName(libraryData.theme)
 
-        if (initialPath.isNotEmpty()) {
-            val i = tracks.indexOfFirst { it.file?.absolutePath == initialPath }
-            if (i >= 0) {
-                state.activeTab = if (tracks[i].isVideo) MediaTab.VIDEOS else MediaTab.MUSIC
-                state.playQueue(tracks, i)
-            }
-        }
     }
 
     // ── Connect to PlaybackService via MediaController ───────────────
@@ -744,6 +759,7 @@ fun MediaPlayerScreen(
             state.controller = try { future.get() } catch (_: Exception) { null }
         }, MoreExecutors.directExecutor())
         onDispose {
+            state.controller?.let { ctrl -> runCatching { ctrl.release() } }
             MediaController.releaseFuture(future)
             state.controller = null
         }
@@ -788,9 +804,56 @@ fun MediaPlayerScreen(
         onDispose { ctrl.removeListener(listener) }
     }
 
+    // ── Open a file explicitly requested by Explorer/Desktop. This runs only after
+    // both the MediaStore library and PlaybackService controller are ready. The old
+    // implementation tried to play during the library scan, before the controller
+    // existed, so the app window opened with an empty player.
+    LaunchedEffect(state.controller, state.isLibraryReady, initialPath) {
+        val ctrl = state.controller ?: return@LaunchedEffect
+        if (!state.isLibraryReady || initialPath.isBlank()) return@LaunchedEffect
+        if (state.hasHandledInitialPath) return@LaunchedEffect
+
+        val target = state.allTracks.firstOrNull {
+            it.file?.absolutePath == initialPath ||
+                it.contentUri.toString() == initialPath
+        }
+        if (target != null) {
+            state.hasHandledInitialPath = true
+            val index = state.allTracks.indexOf(target)
+            state.activeTab = if (target.isVideo) MediaTab.VIDEOS else MediaTab.MUSIC
+            state.playQueue(state.allTracks, index)
+        } else {
+            // MediaStore can occasionally omit a freshly-created or unusual file.
+            // Still open it directly through our FileProvider instead of presenting
+            // an empty Media Player window.
+            val file = File(initialPath)
+            if (file.isFile) {
+                val uri = runCatching {
+                    androidx.core.content.FileProvider.getUriForFile(
+                        ctx, "${ctx.packageName}.fileprovider", file
+                    )
+                }.getOrNull()
+                if (uri != null) {
+                    val ext = file.extension.lowercase()
+                    val direct = MediaTrack(
+                        contentUri = uri,
+                        file = file,
+                        title = file.nameWithoutExtension,
+                        isVideo = ext in setOf("mp4", "mkv", "avi", "mov", "webm", "3gp", "wmv", "m4v")
+                    )
+                    state.hasHandledInitialPath = true
+                    state.activeTab = if (direct.isVideo) MediaTab.VIDEOS else MediaTab.MUSIC
+                    state.playQueue(listOf(direct), 0)
+                }
+            }
+        }
+    }
+
     // ── Restore last queue once both library and controller are ready ─
     LaunchedEffect(state.controller, state.isLibraryReady) {
         val ctrl = state.controller ?: return@LaunchedEffect
+        // An explicit Explorer/Desktop file launch always wins over the saved queue.
+        if (initialPath.isNotBlank()) return@LaunchedEffect
         if (!state.isLibraryReady || state.hasRestoredQueue) return@LaunchedEffect
         state.hasRestoredQueue = true
         if (ctrl.mediaItemCount > 0) return@LaunchedEffect // service already has an active queue
@@ -809,11 +872,19 @@ fun MediaPlayerScreen(
     }
 
     // ── Position polling for the UI progress bar only — no disk I/O (B-02)
-    LaunchedEffect(state.controller, state.isPlaying) {
+    LaunchedEffect(state.controller, state.isPlaying, windowRuntime.isMinimized) {
         val ctrl = state.controller ?: return@LaunchedEffect
+        if (windowRuntime.isMinimized) return@LaunchedEffect
+        var lastPublished = -1L
         while (isActive) {
-            if (state.isPlaying) state.positionMs = ctrl.currentPosition.coerceAtLeast(0)
-            delay(250)
+            if (state.isPlaying) {
+                val position = ctrl.currentPosition.coerceAtLeast(0)
+                if (lastPublished < 0L || kotlin.math.abs(position - lastPublished) >= 450L) {
+                    state.positionMs = position
+                    lastPublished = position
+                }
+            }
+            delay(500)
         }
     }
 
@@ -1786,7 +1857,9 @@ private fun AudioPlayerArea(
     // screen feels tied to *this* track instead of one static app-wide blue.
     // Falls back silently to the theme accent if there's no art or extraction
     // fails for any reason — never blocks or breaks playback.
-    LaunchedEffect(track.artworkUri) {
+    val minimized = LocalWindowRuntime.current.isMinimized
+    LaunchedEffect(track.artworkUri, minimized) {
+        if (minimized) return@LaunchedEffect
         val uri = track.artworkUri
         if (uri == null) { onAccentExtracted(FTV.Accent); return@LaunchedEffect }
         try {
@@ -1795,21 +1868,31 @@ private fun AudioPlayerArea(
             if (result is SuccessResult) {
                 val bitmap = (result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
                 if (bitmap != null) {
-                    val palette = Palette.from(bitmap).generate()
-                    val swatch = palette.vibrantSwatch ?: palette.mutedSwatch ?: palette.dominantSwatch
-                    if (swatch != null) { onAccentExtracted(Color(swatch.rgb)); return@LaunchedEffect }
+                    // Palette extraction is CPU-heavy. Keep it off the main thread so
+                    // changing tracks never competes with playback controls/animation frames.
+                    val rgb = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        val palette = Palette.from(bitmap).generate()
+                        (palette.vibrantSwatch ?: palette.mutedSwatch ?: palette.dominantSwatch)?.rgb
+                    }
+                    if (rgb != null) {
+                        onAccentExtracted(Color(rgb))
+                        return@LaunchedEffect
+                    }
                 }
             }
         } catch (_: Exception) { /* degrade to theme accent, same as effects failing elsewhere in this file */ }
         onAccentExtracted(FTV.Accent)
     }
 
-    val transition = rememberInfiniteTransition(label = "artBreathe")
-    val breathe by transition.animateFloat(
-        initialValue = 1f, targetValue = 1.035f,
-        animationSpec = infiniteRepeatable(tween(2400, easing = FastOutSlowInEasing), androidx.compose.animation.core.RepeatMode.Reverse),
-        label = "breathe"
-    )
+    val breathe = if (!minimized) {
+        val transition = rememberInfiniteTransition(label = "artBreathe")
+        val value by transition.animateFloat(
+            initialValue = 1f, targetValue = 1.035f,
+            animationSpec = infiniteRepeatable(tween(2400, easing = FastOutSlowInEasing), androidx.compose.animation.core.RepeatMode.Reverse),
+            label = "breathe"
+        )
+        value
+    } else 1f
 
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(24.dp)) {
         Box(

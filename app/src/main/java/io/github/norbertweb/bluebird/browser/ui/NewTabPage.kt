@@ -49,12 +49,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import com.io.github.norbertweb.bluebird.browser.model.Bookmark
 import com.io.github.norbertweb.bluebird.browser.model.BrowserSettings
 import com.io.github.norbertweb.bluebird.browser.model.HistoryEntry
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import io.github.norbertweb.bluebird.ui.components.LocalWindowRuntime
 import androidx.compose.foundation.lazy.grid.items as gridItems
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -189,15 +192,20 @@ private fun ClockGreeting(
     subColor: Color,
     accent: Color
 ) {
+    val windowRuntime = LocalWindowRuntime.current
     var timeStr by remember { mutableStateOf("") }
     var dateStr by remember { mutableStateOf("") }
 
-    LaunchedEffect(Unit) {
-        while (true) {
+    LaunchedEffect(windowRuntime.isMinimized) {
+        while (isActive) {
+            if (windowRuntime.isMinimized) {
+                delay(30_000)
+                continue
+            }
             val now = System.currentTimeMillis()
             timeStr = SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(now))
             dateStr = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date(now))
-            kotlinx.coroutines.delay(10_000)
+            delay(10_000)
         }
     }
 

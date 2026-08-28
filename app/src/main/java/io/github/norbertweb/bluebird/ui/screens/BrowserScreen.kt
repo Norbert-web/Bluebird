@@ -110,6 +110,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -117,6 +118,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import io.github.norbertweb.bluebird.ui.components.LocalWindowRuntime
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -447,6 +449,7 @@ private fun BrowserTextField(
 @Composable
 fun BrowserScreen(isDark: Boolean) {
     val context = LocalContext.current
+    val windowRuntime = LocalWindowRuntime.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
     // ── Colors ──
@@ -488,6 +491,33 @@ fun BrowserScreen(isDark: Boolean) {
 
     // ── WebView ref ──
     var webView by remember { mutableStateOf<WebView?>(null) }
+
+    // Hidden/minimized browser windows keep their tab state but suspend WebView
+    // timers and page activity. Closing the window disposes the whole composition.
+    DisposableEffect(windowRuntime.isMinimized, webView) {
+        val wv = webView
+        if (wv != null) {
+            if (windowRuntime.isMinimized) {
+                wv.onPause()
+                wv.pauseTimers()
+            } else {
+                wv.resumeTimers()
+                wv.onResume()
+            }
+        }
+        onDispose { }
+    }
+
+    DisposableEffect(webView) {
+        val ownedWebView = webView
+        onDispose {
+            ownedWebView?.let { wv ->
+                runCatching { wv.stopLoading() }
+                runCatching { wv.onPause() }
+                runCatching { wv.destroy() }
+            }
+        }
+    }
 
     // ── Panels ──
     var openPanel by remember { mutableStateOf(BrowserPanel.NONE) }

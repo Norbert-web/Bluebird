@@ -92,6 +92,9 @@ import io.github.norbertweb.bluebird.editor.ui.components.StatisticsPanel
 import io.github.norbertweb.bluebird.editor.ui.components.ThemePickerDialog
 import io.github.norbertweb.bluebird.editor.ui.components.UnsavedChangesDialog
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 // ─────────────────────────────────────────────────────────────────
@@ -132,24 +135,39 @@ fun PremiumTextEditorScreen(
 
     // ── File picker launcher ──────────────────────────────────────
     val openFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            try {
-                val stream = context.contentResolver.openInputStream(it)
-                val text = stream?.bufferedReader()?.readText() ?: return@let
-                stream.close()
-                val path = it.path ?: it.toString()
-                val name = it.lastPathSegment ?: "opened_file.txt"
-                s.newTab(path, text)
-                s.toast("Opened $name")
-            } catch (e: Exception) { s.toast("Open failed: ${e.message}", error = true) }
+        uri?.let { selectedUri ->
+            scope.launch {
+                val result = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        val text = context.contentResolver.openInputStream(selectedUri)?.use {
+                            it.bufferedReader().readText()
+                        } ?: throw IllegalStateException("Empty file")
+                        val path = selectedUri.path ?: selectedUri.toString()
+                        val name = selectedUri.lastPathSegment ?: "opened_file.txt"
+                        Triple(name, path, text)
+                    }.getOrElse { error -> error }
+                }
+                when (result) {
+                    is Triple<*, *, *> -> {
+                        val name = result.first as String
+                        val path = result.second as String
+                        val text = result.third as String
+                        s.newTab(path, text)
+                        s.toast("Opened $name")
+                    }
+                    is Throwable -> s.toast("Open failed: ${result.message}", error = true)
+                }
+            }
         }
     }
 
     // ── Autosave timer ────────────────────────────────────────────
-    LaunchedEffect(s.isModified, s.settings.autosaveEnabled) {
-        while (true) {
-            delay(s.settings.autosaveIntervalMs)
-            if (s.isModified && s.settings.autosaveEnabled) s.autosave(context)
+    LaunchedEffect(s.isModified, s.settings.autosaveEnabled, s.settings.autosaveIntervalMs) {
+        while (isActive) {
+            delay(s.settings.autosaveIntervalMs.coerceAtLeast(1000L))
+            if (s.isModified && s.settings.autosaveEnabled) {
+                withContext(kotlinx.coroutines.Dispatchers.IO) { s.autosave(context) }
+            }
         }
     }
 

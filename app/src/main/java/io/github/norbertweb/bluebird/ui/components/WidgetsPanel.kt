@@ -189,8 +189,11 @@ fun WidgetsPanel(
     var widgetOrder   by remember { mutableStateOf(loadWidgetOrder(context)) }
     var hiddenWidgets by remember { mutableStateOf(loadHiddenWidgets(context)) }
 
-    // Refresh trigger — widgets observe this to re-fetch
+    // Refresh trigger — only widgets that support an explicit refresh observe it.
     var refreshTick by remember { mutableStateOf(0) }
+    val visibleWidgetIds = remember(widgetOrder, hiddenWidgets) {
+        widgetOrder.filter { it !in hiddenWidgets }
+    }
 
     AcrylicSurface(
         modifier = modifier.width(380.dp).fillMaxHeight(),
@@ -284,7 +287,7 @@ fun WidgetsPanel(
             }
 
             // ── Render widgets in saved order ─────────────────────────────────
-            widgetOrder.filter { it !in hiddenWidgets }.forEach { id ->
+            visibleWidgetIds.forEach { id ->
                 key(id) {
                     when (id) {
                         "clock"      -> ClockWidget(isDark, context, textScale)
@@ -402,11 +405,16 @@ private fun WidgetHeader(title: String, icon: androidx.compose.ui.graphics.vecto
 private fun ClockWidget(isDark: Boolean, context: Context, textScale: Float) {
     val textColor  = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val worldClocks by remember { mutableStateOf(loadWorldClocks(context)) }
+    val windowRuntime = LocalWindowRuntime.current
 
-    // Tick every second
+    // A hidden widget does not need second-by-second Compose invalidations.
+    // Keep the clock correct when restored, but sleep cheaply while minimized.
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) { delay(1000); now = System.currentTimeMillis() }
+    LaunchedEffect(windowRuntime.isMinimized) {
+        while (isActive) {
+            now = System.currentTimeMillis()
+            delay(if (windowRuntime.isMinimized) 5000 else 1000)
+        }
     }
 
     val localTime = remember(now) {
@@ -662,28 +670,82 @@ private fun NowPlayingWidget(isDark: Boolean, context: Context, textScale: Float
     var isPlaying by remember { mutableStateOf(false) }
     var controller by remember { mutableStateOf<android.media.session.MediaController?>(null) }
 
-    // Check notification listener permission (needed for MediaSessionManager)
+    // Check notification listener permission (needed for MediaSessionManager).
+    // This widget observes the active-session list instead of taking a one-time snapshot.
     val hasPermission = remember {
         val enabled = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners") ?: ""
         enabled.contains(context.packageName)
     }
 
-    LaunchedEffect(hasPermission) {
-        if (!hasPermission) return@LaunchedEffect
-        try {
-            val msm = context.getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager ?: return@LaunchedEffect
-            val sessions = msm.getActiveSessions(
-                android.content.ComponentName(context, io.github.norbertweb.bluebird.data.NotificationListener::class.java)
-            )
-            val active = sessions.firstOrNull()
-            controller = active
-            val meta = active?.metadata
-            title    = meta?.getString(android.media.MediaMetadata.METADATA_KEY_TITLE)
-            artist   = meta?.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST)
-            albumArt = meta?.getBitmap(android.media.MediaMetadata.METADATA_KEY_ALBUM_ART)
-            isPlaying = active?.playbackState?.state == android.media.session.PlaybackState.STATE_PLAYING
-        } catch (e: Exception) { /* permission not granted or no active session */ }
+    DisposableEffect(hasPermission) {
+        if (!hasPermission) {
+            onDispose { }
+        } else {
+            val msm = context.getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager
+            if (msm == null) {
+                onDispose { }
+            } else {
+                val component = android.content.ComponentName(
+                    context,
+                    io.github.norbertweb.bluebird.data.NotificationListener::class.java
+                )
+
+                var registeredController: android.media.session.MediaController? = null
+
+                val controllerCallback = object : android.media.session.MediaController.Callback() {
+                    override fun onMetadataChanged(metadata: android.media.MediaMetadata?) {
+                        title = metadata?.getString(android.media.MediaMetadata.METADATA_KEY_TITLE)
+                        artist = metadata?.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST)
+                        albumArt = metadata?.getBitmap(android.media.MediaMetadata.METADATA_KEY_ALBUM_ART)
+                    }
+
+                    override fun onPlaybackStateChanged(
+                        state: android.media.session.PlaybackState?
+                    ) {
+                        isPlaying = state?.state == android.media.session.PlaybackState.STATE_PLAYING
+                    }
+                }
+
+                fun attach(active: android.media.session.MediaController?) {
+                    if (registeredController === active) return
+                    registeredController?.unregisterCallback(controllerCallback)
+                    registeredController = active
+                    controller = active
+                    active?.registerCallback(controllerCallback)
+
+                    val metadata = active?.metadata
+                    title = metadata?.getString(android.media.MediaMetadata.METADATA_KEY_TITLE)
+                    artist = metadata?.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST)
+                    albumArt = metadata?.getBitmap(android.media.MediaMetadata.METADATA_KEY_ALBUM_ART)
+                    isPlaying = active?.playbackState?.state ==
+                        android.media.session.PlaybackState.STATE_PLAYING
+                }
+
+                val listener = MediaSessionManager.OnActiveSessionsChangedListener { sessions ->
+                    attach(sessions?.firstOrNull())
+                }
+
+                try {
+                    attach(msm.getActiveSessions(component).firstOrNull())
+                    msm.addOnActiveSessionsChangedListener(listener, component)
+                } catch (_: SecurityException) {
+                    // Permission can disappear while the settings screen is open.
+                } catch (_: IllegalArgumentException) {
+                    // Listener registration can fail if the notification service is unavailable.
+                }
+
+                onDispose {
+                    try { msm.removeOnActiveSessionsChangedListener(listener) } catch (_: Exception) {}
+                    registeredController?.unregisterCallback(controllerCallback)
+                    registeredController = null
+                    controller = null
+                    albumArt = null
+                }
+            }
+        }
     }
+
+    val albumImage = remember(albumArt) { albumArt?.asImageBitmap() }
 
     WidgetCard(isDark) {
         WidgetHeader("Now Playing", Icons.Default.MusicNote, textColor, textScale)
@@ -703,7 +765,7 @@ private fun NowPlayingWidget(isDark: Boolean, context: Context, textScale: Float
                 // Album art
                 if (albumArt != null) {
                     Image(
-                        bitmap = albumArt!!.asImageBitmap(),
+                        bitmap = albumImage!!,
                         contentDescription = null,
                         modifier = Modifier.size(52.dp).clip(RoundedCornerShape(8.dp))
                     )
@@ -1258,14 +1320,16 @@ private fun AlarmWidget(isDark: Boolean, context: Context, textScale: Float) {
 @Composable
 private fun NetworkSpeedWidget(isDark: Boolean, textScale: Float) {
     val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val windowRuntime = LocalWindowRuntime.current
     var rxSpeed by remember { mutableStateOf("— KB/s") }
     var txSpeed by remember { mutableStateOf("— KB/s") }
 
     LaunchedEffect(Unit) {
         var prevRx = TrafficStats.getTotalRxBytes()
         var prevTx = TrafficStats.getTotalTxBytes()
-        while (true) {
-            delay(1000)
+        while (isActive) {
+            // Hidden widgets should not poll at dashboard cadence.
+            delay(if (windowRuntime.isMinimized) 10000 else 2000)
             val curRx = TrafficStats.getTotalRxBytes()
             val curTx = TrafficStats.getTotalTxBytes()
             val diffRx = (curRx - prevRx).coerceAtLeast(0)

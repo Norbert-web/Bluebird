@@ -1,8 +1,12 @@
 package io.github.norbertweb.bluebird.ui.screens
 
+import android.content.ContentUris
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
+import android.provider.MediaStore
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -86,19 +90,24 @@ private object Ph {
 // ─────────────────────────────────────────────────────────────────
 
 data class PhotoItem(
-    val file: File,
-    val name: String = file.nameWithoutExtension,
-    val extension: String = file.extension.lowercase(),
-    val sizeBytes: Long = file.length(),
-    val lastModified: Long = file.lastModified(),
+    val uri: Uri,
+    val file: File?,
+    val name: String,
+    val extension: String,
+    val sizeBytes: Long = 0L,
+    val lastModified: Long = 0L,
+    val relativePath: String = "",
     val isVideo: Boolean = extension in VIDEO_IMG_EXTS
-
-)
+) {
+    val key: String get() = file?.absolutePath ?: uri.toString()
+    val parentKey: String get() = relativePath.ifBlank { file?.parent ?: "" }
+    val displayPath: String get() = file?.parent ?: relativePath.trimEnd('/').ifBlank { "—" }
+}
 
 data class PhotoAlbum(
     val name: String,
-    val dir: File,
-    val coverFile: File?,
+    val key: String,
+    val coverUri: Uri?,
     val count: Int
 )
 
@@ -153,27 +162,25 @@ private class PhotosState {
 
     fun toast(msg: String) { toastMsg = msg }
 
-    val displayedPhotos: List<PhotoItem> get() {
-        val base = if (activeAlbum != null)
-            allPhotos.filter { it.file.parentFile?.absolutePath == activeAlbum!!.dir.absolutePath }
-        else allPhotos
-
-        val filtered = base.filter { p ->
-            val matchesFilter = when (filterMode) {
+    fun displayedPhotos(): List<PhotoItem> {
+        val albumPath = activeAlbum?.key
+        val query = searchQuery.trim()
+        val filtered = allPhotos.asSequence()
+            .filter { albumPath == null || it.parentKey == albumPath }
+            .filter { p -> when (filterMode) {
                 PhotoFilter.ALL -> true
                 PhotoFilter.PHOTOS -> !p.isVideo
                 PhotoFilter.VIDEOS -> p.isVideo
-                PhotoFilter.FAVORITES -> p.file.absolutePath in favorites
-            }
-            val matchesSearch = searchQuery.isEmpty() || p.name.contains(searchQuery, ignoreCase = true)
-            matchesFilter && matchesSearch
-        }
+                PhotoFilter.FAVORITES -> p.key in favorites
+            }}
+            .filter { query.isEmpty() || it.name.contains(query, ignoreCase = true) }
+            .toList()
 
         return when (sortMode) {
             PhotoSort.DATE_NEW -> filtered.sortedByDescending { it.lastModified }
             PhotoSort.DATE_OLD -> filtered.sortedBy { it.lastModified }
-            PhotoSort.NAME     -> filtered.sortedBy { it.name.lowercase() }
-            PhotoSort.SIZE     -> filtered.sortedByDescending { it.sizeBytes }
+            PhotoSort.NAME -> filtered.sortedBy { it.name.lowercase() }
+            PhotoSort.SIZE -> filtered.sortedByDescending { it.sizeBytes }
         }
     }
 
@@ -188,7 +195,95 @@ private class PhotosState {
 }
 
 @Composable
+private fun displayedPhotos(state: PhotosState): List<PhotoItem> = remember(
+    state.allPhotos, state.activeAlbum?.key, state.filterMode,
+    state.favorites, state.searchQuery, state.sortMode
+) { state.displayedPhotos() }
+
+@Composable
 private fun rememberPhotosState() = remember { PhotosState() }
+
+private fun hasPhotoLibraryAccess(context: android.content.Context): Boolean {
+    return when {
+        android.os.Build.VERSION.SDK_INT >= 34 -> {
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.READ_MEDIA_IMAGES
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.READ_MEDIA_VIDEO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        android.os.Build.VERSION.SDK_INT >= 33 -> {
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.READ_MEDIA_IMAGES
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.READ_MEDIA_VIDEO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        else -> androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.READ_EXTERNAL_STORAGE
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+}
+
+@Composable
+private fun PhotoPermissionGate(isDark: Boolean, onGranted: () -> Unit) {
+    val context = LocalContext.current
+    var granted by remember { mutableStateOf(hasPhotoLibraryAccess(context)) }
+
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        granted = hasPhotoLibraryAccess(context)
+        if (granted) onGranted()
+    }
+
+    fun requestAccess() {
+        when {
+            android.os.Build.VERSION.SDK_INT >= 34 -> launcher.launch(
+                arrayOf(
+                    android.Manifest.permission.READ_MEDIA_IMAGES,
+                    android.Manifest.permission.READ_MEDIA_VIDEO,
+                    "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+                )
+            )
+            android.os.Build.VERSION.SDK_INT >= 33 -> launcher.launch(
+                arrayOf(
+                    android.Manifest.permission.READ_MEDIA_IMAGES,
+                    android.Manifest.permission.READ_MEDIA_VIDEO
+                )
+            )
+            else -> launcher.launch(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE))
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (!granted) requestAccess()
+    }
+
+    val textColor = if (isDark) Ph.DText else Ph.LText
+    val secondary = if (isDark) Ph.DTextSec else Ph.LTextSec
+    Box(Modifier.fillMaxSize().background(if (isDark) Ph.DBg else Ph.LBg), contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier.padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(Icons.Default.PhotoLibrary, null, tint = textColor, modifier = Modifier.size(52.dp))
+            Text("Photo access needed", color = textColor, style = MaterialTheme.typography.titleLarge)
+            Text(
+                "Allow Bluebird to view your photos and videos. On Android 14+, you can choose only the media you want to share.",
+                color = secondary,
+                textAlign = TextAlign.Center
+            )
+            Button(onClick = { requestAccess() }) { Text("Choose photos and videos") }
+        }
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────
 // Entry Point
@@ -203,6 +298,12 @@ fun ImageViewerScreen(
     val ctx   = LocalContext.current
     val state = rememberPhotosState()
     val scope = rememberCoroutineScope()
+    var hasLibraryAccess by remember { mutableStateOf(hasPhotoLibraryAccess(ctx)) }
+
+    if (!hasLibraryAccess) {
+        PhotoPermissionGate(isDark = isDark) { hasLibraryAccess = true }
+        return
+    }
 
     val bg       = if (isDark) Ph.DBg      else Ph.LBg
     val surface  = if (isDark) Ph.DSurface else Ph.LSurface
@@ -215,53 +316,78 @@ fun ImageViewerScreen(
     // ── ONE-TIME scan on first launch ──
     suspend fun scanPhotos() {
         state.isLoading = true
-        withContext(Dispatchers.IO) {
-            val roots = listOf(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                Environment.getExternalStorageDirectory()
-            ).filterNotNull().filter { it.exists() }
-
-            val found = mutableListOf<File>()
-            roots.forEach { root ->
-                root.walkTopDown().maxDepth(6)
-                    .filter { it.isFile && it.extension.lowercase() in ALL_IMG_EXTS }
-                    .forEach { found.add(it) }
+        val result = withContext(Dispatchers.IO) {
+            val projection = arrayOf(
+                MediaStore.MediaColumns._ID,
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.SIZE,
+                MediaStore.MediaColumns.DATE_MODIFIED,
+                MediaStore.MediaColumns.RELATIVE_PATH,
+                MediaStore.MediaColumns.MIME_TYPE
+            ).let { base ->
+                if (initialPath.isNotEmpty()) base + MediaStore.MediaColumns.DATA else base
             }
+            val found = LinkedHashMap<String, PhotoItem>()
 
-            val photos = found.distinctBy { it.absolutePath }
-                .map { PhotoItem(it) }
-                .sortedByDescending { it.lastModified }
-
-            // Build albums by parent directory
-            val albumMap = photos.groupBy { it.file.parentFile }
-            val albums = albumMap.entries
-                .map { (dir, items) ->
-                    PhotoAlbum(
-                        name = dir?.name ?: "Unknown",
-                        dir = dir ?: File(""),
-                        coverFile = items.firstOrNull()?.file,
-                        count = items.size
+            fun addFromCursor(c: android.database.Cursor, collection: Uri, isVideo: Boolean) {
+                val idCol = c.getColumnIndex(MediaStore.MediaColumns._ID)
+                val nameCol = c.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+                val sizeCol = c.getColumnIndex(MediaStore.MediaColumns.SIZE)
+                val dateCol = c.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
+                val relCol = c.getColumnIndex(MediaStore.MediaColumns.RELATIVE_PATH)
+                val dataCol = c.getColumnIndex(MediaStore.MediaColumns.DATA)
+                if (idCol < 0) return
+                while (c.moveToNext()) {
+                    val id = c.getLong(idCol)
+                    val itemUri = ContentUris.withAppendedId(collection, id)
+                    val nameWithExt = if (nameCol >= 0) c.getString(nameCol).orEmpty() else "Untitled"
+                    val ext = nameWithExt.substringAfterLast('.', "").lowercase()
+                    val size = if (sizeCol >= 0 && !c.isNull(sizeCol)) c.getLong(sizeCol) else 0L
+                    val modified = if (dateCol >= 0 && !c.isNull(dateCol)) c.getLong(dateCol) * 1000L else 0L
+                    val relative = if (relCol >= 0) c.getString(relCol).orEmpty() else ""
+                    val resolvedPath = if (initialPath.isNotEmpty() && dataCol >= 0 && !c.isNull(dataCol)) c.getString(dataCol) else null
+                    val photo = PhotoItem(
+                        uri = itemUri,
+                        file = resolvedPath?.let(::File),
+                        name = nameWithExt.substringBeforeLast('.', nameWithExt),
+                        extension = ext,
+                        sizeBytes = size,
+                        lastModified = modified,
+                        relativePath = relative,
+                        isVideo = isVideo
                     )
-                }
-                .sortedByDescending { it.count }
-
-            withContext(Dispatchers.Main) {
-                state.allPhotos = photos
-                state.albums = albums
-                state.isLoading = false
-                state.hasLoaded = true
-
-                // Handle initialPath
-                if (initialPath.isNotEmpty()) {
-                    val idx = photos.indexOfFirst { it.file.absolutePath == initialPath }
-                    if (idx >= 0) {
-                        state.viewerIndex = idx
-                        state.view = PhotoView.VIEWER
-                    }
+                    found.putIfAbsent(itemUri.toString(), photo)
                 }
             }
+
+            fun query(collection: Uri, isVideo: Boolean) {
+                ctx.contentResolver.query(
+                    collection, projection, null, null,
+                    "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
+                )?.use { addFromCursor(it, collection, isVideo) }
+            }
+
+            query(if (android.os.Build.VERSION.SDK_INT >= 29) MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL) else MediaStore.Images.Media.EXTERNAL_CONTENT_URI, false)
+            query(if (android.os.Build.VERSION.SDK_INT >= 29) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL) else MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true)
+
+            val photos = found.values.sortedByDescending { it.lastModified }
+            val albumMap = photos.groupBy { it.parentKey }
+            val albums = albumMap.entries.map { (key, items) ->
+                val displayName = key.trimEnd('/').substringAfterLast('/').ifBlank { "Unknown" }
+                PhotoAlbum(displayName, key, items.firstOrNull()?.uri, items.size)
+            }.sortedByDescending { it.count }
+            photos to albums
+        }
+
+        state.allPhotos = result.first
+        state.albums = result.second
+        state.isLoading = false
+        state.hasLoaded = true
+        val validKeys = result.first.asSequence().map { it.key }.toSet()
+        state.selected = state.selected.filter(validKeys::contains).toSet()
+        if (initialPath.isNotEmpty()) {
+            val idx = result.first.indexOfFirst { it.file?.absolutePath == initialPath || it.uri.toString() == initialPath }
+            if (idx >= 0) { state.viewerIndex = idx; state.view = PhotoView.VIEWER }
         }
     }
 
@@ -383,10 +509,10 @@ private fun AlbumsView(
                     LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.height(120.dp)) {
                         items(state.allPhotos.take(20)) { photo ->
                             SubcomposeAsyncImage(
-                                model = photo.file,
+                                model = photo.uri,
                                 contentDescription = photo.name,
                                 modifier = Modifier.size(110.dp).clip(RoundedCornerShape(10.dp)).clickable {
-                                    state.viewerIndex = state.displayedPhotos.indexOf(photo).coerceAtLeast(0)
+                                    state.viewerIndex = state.displayedPhotos().indexOf(photo).coerceAtLeast(0)
                                     state.view = PhotoView.VIEWER
                                 },
                                 contentScale = ContentScale.Crop,
@@ -466,8 +592,8 @@ private fun StatCard(label: String, value: String, icon: ImageVector, iconColor:
 private fun AlbumCard(album: PhotoAlbum, isDark: Boolean, tc: Color, tcs: Color, tcm: Color, modifier: Modifier, onClick: () -> Unit) {
     Column(modifier.clickable(onClick = onClick).padding(bottom = 8.dp)) {
         Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp))) {
-            if (album.coverFile != null) {
-                AsyncImage(album.coverFile, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (album.coverUri != null) {
+                AsyncImage(album.coverUri, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             } else {
                 Box(Modifier.fillMaxSize().background(if (isDark) Ph.DSurfaceH else Ph.LSurfaceH), contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.PhotoAlbum, null, tint = tcm, modifier = Modifier.size(36.dp))
@@ -540,7 +666,7 @@ private fun GridView(
     ctx: android.content.Context,
     onRescan: () -> Unit
 ) {
-    val photos = state.displayedPhotos
+    val photos = displayedPhotos(state)
     val cols = when (state.gridSize) { GridSize.SMALL -> 5; GridSize.MEDIUM -> 3; GridSize.LARGE -> 2 }
     val gridState = rememberLazyGridState()
 
@@ -601,7 +727,7 @@ private fun GridView(
                 Text("${state.selected.size} selected", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SelectionAction(Icons.Default.Share, "Share") {
-                        sharePhotos(ctx, state.selected.map { File(it) })
+                        sharePhotos(ctx, state.selected.mapNotNull { key -> state.allPhotos.firstOrNull { it.key == key }?.uri })
                     }
                     SelectionAction(Icons.Default.Delete, "Delete") {
                         state.showDeleteDialog = true
@@ -645,17 +771,17 @@ private fun GridView(
                         Text(month, color = tcs, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp))
                     }
-                    items(indexedItems, key = { it.value.file.absolutePath }) { (globalIdx, photo) ->
+                    items(indexedItems, key = { it.value.key }) { (globalIdx, photo) ->
                         GridPhotoCell(
                             photo = photo,
-                            isSelected = photo.file.absolutePath in state.selected,
-                            isFavorite = photo.file.absolutePath in state.favorites,
+                            isSelected = photo.key in state.selected,
+                            isFavorite = photo.key in state.favorites,
                             inSelectionMode = state.selectionMode,
                             cols = cols,
                             isDark = isDark,
                             onClick = {
                                 if (state.selectionMode) {
-                                    state.toggleSelect(photo.file.absolutePath)
+                                    state.toggleSelect(photo.key)
                                 } else {
                                     state.viewerIndex = globalIdx
                                     state.view = PhotoView.VIEWER
@@ -664,7 +790,7 @@ private fun GridView(
                             },
                             onLongPress = {
                                 state.selectionMode = true
-                                state.toggleSelect(photo.file.absolutePath)
+                                state.toggleSelect(photo.key)
                             }
                         )
                     }
@@ -682,8 +808,18 @@ private fun GridView(
             title = { Text("Delete ${state.selected.size} item(s)?", color = tc, fontWeight = FontWeight.SemiBold) },
             text = { Text("This action cannot be undone.", color = tcs, fontSize = 13.sp) },
             confirmButton = { Button(onClick = {
-                state.selected.forEach { path -> viewModel?.deleteToRecycleBin(path) ?: File(path).delete() }
-                state.allPhotos = state.allPhotos.filter { it.file.absolutePath !in state.selected }
+                val deleted = state.selected.toSet()
+                deleted.forEach { key ->
+                    state.allPhotos.firstOrNull { it.key == key }?.let { item ->
+                        if (item.file != null) {
+                            viewModel?.deleteToRecycleBin(item.file.absolutePath) ?: item.file.delete()
+                        } else {
+                            runCatching { ctx.contentResolver.delete(item.uri, null, null) }
+                        }
+                    }
+                }
+                state.allPhotos = state.allPhotos.filter { it.key !in deleted }
+                state.favorites = state.favorites - deleted
                 state.selected = emptySet(); state.selectionMode = false; state.showDeleteDialog = false
                 state.toast("Deleted")
             }, colors = ButtonDefaults.buttonColors(containerColor = Ph.DangerRed), shape = RoundedCornerShape(6.dp)) { Text("Delete") } },
@@ -708,12 +844,12 @@ private fun GridPhotoCell(
         Modifier.aspectRatio(1f)
             .scale(selectedAnim)
             .clip(RoundedCornerShape(if (cols >= 4) 4.dp else 6.dp))
-            .pointerInput(photo.file.absolutePath) {
+            .pointerInput(photo.key) {
                 detectTapGestures(onTap = { onClick() }, onLongPress = { onLongPress() })
             }
     ) {
         SubcomposeAsyncImage(
-            model = photo.file,
+            model = photo.uri,
             contentDescription = photo.name,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
@@ -758,7 +894,7 @@ private fun ViewerView(
     viewModel: LauncherViewModel?,
     ctx: android.content.Context
 ) {
-    val photos = state.displayedPhotos
+    val photos = displayedPhotos(state)
     val photo = photos.getOrNull(state.viewerIndex)
 
     var scale by remember(state.viewerIndex) { mutableStateOf(1f) }
@@ -790,7 +926,7 @@ private fun ViewerView(
                 contentAlignment = Alignment.Center
             ) {
                 AsyncImage(
-                    model = photo.file,
+                    model = photo.uri,
                     contentDescription = photo.name,
                     modifier = Modifier.fillMaxSize().graphicsLayer {
                         scaleX = scale; scaleY = scale
@@ -836,8 +972,8 @@ private fun ViewerView(
                 }
                 // Favorite
                 photo?.let { p ->
-                    val isFav = p.file.absolutePath in state.favorites
-                    Icon(if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (isFav) Color.Red else Color.White, modifier = Modifier.size(22.dp).clickable { state.toggleFavorite(p.file.absolutePath) })
+                    val isFav = p.key in state.favorites
+                    Icon(if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (isFav) Color.Red else Color.White, modifier = Modifier.size(22.dp).clickable { state.toggleFavorite(p.key) })
                 }
                 Icon(Icons.Default.Info, null, tint = Color.White, modifier = Modifier.size(22.dp).clickable { state.showInfo = !state.showInfo })
             }
@@ -864,7 +1000,7 @@ private fun ViewerView(
                                     .border(if (idx == state.viewerIndex) BorderStroke(2.dp, Ph.Accent) else BorderStroke(0.dp, Color.Transparent), RoundedCornerShape(5.dp))
                                     .clickable { state.viewerIndex = idx; rotation = 0f }
                             ) {
-                                AsyncImage(p.file, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                AsyncImage(p.uri, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                                 if (idx == state.viewerIndex) Box(Modifier.fillMaxSize().background(Color.White.copy(0.1f)))
                             }
                         }
@@ -882,27 +1018,39 @@ private fun ViewerView(
                     ViewerAction(Icons.Default.Share, "Share") {
                         photo?.let { p ->
                             try {
-                                val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", p.file)
+                                val uri = p.uri
                                 ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "image/*"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, "Share").apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
                             } catch (_: Exception) {}
                         }
                     }
                     ViewerAction(Icons.Default.Wallpaper, "Wallpaper") {
-                        photo?.let { p -> viewModel?.setCustomWallpaper(Uri.fromFile(p.file).toString(), WallpaperTarget.HOME, ctx) }
+                        photo?.let { p -> viewModel?.setCustomWallpaper(p.uri.toString(), WallpaperTarget.HOME, ctx) }
                     }
                     ViewerAction(Icons.Default.OpenWith, "Open With") {
                         photo?.let { p ->
                             try {
-                                val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", p.file)
+                                val uri = p.uri
                                 ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).apply { setDataAndType(uri, "image/*"); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, "Open with").apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
                             } catch (_: Exception) {}
                         }
                     }
                     ViewerAction(Icons.Default.Delete, "Delete", Ph.DangerRed) {
                         photo?.let { p ->
-                            viewModel?.deleteToRecycleBin(p.file.absolutePath) ?: p.file.delete()
-                            state.allPhotos = state.allPhotos.filter { it.file.absolutePath != p.file.absolutePath }
-                            if (state.viewerIndex >= state.displayedPhotos.size) state.viewerIndex = (state.displayedPhotos.size - 1).coerceAtLeast(0)
+                            val deleted = if (p.file != null) {
+                                if (viewModel != null) {
+                                    viewModel.deleteToRecycleBin(p.file.absolutePath)
+                                    true
+                                } else {
+                                    p.file.delete()
+                                }
+                            } else {
+                                runCatching { ctx.contentResolver.delete(p.uri, null, null) }.getOrDefault(0) > 0
+                            }
+                            if (deleted) {
+                                state.allPhotos = state.allPhotos.filter { it.key != p.key }
+                                if (state.viewerIndex >= state.displayedPhotos().size) state.viewerIndex = (state.displayedPhotos().size - 1).coerceAtLeast(0)
+                                state.toast("Deleted")
+                            }
                         }
                     }
                 }
@@ -925,7 +1073,7 @@ private fun ViewerView(
                         InfoPill("Extension", p.extension.uppercase())
                         InfoPill("Size", fmtSize(p.sizeBytes))
                         InfoPill("Modified", fmtDate(p.lastModified))
-                        InfoPill("Path", p.file.parent ?: "—")
+                        InfoPill("Path", p.displayPath)
                         InfoPill("Zoom", "${(scale * 100).roundToInt()}%")
                     }
                 }
@@ -1001,13 +1149,13 @@ private fun SelectionAction(icon: ImageVector, label: String, onClick: () -> Uni
     }
 }
 
-private fun sharePhotos(ctx: android.content.Context, files: List<File>) {
-    try {
-        val uris = ArrayList(files.map { FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", it) })
+private fun sharePhotos(ctx: android.content.Context, uris: List<Uri>) {
+    if (uris.isEmpty()) return
+    runCatching {
         ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND_MULTIPLE).apply {
             type = "image/*"
-            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }, "Share photos").apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
-    } catch (_: Exception) {}
+    }
 }

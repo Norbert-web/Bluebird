@@ -52,6 +52,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 import org.json.JSONArray
 
 @UnstableApi
@@ -113,6 +114,8 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         saveJob?.cancel()
+        fadeJob?.cancel()
+        scope.cancel()
         saveState()
         releaseEffects()
         fadeJob?.cancel()

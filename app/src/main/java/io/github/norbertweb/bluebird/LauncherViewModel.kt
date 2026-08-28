@@ -2,8 +2,10 @@ package io.github.norbertweb.bluebird
 
 import android.app.Application
 import android.app.WallpaperManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -33,6 +35,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -41,6 +44,8 @@ import java.io.IOException
 import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.ConcurrentHashMap
 
 // ─── Data Models ─────────────────────────────────────────────────────────────
 
@@ -398,12 +403,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         recycleBinDir.mkdirs()
         desktopDir.mkdirs()
         loadPersistedData()
-        loadInstalledApps()
+        // Installed apps are loaded lazily after the first desktop frame.
+        // This keeps PackageManager/icon decoding out of the critical launch path.
         loadInstalledWebApps()
         loadBackgroundEffects()
-        startClock()
         startBatteryMonitor()
-        startRemoteNotificationsPoll()
+        // Remote announcements are fetched only when explicitly requested.
         initSystemDesktopItems()
         refreshDesktopFiles()
         startDesktopObserver()
@@ -872,6 +877,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     // ─── Apps ────────────────────────────────────────────────────────────────
+    @Volatile
+    private var installedAppsLoadStarted = false
+
+    /** Start app discovery only when the desktop UI is ready to consume it. */
+    fun ensureInstalledAppsLoaded() {
+        if (installedAppsLoadStarted || _uiState.value.installedApps.isNotEmpty()) return
+        installedAppsLoadStarted = true
+        loadInstalledApps()
+    }
+
     private fun loadInstalledApps() {
         viewModelScope.launch(Dispatchers.IO) {
             val pm     = getApplication<Application>().packageManager
@@ -885,10 +900,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                         icon        = info.loadIcon(pm)
                     )
                 }
-            withContext(Dispatchers.Main) {
-                _uiState.value = _uiState.value.copy(installedApps = apps)
-
-                val pinnedPackagesJson = prefs.getString("pinned_taskbar_apps", "[]") ?: "[]"
+            val pinnedPackagesJson = prefs.getString("pinned_taskbar_apps", "[]") ?: "[]"
                 val savedPackages      = try {
                     val type = object : TypeToken<List<String>>() {}.type
                     gson.fromJson<List<String>>(pinnedPackagesJson, type)
@@ -908,8 +920,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     val type = object : TypeToken<List<AppInfoSaved>>() {}.type
                     gson.fromJson(recentAppsJson, type)
                 } catch (e: Exception) { emptyList() }
-                val recent = recentAppsSaved.mapNotNull { saved -> apps.find { it.packageName == saved.packageName } }
-                _uiState.value = _uiState.value.copy(recentApps = recent)
+            val recent = recentAppsSaved.mapNotNull { saved -> apps.find { it.packageName == saved.packageName } }
+
+            // Publish the complete app snapshot once.  Previously this method emitted
+            // three StateFlow values in succession, causing Start Menu/Taskbar/Search
+            // to recompose repeatedly during app discovery.
+            withContext(Dispatchers.Main) {
+                _uiState.value = _uiState.value.copy(
+                    installedApps = apps,
+                    pinnedTaskbarApps = pinned,
+                    recentApps = recent
+                )
             }
         }
     }
@@ -973,35 +994,67 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
      *  directly and never touch this tick, so they never trigger the flicker. */
     fun requestDesktopRefresh() {
         _uiState.value = _uiState.value.copy(manualDesktopRefreshTick = _uiState.value.manualDesktopRefreshTick + 1)
-        refreshDesktopFiles()
+        scheduleDesktopRefresh(0L)
     }
 
-    fun refreshDesktopFiles() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val files  = desktopDir.listFiles()?.toList() ?: emptyList()
-            // Delegates to the same parser the Desktop screen uses, so this list
-            // (consumed by File Explorer / anything else reading uiState.desktopFiles)
-            // can never disagree with what's actually drawn on the io.github.norbertweb.io.github.norbertweb.bluebird.
-            val loaded = files.mapNotNull { file ->
-                io.github.norbertweb.bluebird.ui.components.loadDesktopFileInfo(file, getApplication())
-            }
+    // Coalesce bursts of FileObserver events and prevent stale scans from overwriting newer state.
+    private var desktopRefreshJob: Job? = null
+    private val desktopRefreshGeneration = AtomicLong(0L)
 
-            val positionsJson = prefs.getString("desktop_positions", "{}") ?: "{}"
-            val customPositions: Map<String, Pair<Float, Float>> = try {
-                val type = object : TypeToken<Map<String, Pair<Float, Float>>>() {}.type
-                gson.fromJson(positionsJson, type)
-            } catch (e: Exception) { emptyMap() }
+    private data class DesktopInfoCacheEntry(
+        val modified: Long,
+        val length: Long,
+        val isDirectory: Boolean,
+        val info: DesktopFileInfo?
+    )
+    private val desktopInfoCache = mutableMapOf<String, DesktopInfoCacheEntry>()
 
-            val positioned = loaded.map { item ->
-                val pos = customPositions[item.file.absolutePath]
-                if (pos != null) item.copy(position = Offset(pos.first, pos.second)) else item
+    private fun scheduleDesktopRefresh(delayMs: Long = 250L) {
+        desktopRefreshJob?.cancel()
+        desktopRefreshJob = viewModelScope.launch(Dispatchers.IO) {
+            if (delayMs > 0) delay(delayMs)
+            refreshDesktopFilesInternal()
+        }
+    }
+
+    fun refreshDesktopFiles() = scheduleDesktopRefresh(250L)
+
+    private suspend fun refreshDesktopFilesInternal() {
+        val generation = desktopRefreshGeneration.incrementAndGet()
+        val files = desktopDir.listFiles()?.toList() ?: emptyList()
+        val livePaths = files.asSequence().map { it.absolutePath }.toSet()
+        desktopInfoCache.keys.retainAll(livePaths)
+
+        val loaded = files.mapNotNull { file ->
+            val path = file.absolutePath
+            val modified = file.lastModified()
+            val length = if (file.isFile) file.length() else 0L
+            val cached = desktopInfoCache[path]
+            if (cached != null && cached.modified == modified &&
+                cached.length == length && cached.isDirectory == file.isDirectory) {
+                cached.info
+            } else {
+                val info = io.github.norbertweb.bluebird.ui.components.loadDesktopFileInfo(file, getApplication())
+                desktopInfoCache[path] = DesktopInfoCacheEntry(modified, length, file.isDirectory, info)
+                info
             }
-            withContext(Dispatchers.Main) {
+        }
+
+        val positionsJson = prefs.getString("desktop_positions", "{}") ?: "{}"
+        val customPositions: Map<String, Pair<Float, Float>> = try {
+            val type = object : TypeToken<Map<String, Pair<Float, Float>>>() {}.type
+            gson.fromJson(positionsJson, type)
+        } catch (_: Exception) { emptyMap() }
+
+        val positioned = loaded.map { item ->
+            val pos = customPositions[item.file.absolutePath]
+            if (pos != null) item.copy(position = Offset(pos.first, pos.second)) else item
+        }
+
+        withContext(Dispatchers.Main.immediate) {
+            if (generation == desktopRefreshGeneration.get()) {
                 _uiState.value = _uiState.value.copy(
-                    desktopFiles      = positioned,
-                    // Bumped on every completed refresh so observers (the io.github.norbertweb.io.github.norbertweb.bluebird-icon
-                    // "refresh" flicker) can react to a real change without keeping their
-                    // own separate file-watching logic.
+                    desktopFiles = positioned,
                     desktopRefreshTick = _uiState.value.desktopRefreshTick + 1
                 )
             }
@@ -1009,7 +1062,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     private var desktopObserver: FileObserver? = null
-    private var desktopRefreshPending = false
 
     /**
      * Single, ViewModel-owned watcher for the Desktop folder — the one place file-system
@@ -1025,20 +1077,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             CREATE or DELETE or MOVED_FROM or MOVED_TO or CLOSE_WRITE
         ) {
             override fun onEvent(event: Int, path: String?) {
-                if (desktopRefreshPending) return
-                desktopRefreshPending = true
-                viewModelScope.launch {
-                    delay(120)
-                    desktopRefreshPending = false
-                    refreshDesktopFiles()
-                }
+                // Events are deliberately coalesced. A single paste/rename often emits
+                // several filesystem events; one refresh is enough to represent the final state.
+                scheduleDesktopRefresh(250L)
             }
         }.also { it.startWatching() }
     }
 
     override fun onCleared() {
-        super.onCleared()
         desktopObserver?.stopWatching()
+        runCatching { getApplication<Application>().unregisterReceiver(batteryReceiver) }
+        super.onCleared()
     }
 
     fun createDesktopFolder(name: String) {
@@ -1354,12 +1403,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         prefs.edit().putStringSet("seen_remote_notif_ids", seenRemoteIds).apply()
     }
 
-    private fun startRemoteNotificationsPoll() {
+    /**
+     * Explicitly refresh Bluebird announcements. There is intentionally no periodic
+     * poll: opening/keeping the launcher alive must not create recurring network work.
+     */
+    fun refreshRemoteNotifications() {
         viewModelScope.launch(Dispatchers.IO) {
-            while (true) {
-                fetchRemoteNotificationsOnce()
-                delay(15 * 60_000L) // re-check every 15 minutes
-            }
+            fetchRemoteNotificationsOnce()
         }
     }
 
@@ -1559,51 +1609,69 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun closeWindow(windowId: String) {
-        val current = _uiState.value.openWindows.filter { it.id != windowId }
-        _uiState.value = _uiState.value.copy(
+        val state = _uiState.value
+        if (state.openWindows.none { it.id == windowId }) return
+        val current = state.openWindows.filterNot { it.id == windowId }
+        _uiState.value = state.copy(
             openWindows    = current,
             activeWindowId = current.lastOrNull { !it.isMinimized }?.id
         )
     }
 
     fun setActiveWindow(windowId: String) {
-        val current = _uiState.value.openWindows.toMutableList()
-        val idx     = current.indexOfFirst { it.id == windowId }
-        if (idx >= 0) {
-            val w = current.removeAt(idx)
-            current.add(w)
-        }
-        _uiState.value = _uiState.value.copy(openWindows = current, activeWindowId = windowId)
+        val state = _uiState.value
+        val current = state.openWindows
+        val idx = current.indexOfFirst { it.id == windowId }
+        if (idx < 0) return
+
+        // Most focus events target the already-front window. Avoid allocating a
+        // new list and triggering recomposition in that common case.
+        if (idx == current.lastIndex && state.activeWindowId == windowId) return
+
+        val reordered = ArrayList<WindowState>(current.size)
+        current.forEachIndexed { i, window -> if (i != idx) reordered.add(window) }
+        reordered.add(current[idx])
+        _uiState.value = state.copy(openWindows = reordered, activeWindowId = windowId)
     }
 
     /** Always hides the window. Sets focus to the next visible window. */
     fun minimizeWindow(windowId: String) {
-        val updated    = _uiState.value.openWindows.map {
+        val state = _uiState.value
+        val target = state.openWindows.firstOrNull { it.id == windowId } ?: return
+        if (target.isMinimized) return
+
+        val updated = state.openWindows.map {
             if (it.id == windowId) it.copy(isMinimized = true) else it
         }
         val nextActive = updated.lastOrNull { !it.isMinimized && it.id != windowId }?.id
-        _uiState.value = _uiState.value.copy(
+        _uiState.value = state.copy(
             openWindows    = updated,
-            activeWindowId = if (_uiState.value.activeWindowId == windowId) nextActive
-            else _uiState.value.activeWindowId
+            activeWindowId = if (state.activeWindowId == windowId) nextActive
+            else state.activeWindowId
         )
     }
 
     /** Always un-hides the window and brings it to front. Safe on already-visible windows. */
     fun restoreWindow(windowId: String) {
-        val current = _uiState.value.openWindows.toMutableList()
-        val idx     = current.indexOfFirst { it.id == windowId }
+        val state = _uiState.value
+        val current = state.openWindows
+        val idx = current.indexOfFirst { it.id == windowId }
         if (idx < 0) return
-        val w = current.removeAt(idx)
-        current.add(w.copy(isMinimized = false))
-        _uiState.value = _uiState.value.copy(openWindows = current, activeWindowId = windowId)
+
+        val target = current[idx]
+        val reordered = ArrayList<WindowState>(current.size)
+        current.forEachIndexed { i, window -> if (i != idx) reordered.add(window) }
+        reordered.add(if (target.isMinimized) target.copy(isMinimized = false) else target)
+        _uiState.value = state.copy(openWindows = reordered, activeWindowId = windowId)
     }
 
     fun maximizeWindow(windowId: String) {
-        val updated = _uiState.value.openWindows.map {
+        val state = _uiState.value
+        val target = state.openWindows.firstOrNull { it.id == windowId } ?: return
+        val updated = state.openWindows.map {
             if (it.id == windowId) it.copy(isMaximized = !it.isMaximized) else it
         }
-        _uiState.value = _uiState.value.copy(openWindows = updated)
+        _uiState.value = state.copy(openWindows = updated, activeWindowId = windowId)
     }
 
     // ─── App Launching & File Opening ─────────────────────────────────────────
@@ -1640,6 +1708,41 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             _uiState.value = _uiState.value.copy(recentFiles = files.take(10))
             saveAll()
         } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    /**
+     * Opens a file in Bluebird's own applications whenever the format is supported.
+     * The system chooser remains the fallback for formats Bluebird cannot handle.
+     */
+    fun openFileInternally(context: Context, filePath: String): Boolean {
+        val file = File(filePath)
+        if (!file.isFile) return false
+        val ext = file.extension.lowercase()
+        val screenAndExtras = when {
+            ext in setOf("jpg", "jpeg", "png", "gif", "bmp", "webp") ->
+                LauncherScreen.IMAGE_VIEWER to mapOf("filePath" to filePath)
+            ext in setOf("mp3", "wav", "ogg", "flac", "aac", "m4a", "mp4", "mkv", "avi", "mov", "webm", "3gp") ->
+                LauncherScreen.MEDIA_PLAYER to mapOf("filePath" to filePath)
+            ext in setOf("txt", "log", "md", "xml", "json", "csv", "ini", "cfg", "conf", "properties",
+                "c", "h", "cc", "cpp", "cxx", "hpp", "java", "kt", "kts", "js", "jsx", "ts", "tsx",
+                "py", "rb", "go", "rs", "swift", "dart", "php", "sh", "bash", "zsh", "sql", "css",
+                "scss", "sass", "less", "html", "htm", "xhtml", "vue", "svelte", "yaml", "yml", "toml",
+                "gradle", "gitignore", "env") ->
+                LauncherScreen.PremiumTextEditorScreen to mapOf("filePath" to filePath)
+            ext in setOf("pdf", "doc", "docx", "wdoc", "rtf", "odt") ->
+                LauncherScreen.WORD_IMPRESS to mapOf("filePath" to filePath)
+            else -> return false
+        }
+        openWindow(screenAndExtras.first, screenAndExtras.second)
+
+        // Keep desktop and File Explorer launches consistent: internally opened files
+        // participate in the same recent-files list as files opened through the chooser.
+        val recent = _uiState.value.recentFiles.toMutableList()
+        recent.remove(filePath)
+        recent.add(0, filePath)
+        _uiState.value = _uiState.value.copy(recentFiles = recent.take(10))
+        saveAll()
+        return true
     }
 
     private fun getMimeType(filePath: String): String = when (filePath.substringAfterLast(".").lowercase()) {
@@ -1800,7 +1903,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     // rename fast path for moves (matches real-OS behavior — no progress bar needed
     // for a move that's really just a rename).
 
-    private val cancelledJobIds = mutableSetOf<String>()
+    private val cancelledJobIds = ConcurrentHashMap.newKeySet<String>()
     private var undoDismissJob: kotlinx.coroutines.Job? = null
 
     fun enqueueFileOperation(sources: List<File>, destDir: File, isCut: Boolean) {
@@ -1846,18 +1949,114 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     private suspend fun runCopyJob(jobId: String, sources: List<File>, destDir: File, isCut: Boolean) {
         try {
-            var totalBytes = 0L
-            var totalFiles = 0
-            sources.forEach { src ->
-                src.walkTopDown().forEach { f -> if (f.isFile) { totalBytes += f.length(); totalFiles++ } }
+            // Refuse recursive self-copies/moves before touching the filesystem.
+            val destCanonical = destDir.canonicalFile
+            val invalidSource = sources.firstOrNull { src ->
+                val sourceCanonical = src.canonicalFile
+                sourceCanonical == destCanonical ||
+                    (src.isDirectory && destCanonical.path.startsWith(sourceCanonical.path + File.separator))
             }
-            updateJob(jobId) { it.copy(totalBytes = totalBytes, totalFiles = totalFiles, status = CopyJobStatus.RUNNING) }
+            if (invalidSource != null) {
+                throw IOException("Cannot copy or move an item into itself")
+            }
+
+            // A move on the same filesystem is normally just a rename. Try that
+            // BEFORE doing an expensive recursive size scan. This is the common
+            // case for File Explorer/Desktop moves and makes large-folder moves
+            // effectively instantaneous.
+            val undoList = mutableListOf<Pair<File, File>>()  // (dest, originalSource)
+            val fallbackSources = mutableListOf<File>()
+            var completedItems = 0
+
+            if (isCut) {
+                for (src in sources) {
+                    if (jobId in cancelledJobIds) break
+                    val destTarget = File(destDir, uniqueDestName(destDir, src.name))
+                    if (src.renameTo(destTarget)) {
+                        undoList.add(destTarget to src)
+                        completedItems++
+                        updateJob(jobId) {
+                            it.copy(
+                                status = CopyJobStatus.RUNNING,
+                                currentFileName = src.name,
+                                filesDone = completedItems
+                            )
+                        }
+                    } else {
+                        fallbackSources.add(src)
+                    }
+                }
+            } else {
+                fallbackSources.addAll(sources)
+            }
+
+            // Only COPY operations, or MOVE operations that could not be renamed,
+            // need recursive metadata scanning. Previously every move scanned the
+            // entire source tree before even attempting rename.
+            var totalBytes = 0L
+            var totalFiles = completedItems
+            if (fallbackSources.isNotEmpty()) {
+                updateJob(jobId) { it.copy(status = CopyJobStatus.SCANNING) }
+                for (src in fallbackSources) {
+                    if (jobId in cancelledJobIds) break
+                    src.walkTopDown().forEach { f ->
+                        if (jobId in cancelledJobIds) return@forEach
+                        if (f.isFile) {
+                            totalBytes += f.length()
+                            totalFiles++
+                        }
+                    }
+                }
+            }
+
+            // If every MOVE succeeded through rename, finish without any recursive
+            // scan. The progress window will close normally after the completed job.
+            if (fallbackSources.isEmpty()) {
+                val cancelled = jobId in cancelledJobIds
+                cancelledJobIds.remove(jobId)
+                updateJob(jobId) {
+                    it.copy(
+                        status = if (cancelled) CopyJobStatus.CANCELLED else CopyJobStatus.DONE,
+                        copiedBytes = 0L,
+                        filesDone = completedItems,
+                        totalFiles = completedItems,
+                        totalBytes = 0L
+                    )
+                }
+                if (!cancelled && undoList.isNotEmpty()) {
+                    val verb = "Moved"
+                    val label = if (sources.size == 1) "$verb \"${sources[0].name}\"" else "$verb ${sources.size} items"
+                    showUndoAction(label) {
+                        undoList.forEach { (dest, originalSrc) ->
+                            if (!dest.renameTo(originalSrc)) {
+                                dest.copyRecursively(originalSrc, overwrite = true)
+                                dest.deleteRecursively()
+                            }
+                        }
+                        refreshDesktopFiles()
+                    }
+                }
+                withContext(Dispatchers.Main) { refreshDesktopFiles() }
+                delay(3000)
+                if (_uiState.value.copyJobs.any { it.id == jobId && it.status != CopyJobStatus.RUNNING }) {
+                    dismissCopyJob(jobId)
+                }
+                return
+            }
+
+            updateJob(jobId) {
+                it.copy(
+                    totalBytes = totalBytes,
+                    totalFiles = totalFiles,
+                    status = CopyJobStatus.RUNNING,
+                    filesDone = completedItems
+                )
+            }
 
             var copiedBytes = 0L
-            var filesDone   = 0
-            var lastUpdate  = System.currentTimeMillis()
+            var filesDone = completedItems
+            var lastUpdate = System.currentTimeMillis()
             var lastBytesForSpeed = 0L
-            val undoList = mutableListOf<Pair<File, File>>()  // (dest, originalSource)
 
             fun copyFileWithProgress(from: File, to: File) {
                 to.parentFile?.mkdirs()
@@ -1866,16 +2065,21 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                         val buffer = ByteArray(64 * 1024)
                         var read: Int
                         while (input.read(buffer).also { read = it } != -1) {
-                            if (jobId in cancelledJobIds) throw java.io.IOException("cancelled")
+                            if (jobId in cancelledJobIds) throw IOException("cancelled")
                             output.write(buffer, 0, read)
                             copiedBytes += read
                             val now = System.currentTimeMillis()
                             if (now - lastUpdate > 150) {
-                                val speed = (copiedBytes - lastBytesForSpeed) * 1000 / (now - lastUpdate).coerceAtLeast(1)
+                                val elapsed = (now - lastUpdate).coerceAtLeast(1)
+                                val speed = (copiedBytes - lastBytesForSpeed) * 1000 / elapsed
                                 lastBytesForSpeed = copiedBytes
                                 lastUpdate = now
                                 updateJob(jobId) {
-                                    it.copy(copiedBytes = copiedBytes, currentFileName = from.name, speedBytesPerSec = speed)
+                                    it.copy(
+                                        copiedBytes = copiedBytes,
+                                        currentFileName = from.name,
+                                        speedBytesPerSec = speed
+                                    )
                                 }
                             }
                         }
@@ -1883,28 +2087,21 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 }
             }
 
-            for (src in sources) {
+            for (src in fallbackSources) {
                 if (jobId in cancelledJobIds) break
                 val destTarget = File(destDir, uniqueDestName(destDir, src.name))
-
-                // Fast path: same-volume move is a pure rename — instant, no byte copy needed.
-                if (isCut && src.renameTo(destTarget)) {
-                    undoList.add(destTarget to src)
-                    var srcBytes = 0L; var srcCount = 0
-                    destTarget.walkTopDown().forEach { f -> if (f.isFile) { srcBytes += f.length(); srcCount++ } }
-                    copiedBytes += srcBytes
-                    filesDone   += srcCount
-                    updateJob(jobId) { it.copy(copiedBytes = copiedBytes, filesDone = filesDone, currentFileName = src.name) }
-                    continue
-                }
-
                 try {
                     if (src.isDirectory) {
                         src.walkTopDown().forEach { f ->
                             if (jobId in cancelledJobIds) return@forEach
                             val rel = f.relativeTo(src)
                             val out = File(destTarget, rel.path)
-                            if (f.isDirectory) out.mkdirs() else { copyFileWithProgress(f, out); filesDone++ }
+                            if (f.isDirectory) {
+                                out.mkdirs()
+                            } else {
+                                copyFileWithProgress(f, out)
+                                filesDone++
+                            }
                         }
                     } else {
                         copyFileWithProgress(src, destTarget)
@@ -1914,8 +2111,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                         undoList.add(destTarget to src)
                         if (isCut) src.deleteRecursively()
                     }
-                } catch (ce: java.io.IOException) {
-                    if (jobId in cancelledJobIds) { destTarget.deleteRecursively(); break } else throw ce
+                } catch (ce: IOException) {
+                    if (jobId in cancelledJobIds) {
+                        destTarget.deleteRecursively()
+                        break
+                    } else {
+                        throw ce
+                    }
                 }
                 updateJob(jobId) { it.copy(filesDone = filesDone, copiedBytes = copiedBytes) }
             }
@@ -1924,13 +2126,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             cancelledJobIds.remove(jobId)
             updateJob(jobId) {
                 it.copy(
-                    status      = if (cancelled) CopyJobStatus.CANCELLED else CopyJobStatus.DONE,
-                    copiedBytes = copiedBytes, filesDone = filesDone
+                    status = if (cancelled) CopyJobStatus.CANCELLED else CopyJobStatus.DONE,
+                    copiedBytes = copiedBytes,
+                    filesDone = filesDone
                 )
             }
 
             if (!cancelled && undoList.isNotEmpty()) {
-                val verb  = if (isCut) "Moved" else "Copied"
+                val verb = if (isCut) "Moved" else "Copied"
                 val label = if (sources.size == 1) "$verb \"${sources[0].name}\"" else "$verb ${sources.size} items"
                 showUndoAction(label) {
                     undoList.forEach { (dest, originalSrc) ->
@@ -1954,6 +2157,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 dismissCopyJob(jobId)
             }
         } catch (e: Exception) {
+            cancelledJobIds.remove(jobId)
             updateJob(jobId) { it.copy(status = CopyJobStatus.ERROR, error = e.message ?: "Copy failed") }
         }
     }
@@ -2349,27 +2553,44 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     // warning on every tick while the level sits below the line.
     private val batteryToastsFiredThisCycle = mutableSetOf<Int>()
 
-    private fun startBatteryMonitor() {
-        viewModelScope.launch {
-            while (true) {
-                try {
-                    val bm       = getApplication<Application>().getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-                    val level    = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-                    val charging = bm.isCharging
-                    if (level in 1..100) {
-                        _uiState.value = _uiState.value.copy(batteryLevel = level, isCharging = charging)
+    // BatteryManager is polled here only once at startup. Ongoing changes come
+    // from Android's battery broadcast instead of waking a coroutine every 60s.
+    // This avoids periodic work while the launcher is idle and also reacts
+    // immediately to plug/unplug and meaningful level changes.
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            updateBatteryFromIntent(intent)
+        }
+    }
 
-                        if (charging) {
-                            batteryToastsFiredThisCycle.clear()
-                        } else {
-                            checkBatteryThreshold(level, 20, "Battery is getting low", "20% remaining. Consider plugging in.")
-                            checkBatteryThreshold(level, 10, "Battery low", "10% remaining. Save your work soon.")
-                            checkBatteryThreshold(level, 5,  "Battery critically low", "5% remaining. Plug in now to avoid losing work.")
-                        }
-                    }
-                } catch (e: Exception) { /* ignore */ }
-                delay(60_000)
+    private fun startBatteryMonitor() {
+        val app = getApplication<Application>()
+        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        val sticky = app.registerReceiver(batteryReceiver, filter)
+        if (sticky != null) updateBatteryFromIntent(sticky)
+    }
+
+    private fun updateBatteryFromIntent(intent: Intent) {
+        try {
+            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100).coerceAtLeast(1)
+            val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+            val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                    status == BatteryManager.BATTERY_STATUS_FULL
+            if (level !in 0..scale) return
+            val percent = (level * 100 / scale).coerceIn(0, 100)
+            val old = _uiState.value
+            if (old.batteryLevel == percent && old.isCharging == charging) return
+            _uiState.value = old.copy(batteryLevel = percent, isCharging = charging)
+            if (charging) {
+                batteryToastsFiredThisCycle.clear()
+            } else {
+                checkBatteryThreshold(percent, 20, "Battery is getting low", "20% remaining. Consider plugging in.")
+                checkBatteryThreshold(percent, 10, "Battery low", "10% remaining. Save your work soon.")
+                checkBatteryThreshold(percent, 5, "Battery critically low", "5% remaining. Plug in now to avoid losing work.")
             }
+        } catch (_: Exception) {
+            // Battery state is non-critical; keep the last known value.
         }
     }
 
@@ -2667,4 +2888,5 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun saveWindowGeometry(id: String, geometry: io.github.norbertweb.bluebird.ui.components.WindowGeometry) {
         _windowGeometries[id] = geometry
     }
+
 }

@@ -307,7 +307,7 @@ fun ActionCenter(
                 )
                 if (uiState.notifications.isNotEmpty()) {
                     TextButton(
-                        onClick = { uiState.notifications.forEach { viewModel.dismissNotification(it.id) } },
+                        onClick = viewModel::dismissAllNotifications,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                     ) {
                         Text(
@@ -324,8 +324,11 @@ fun ActionCenter(
             if (uiState.notifications.isEmpty()) {
                 EmptyNotificationsPlaceholder(isDark = isDark, textColor = subColor, textScale = textScale)
             } else {
-                // Group by appName
-                val grouped = uiState.notifications.groupBy { it.appName }
+                // Group once per notification-list identity instead of rebuilding the map
+                // on unrelated recompositions (theme, text scale, quick toggles, etc.).
+                val grouped = remember(uiState.notifications) {
+                    uiState.notifications.groupBy { it.appName }
+                }
                 grouped.forEach { (appName, notifs) ->
                     NotificationGroup(
                         appName   = appName,

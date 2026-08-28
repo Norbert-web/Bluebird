@@ -146,12 +146,6 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         hideSystemBars()
 
-        NotificationListener.onNotificationPosted = { notification ->
-            viewModel.addNotification(notification)
-        }
-        NotificationListener.onNotificationRemoved = { key ->
-            viewModel.dismissNotification(key)
-        }
         window?.attributes = window?.attributes?.apply {
             screenBrightness = viewModel.uiState.value.brightness
         }

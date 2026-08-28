@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +51,7 @@ import io.github.norbertweb.bluebird.AppInfo
 import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
+import kotlinx.coroutines.delay
 
 // ─────────────────────────────────────────────
 // Search filter categories (like the one for Windows 11)
@@ -105,10 +107,27 @@ fun SearchOverlay(
     viewModel: LauncherViewModel,
     modifier: Modifier = Modifier
 ) {
+    // Search is an explicit app-discovery consumer; do not initialize PackageManager
+    // data while the desktop shell is merely starting.
+    LaunchedEffect(Unit) { viewModel.ensureInstalledAppsLoaded() }
+
     val context = LocalContext.current
     val isDark = uiState.isDarkTheme
     val textColor = if (isDark) Color.White else Color(0xFF1A1A1A)
-    val searchQuery = uiState.searchQuery
+    var localSearchQuery by rememberSaveable { mutableStateOf(uiState.searchQuery) }
+
+    LaunchedEffect(uiState.searchQuery) {
+        if (uiState.searchQuery != localSearchQuery) localSearchQuery = uiState.searchQuery
+    }
+
+    LaunchedEffect(localSearchQuery) {
+        delay(120)
+        if (localSearchQuery != uiState.searchQuery) {
+            viewModel.updateSearchQuery(localSearchQuery)
+        }
+    }
+
+    val searchQuery = localSearchQuery
     val configuration = LocalConfiguration.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -162,7 +181,14 @@ fun SearchOverlay(
     }
 
     // Filtered results based on active tab
-    val appResults = viewModel.filteredApps
+    val normalizedQuery = remember(searchQuery) { searchQuery.trim().lowercase() }
+    val appResults = remember(uiState.installedApps, normalizedQuery) {
+        if (normalizedQuery.isEmpty()) uiState.installedApps
+        else uiState.installedApps.filter {
+            it.name.contains(normalizedQuery, ignoreCase = true) ||
+                    it.packageName.contains(normalizedQuery, ignoreCase = true)
+        }
+    }
     val hasResults = appResults.isNotEmpty()
 
     // Background surface (acrylic style)
@@ -247,7 +273,7 @@ fun SearchOverlay(
 
                         BasicTextField(
                             value = searchQuery,
-                            onValueChange = { viewModel.updateSearchQuery(it) },
+                            onValueChange = { localSearchQuery = it },
                             modifier = Modifier
                                 .weight(1f)
                                 .focusRequester(focusRequester),
@@ -276,7 +302,7 @@ fun SearchOverlay(
                                 tint = textColor.copy(alpha = 0.45f),
                                 modifier = Modifier
                                     .size(15.dp)
-                                    .clickable { viewModel.updateSearchQuery("") }
+                                    .clickable { localSearchQuery = "" }
                             )
                         }
                     }

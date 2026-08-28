@@ -2,14 +2,15 @@ package io.github.norbertweb.bluebird.ui.screens
 
 import android.Manifest
 import android.content.Intent
+import android.graphics.Bitmap
+import android.util.LruCache
+import android.media.MediaMetadataRetriever
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.provider.Settings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
@@ -30,27 +31,45 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-import coil.compose.AsyncImage
 import io.github.norbertweb.bluebird.LauncherViewModel
+import io.github.norbertweb.bluebird.LauncherScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import androidx.compose.foundation.text.selection.SelectionContainer
 import io.github.norbertweb.bluebird.wordprocessor.formatDate
 import io.github.norbertweb.bluebird.wordprocessor.formatFileSize
 
@@ -165,7 +184,26 @@ private fun hasStorageAccess(context: android.content.Context): Boolean {
 private class FileExplorerState(initialDir: File) {
     var currentDir by mutableStateOf(initialDir)
     var pathHistory by mutableStateOf(listOf<File>())
-    var files by mutableStateOf(listOf<RealFileItem>())
+    var allFiles by mutableStateOf(listOf<RealFileItem>())
+
+    /** Derived listing: search/sort never touches the filesystem. */
+    val files: List<RealFileItem>
+        get() {
+            val query = searchQuery.trim()
+            val filtered = if (query.isEmpty()) allFiles else allFiles.filter {
+                it.name.contains(query, ignoreCase = true)
+            }
+            val sorted = when (sortBy) {
+                "name" -> filtered.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+                "size" -> filtered.sortedBy { it.size }
+                "date" -> filtered.sortedBy { it.lastModified }
+                "type" -> filtered.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.extension })
+                else -> filtered.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+            }
+            val dirs = sorted.filter { it.isDirectory }
+            val filesOnly = sorted.filter { it.file.isFile }
+            return if (sortAscending) dirs + filesOnly else (filesOnly + dirs).reversed()
+        }
     var isLoading by mutableStateOf(true)
 
     // UI toggles
@@ -178,12 +216,14 @@ private class FileExplorerState(initialDir: File) {
 
     // Dialogs
     var contextMenuFile by mutableStateOf<RealFileItem?>(null)
+    var contextMenuOffset by mutableStateOf(Offset.Zero)
+    var showBackgroundContextMenu by mutableStateOf(false)
     var showRenameDialog by mutableStateOf(false)
     var showDeleteDialog by mutableStateOf(false)
     var renameTarget by mutableStateOf<RealFileItem?>(null)
     var showNewFolderDialog by mutableStateOf(false)
+    var propertiesTarget by mutableStateOf<RealFileItem?>(null)
     // Clipboard now lives in the ViewModel (shared with Desktop) — see vmUiState.clipboardFiles
-    var previewFile by mutableStateOf<RealFileItem?>(null)
 
     fun navigateTo(dir: File) {
         if (dir != currentDir) {
@@ -210,7 +250,7 @@ private class FileExplorerState(initialDir: File) {
 
 @Composable
 private fun rememberFileExplorerState(initialDir: File = Environment.getExternalStorageDirectory()): FileExplorerState {
-    return remember { FileExplorerState(initialDir) }
+    return remember(initialDir.absolutePath) { FileExplorerState(initialDir) }
 }
 
 // ────────────────────────────────────────────────────────
@@ -352,6 +392,58 @@ private fun FileExplorerContent(
     val bgColor = if (isDark) Color(0xFF1C1C1C) else Color(0xFFFAFAFA)
     val surfaceBg = if (isDark) Color(0xFF252525) else Color(0xFFF0F0F0)
     val navBg = if (isDark) Color(0xFF1F1F1F) else Color(0xFFF5F5F5)
+    val explorerFocusRequester = remember { FocusRequester() }
+    var ctrlMouseSelection by remember { mutableStateOf(false) }
+    var shiftMouseSelection by remember { mutableStateOf(false) }
+    var selectionAnchor by remember { mutableStateOf<String?>(null) }
+
+    // Desktop keyboard commands. The explorer owns these only while its root has focus;
+    // text fields such as Search keep their normal editing shortcuts.
+    fun selectedItems(): List<RealFileItem> = state.files.filter { it.file.absolutePath in state.selectedFiles }
+    fun primarySelection(): RealFileItem? = selectedItems().firstOrNull()
+    fun openSelection() {
+        primarySelection()?.let {
+            if (it.isDirectory) state.navigateTo(it.file) else openFileFromExplorer(it, context, viewModel)
+        }
+    }
+    fun beginRename() {
+        primarySelection()?.let {
+            state.renameTarget = it
+            state.showRenameDialog = true
+            state.contextMenuFile = null
+        }
+    }
+    fun beginDelete() {
+        if (state.selectedFiles.isNotEmpty()) {
+            state.contextMenuFile = null
+            state.showDeleteDialog = true
+        }
+    }
+
+    fun moveSelection(delta: Int, extend: Boolean = false) {
+        val items = state.files
+        if (items.isEmpty()) return
+        val current = state.selectedFiles.firstOrNull()?.let { path ->
+            items.indexOfFirst { it.file.absolutePath == path }
+        } ?: -1
+        val next = when {
+            current < 0 -> if (delta >= 0) 0 else items.lastIndex
+            else -> (current + delta).coerceIn(0, items.lastIndex)
+        }
+        val nextPath = items[next].file.absolutePath
+        if (extend) {
+            val anchor = selectionAnchor ?: state.selectedFiles.firstOrNull() ?: nextPath
+            val anchorIndex = items.indexOfFirst { it.file.absolutePath == anchor }.takeIf { it >= 0 } ?: next
+            val range = if (anchorIndex <= next) anchorIndex..next else next..anchorIndex
+            state.selectedFiles = range.mapTo(linkedSetOf()) { items[it].file.absolutePath }
+            selectionAnchor = anchor
+        } else {
+            state.selectedFiles = setOf(nextPath)
+            selectionAnchor = nextPath
+        }
+    }
+
+    LaunchedEffect(Unit) { explorerFocusRequester.requestFocus() }
 
     val quickAccess = remember {
         listOf(
@@ -366,40 +458,45 @@ private fun FileExplorerContent(
     }
 
     // ── File Loading ──
+    var loadGeneration by remember { mutableIntStateOf(0) }
     val loadFiles: (File) -> Unit = { dir ->
+        val generation = loadGeneration + 1
+        loadGeneration = generation
         scope.launch {
             state.isLoading = true
             withContext(Dispatchers.IO) {
                 try {
                     if (!dir.exists() || !dir.canRead()) {
-                        state.files = emptyList()
+                        withContext(Dispatchers.Main.immediate) { state.allFiles = emptyList() }
                         return@withContext
                     }
-                    val rawFiles = dir.listFiles()?.toList() ?: emptyList()
-                    val filtered = rawFiles
+                    val rawFiles = dir.listFiles()?.asSequence() ?: emptySequence()
+                    val loaded = ArrayList<RealFileItem>()
+                    rawFiles
                         .filter { state.showHidden || !it.name.startsWith(".") }
-                        .filter { state.searchQuery.isEmpty() || it.name.contains(state.searchQuery, ignoreCase = true) }
-                    val sorted = when (state.sortBy) {
-                        "name" -> filtered.sortedBy { it.name.lowercase() }
-                        "size" -> filtered.sortedBy { it.length() }
-                        "date" -> filtered.sortedBy { it.lastModified() }
-                        "type" -> filtered.sortedBy { it.extension }
-                        else -> filtered.sortedBy { it.name.lowercase() }
+                        .forEach { loaded += RealFileItem(it) }
+                    withContext(Dispatchers.Main.immediate) {
+                        if (generation == loadGeneration && dir == state.currentDir) {
+                            // Publish one immutable snapshot. Search and sorting are derived locally.
+                            state.allFiles = loaded
+                            val loadedPaths = loaded.asSequence().map { it.file.absolutePath }.toHashSet()
+                            state.selectedFiles = state.selectedFiles.filterTo(linkedSetOf()) { it in loadedPaths }
+                        }
                     }
-                    val dirs = sorted.filter { it.isDirectory }
-                    val fils = sorted.filter { it.isFile }
-                    val ordered = if (state.sortAscending) dirs + fils else (fils + dirs).reversed()
-                    state.files = ordered.map { RealFileItem(it) }
                 } catch (e: SecurityException) {
-                    state.files = emptyList()
+                    withContext(Dispatchers.Main.immediate) { state.allFiles = emptyList() }
                 } finally {
-                    withContext(Dispatchers.Main) { state.isLoading = false }
+                    withContext(Dispatchers.Main.immediate) {
+                        if (generation == loadGeneration && dir == state.currentDir) {
+                            state.isLoading = false
+                        }
+                    }
                 }
             }
         }
     }
 
-    LaunchedEffect(state.currentDir, state.searchQuery, state.showHidden, state.sortBy, state.sortAscending) {
+    LaunchedEffect(state.currentDir, state.showHidden) {
         loadFiles(state.currentDir)
     }
 
@@ -416,7 +513,68 @@ private fun FileExplorerContent(
     }
 
     // ── Layout ──
-    Column(modifier = Modifier.fillMaxSize().background(bgColor)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgColor)
+            .focusRequester(explorerFocusRequester)
+            .onKeyEvent { event ->
+                // Keep modifier state available to pointer clicks so Ctrl/Shift-click
+                // behaves like a desktop file manager. Key events are delivered while
+                // this root owns focus, including when the pointer is over a file tile.
+                ctrlMouseSelection = event.nativeKeyEvent.isCtrlPressed
+                shiftMouseSelection = event.nativeKeyEvent.isShiftPressed
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                val ctrl = event.nativeKeyEvent.isCtrlPressed
+                val shift = event.nativeKeyEvent.isShiftPressed
+                val alt = event.nativeKeyEvent.isAltPressed
+                when {
+                    ctrl && event.key == Key.A -> {
+                        state.selectedFiles = state.files.mapTo(linkedSetOf()) { it.file.absolutePath }
+                        selectionAnchor = state.files.firstOrNull()?.file?.absolutePath
+                        true
+                    }
+                    ctrl && event.key == Key.C -> {
+                        if (state.selectedFiles.isNotEmpty()) viewModel?.setClipboard(state.selectedFiles.map { File(it) }, cut = false)
+                        true
+                    }
+                    ctrl && event.key == Key.X -> {
+                        if (state.selectedFiles.isNotEmpty()) viewModel?.setClipboard(state.selectedFiles.map { File(it) }, cut = true)
+                        true
+                    }
+                    ctrl && event.key == Key.V -> {
+                        viewModel?.pasteClipboard(state.currentDir)
+                        true
+                    }
+                    event.key == Key.F2 -> { beginRename(); true }
+                    event.key == Key.Delete -> { beginDelete(); true }
+                    event.key == Key.Enter -> { openSelection(); true }
+                    event.key == Key.DirectionDown || event.key == Key.DirectionRight -> {
+                        moveSelection(1, extend = shift); true
+                    }
+                    event.key == Key.DirectionUp || event.key == Key.DirectionLeft -> {
+                        moveSelection(-1, extend = shift); true
+                    }
+                    event.key == Key.MoveHome -> {
+                        state.files.firstOrNull()?.let { state.selectedFiles = setOf(it.file.absolutePath); selectionAnchor = it.file.absolutePath }; true
+                    }
+                    event.key == Key.MoveEnd -> {
+                        state.files.lastOrNull()?.let { state.selectedFiles = setOf(it.file.absolutePath); selectionAnchor = it.file.absolutePath }; true
+                    }
+                    event.key == Key.Escape -> {
+                        state.contextMenuFile = null
+                        state.selectedFiles = emptySet()
+                        state.showRenameDialog = false
+                        state.showDeleteDialog = false
+                        state.propertiesTarget = null
+                        true
+                    }
+                    alt && event.key == Key.DirectionUp -> { state.goUp(); true }
+                    event.key == Key.Backspace && !ctrl && !shift -> { state.goBack(); true }
+                    else -> false
+                }
+            }
+    ) {
 
         CommandBar(
             onBack = { state.goBack() },
@@ -463,6 +621,10 @@ private fun FileExplorerContent(
                     state.showDeleteDialog = true
                 }
             },
+            onSelectAll = {
+                state.selectedFiles = if (state.selectedFiles.size == state.files.size) emptySet()
+                else state.files.mapTo(linkedSetOf()) { it.file.absolutePath }
+            },
             sortBy = state.sortBy,
             sortAscending = state.sortAscending,
             onSortChange = { by, asc -> state.sortBy = by; state.sortAscending = asc },
@@ -495,7 +657,12 @@ private fun FileExplorerContent(
                 textColor = textColor,
                 isDark = isDark,
                 context = context,
-                viewModel = viewModel
+                viewModel = viewModel,
+                onBackgroundContextMenu = { offset ->
+                    state.contextMenuOffset = offset
+                    state.showBackgroundContextMenu = true
+                    state.contextMenuFile = null
+                }
             )
         }
 
@@ -512,6 +679,7 @@ private fun FileExplorerContent(
         viewModel = viewModel,
         isDark = isDark,
         context = context,
+        clipboardActive = vmUiState?.clipboardFiles?.isNotEmpty() == true,
         onReload = { loadFiles(state.currentDir) }
     )
 }
@@ -519,6 +687,13 @@ private fun FileExplorerContent(
 // ────────────────────────────────────────────────────────
 // File List Area — extracted composable
 // ────────────────────────────────────────────────────────
+
+private fun LayoutCoordinates.trueScreenPosition(view: android.view.View): Offset {
+    val loc = IntArray(2)
+    view.getLocationOnScreen(loc)
+    val inWindow = positionInWindow()
+    return Offset(loc[0] + inWindow.x, loc[1] + inWindow.y)
+}
 
 @Composable
 private fun FileListArea(
@@ -528,29 +703,71 @@ private fun FileListArea(
     textColor: Color,
     isDark: Boolean,
     context: android.content.Context,
-    viewModel: LauncherViewModel?
+    viewModel: LauncherViewModel?,
+    onBackgroundContextMenu: (Offset) -> Unit
 ) {
-    Box(modifier = Modifier.fillMaxHeight().background(bgColor)) {
+    val localView = LocalView.current
+    var listOrigin by remember { mutableStateOf(Offset.Zero) }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxHeight()
+            .background(bgColor)
+            .onGloballyPositioned { coords ->
+                listOrigin = coords.trueScreenPosition(localView)
+            }
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onLongPress = { onBackgroundContextMenu(listOrigin + it) }
+                )
+            }
+    ) {
         when {
             state.isLoading -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = bluebirdColors.AccentBlue)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = bluebirdColors.AccentBlue, strokeWidth = 2.dp)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Loading…", color = textColor.copy(alpha = 0.5f), fontSize = 11.sp)
+                    }
                 }
             }
             state.files.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.FolderOpen, null, tint = textColor.copy(alpha = 0.2f), modifier = Modifier.size(48.dp))
-                        Text("This folder is empty", color = textColor.copy(alpha = 0.4f), fontSize = 13.sp)
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = surfaceBg.copy(alpha = 0.7f)
+                        ) {
+                            Icon(
+                                if (state.searchQuery.isNotBlank()) Icons.Default.SearchOff else Icons.Default.FolderOpen,
+                                null,
+                                tint = textColor.copy(alpha = 0.25f),
+                                modifier = Modifier.padding(18.dp).size(34.dp)
+                            )
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            if (state.searchQuery.isNotBlank()) "No matching files" else "This folder is empty",
+                            color = textColor.copy(alpha = 0.55f),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        if (state.searchQuery.isNotBlank()) {
+                            Text(
+                                "Try a different search",
+                                color = textColor.copy(alpha = 0.35f),
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
             }
             state.isGridView -> {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(90.dp),
-                    contentPadding = PaddingValues(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    columns = GridCells.Adaptive(minSize = 112.dp),
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     items(state.files, key = { it.file.absolutePath }) { fileItem ->
                         GridFileItem(
@@ -559,15 +776,19 @@ private fun FileListArea(
                             textColor = textColor,
                             isDark = isDark,
                             onClick = {
-                                if (fileItem.isDirectory) state.navigateTo(fileItem.file)
-                                else previewOrOpen(fileItem, context, viewModel) { state.previewFile = it }
-                            },
-                            onLongPress = { state.contextMenuFile = fileItem },
-                            onSelect = {
                                 val path = fileItem.file.absolutePath
-                                state.selectedFiles = if (path in state.selectedFiles)
-                                    state.selectedFiles - path else state.selectedFiles + path
-                            }
+                                val index = state.files.indexOfFirst { it.file.absolutePath == path }
+                                // GridFileItem is an extracted composable and does not own
+                                // the Explorer keyboard-modifier state. Keep pointer selection
+                                // deterministic here; Ctrl/Shift range selection remains available
+                                // through the Explorer keyboard navigation path.
+                                state.selectedFiles = setOf(path)
+                            },
+                            onDoubleClick = {
+                                if (fileItem.isDirectory) state.navigateTo(fileItem.file)
+                                else openFileFromExplorer(fileItem, context, viewModel)
+                            },
+                            onLongPress = { offset -> state.contextMenuOffset = listOrigin + offset; state.contextMenuFile = fileItem }
                         )
                     }
                 }
@@ -575,7 +796,10 @@ private fun FileListArea(
             else -> {
                 Column {
                     FileListHeader(surfaceBg = surfaceBg, textColor = textColor)
-                    LazyColumn(modifier = Modifier.weight(1f)) {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(bottom = 8.dp)
+                    ) {
                         items(state.files, key = { it.file.absolutePath }) { fileItem ->
                             ListFileItem(
                                 item = fileItem,
@@ -583,15 +807,14 @@ private fun FileListArea(
                                 textColor = textColor,
                                 isDark = isDark,
                                 onClick = {
-                                    if (fileItem.isDirectory) state.navigateTo(fileItem.file)
-                                    else previewOrOpen(fileItem, context, viewModel) { state.previewFile = it }
-                                },
-                                onLongPress = { state.contextMenuFile = fileItem },
-                                onSelect = {
                                     val path = fileItem.file.absolutePath
-                                    state.selectedFiles = if (path in state.selectedFiles)
-                                        state.selectedFiles - path else state.selectedFiles + path
-                                }
+                                    state.selectedFiles = setOf(path)
+                                },
+                                onDoubleClick = {
+                                    if (fileItem.isDirectory) state.navigateTo(fileItem.file)
+                                    else openFileFromExplorer(fileItem, context, viewModel)
+                                },
+                                onLongPress = { offset -> state.contextMenuOffset = listOrigin + offset; state.contextMenuFile = fileItem }
                             )
                         }
                     }
@@ -604,14 +827,17 @@ private fun FileListArea(
 @Composable
 private fun FileListHeader(surfaceBg: Color, textColor: Color) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(26.dp)
-            .background(surfaceBg).padding(horizontal = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .background(surfaceBg)
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("Name", color = textColor.copy(alpha = 0.6f), fontSize = 11.sp, modifier = Modifier.weight(1f))
-        Text("Date modified", color = textColor.copy(alpha = 0.6f), fontSize = 11.sp, modifier = Modifier.width(130.dp))
-        Text("Type", color = textColor.copy(alpha = 0.6f), fontSize = 11.sp, modifier = Modifier.width(70.dp))
-        Text("Size", color = textColor.copy(alpha = 0.6f), fontSize = 11.sp, modifier = Modifier.width(60.dp))
+        Text("Name", color = textColor.copy(alpha = 0.58f), fontSize = 10.sp, modifier = Modifier.weight(1f))
+        Text("Date modified", color = textColor.copy(alpha = 0.58f), fontSize = 10.sp, modifier = Modifier.width(128.dp))
+        Text("Type", color = textColor.copy(alpha = 0.58f), fontSize = 10.sp, modifier = Modifier.width(68.dp))
+        Text("Size", color = textColor.copy(alpha = 0.58f), fontSize = 10.sp, modifier = Modifier.width(62.dp))
     }
 }
 
@@ -625,17 +851,19 @@ private fun FileExplorerDialogs(
     viewModel: LauncherViewModel?,
     isDark: Boolean,
     context: android.content.Context,
+    clipboardActive: Boolean,
     onReload: () -> Unit
 ) {
     // Context Menu
     state.contextMenuFile?.let { fileItem ->
         FileContextMenu(
             fileItem = fileItem,
+            offset = state.contextMenuOffset,
             isDark = isDark,
             onDismiss = { state.contextMenuFile = null },
             onOpen = {
                 state.contextMenuFile = null
-                previewOrOpen(fileItem, context, viewModel) { state.previewFile = it }
+                openFileFromExplorer(fileItem, context, viewModel)
             },
             onCopy = {
                 val targets = if (fileItem.file.absolutePath in state.selectedFiles && state.selectedFiles.size > 1)
@@ -649,14 +877,44 @@ private fun FileExplorerDialogs(
                 viewModel?.setClipboard(targets, cut = true)
                 state.contextMenuFile = null
             },
+            onPaste = if (fileItem.isDirectory && clipboardActive) ({
+                viewModel?.pasteClipboard(fileItem.file)
+                state.contextMenuFile = null
+            }) else null,
             onRename = { state.renameTarget = fileItem; state.showRenameDialog = true; state.contextMenuFile = null },
             onDelete = { state.showDeleteDialog = true },
             onCreateShortcut = {
                 viewModel?.addDesktopShortcutFromFile(fileItem.file.absolutePath, fileItem.name)
                 state.contextMenuFile = null
             },
-            onPreview = { state.contextMenuFile = null; state.previewFile = fileItem },
-            onProperties = { state.contextMenuFile = null }
+            onProperties = {
+                state.propertiesTarget = fileItem
+                state.contextMenuFile = null
+            }
+        )
+    }
+
+    if (state.showBackgroundContextMenu) {
+        ExplorerBackgroundContextMenu(
+            offset = state.contextMenuOffset,
+            isDark = isDark,
+            hasPaste = clipboardActive,
+            onDismiss = { state.showBackgroundContextMenu = false },
+            onRefresh = { onReload() },
+            onPaste = { viewModel?.pasteClipboard(state.currentDir) },
+            onNewFolder = { state.showNewFolderDialog = true },
+            onNewTextFile = {
+                var index = 0
+                var name: String
+                do {
+                    name = if (index == 0) "New Text Document.txt" else "New Text Document ($index).txt"
+                    index++
+                } while (File(state.currentDir, name).exists())
+                runCatching { File(state.currentDir, name).createNewFile() }
+                onReload()
+            },
+            onSelectAll = { state.selectedFiles = state.files.mapTo(linkedSetOf()) { it.file.absolutePath } },
+            onToggleHidden = { state.showHidden = !state.showHidden }
         )
     }
 
@@ -665,11 +923,27 @@ private fun FileExplorerDialogs(
         RenameDialog(
             target = state.renameTarget!!,
             onConfirm = { newName ->
-                val dest = File(state.renameTarget!!.file.parent, newName)
-                state.renameTarget!!.file.renameTo(dest)
-                state.showRenameDialog = false
-                state.renameTarget = null
-                onReload()
+                val target = state.renameTarget?.file
+                val cleanName = newName.trim()
+                if (target == null) {
+                    state.showRenameDialog = false
+                } else if (cleanName.isBlank() || cleanName == "." || cleanName == ".." || cleanName.contains(File.separatorChar)) {
+                    android.widget.Toast.makeText(context, "Invalid file name", android.widget.Toast.LENGTH_SHORT).show()
+                } else {
+                    val dest = File(target.parentFile, cleanName)
+                    if (dest.exists() && !dest.absolutePath.equals(target.absolutePath, ignoreCase = true)) {
+                        android.widget.Toast.makeText(context, "A file with that name already exists", android.widget.Toast.LENGTH_SHORT).show()
+                    } else if (!target.renameTo(dest)) {
+                        android.widget.Toast.makeText(context, "Rename failed", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        state.showRenameDialog = false
+                        state.renameTarget = null
+                        state.selectedFiles = state.selectedFiles.mapTo(linkedSetOf()) {
+                            if (it == target.absolutePath) dest.absolutePath else it
+                        }
+                        onReload()
+                    }
+                }
             },
             onDismiss = { state.showRenameDialog = false }
         )
@@ -708,22 +982,33 @@ private fun FileExplorerDialogs(
     if (state.showNewFolderDialog) {
         NewFolderDialog(
             onConfirm = { folderName ->
-                File(state.currentDir, folderName).mkdir()
-                state.showNewFolderDialog = false
-                onReload()
+                val cleanName = folderName.trim()
+                if (cleanName.isBlank() || cleanName == "." || cleanName == ".." || cleanName.contains(File.separatorChar)) {
+                    android.widget.Toast.makeText(context, "Invalid folder name", android.widget.Toast.LENGTH_SHORT).show()
+                } else {
+                    val folder = File(state.currentDir, cleanName)
+                    if (folder.exists()) {
+                        android.widget.Toast.makeText(context, "A file or folder with that name already exists", android.widget.Toast.LENGTH_SHORT).show()
+                    } else if (!folder.mkdir()) {
+                        android.widget.Toast.makeText(context, "Could not create folder", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        state.showNewFolderDialog = false
+                        onReload()
+                    }
+                }
             },
             onDismiss = { state.showNewFolderDialog = false }
         )
     }
 
-    // Preview
-    state.previewFile?.let { file ->
-        FilePreviewDialog(
-            file = file,
+    state.propertiesTarget?.let { target ->
+        FilePropertiesDialog(
+            target = target,
             isDark = isDark,
-            onDismiss = { state.previewFile = null }
+            onDismiss = { state.propertiesTarget = null }
         )
     }
+
 }
 
 // ────────────────────────────────────────────────────────
@@ -809,48 +1094,89 @@ private fun NewFolderDialog(
     )
 }
 
+@Composable
+private fun FilePropertiesDialog(
+    target: RealFileItem,
+    isDark: Boolean,
+    onDismiss: () -> Unit
+) {
+    val file = target.file
+    val type = when {
+        target.isDirectory -> "Folder"
+        target.extension.isBlank() -> "File"
+        else -> "${target.extension.uppercase()} file"
+    }
+    val modified = remember(target.lastModified) {
+        if (target.lastModified > 0L) formatDate(target.lastModified) else "Unknown"
+    }
+    val location = file.parentFile?.absolutePath ?: file.absolutePath
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(14.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(getFileIcon(target), null, tint = getFileIconColor(target), modifier = Modifier.size(24.dp))
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(target.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                    Text(type, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                PropertyRow("Location", location)
+                PropertyRow("Size", if (target.isDirectory) "Folder" else formatFileSize(target.size))
+                PropertyRow("Modified", modified)
+                PropertyRow("Path", file.absolutePath)
+                PropertyRow("Readable", if (file.canRead()) "Yes" else "No")
+                PropertyRow("Writable", if (file.canWrite()) "Yes" else "No")
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
+}
+
+@Composable
+private fun PropertyRow(label: String, value: String) {
+    Column {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
 // ────────────────────────────────────────────────────────
 // File Opening Logic
 // ────────────────────────────────────────────────────────
 
-private fun previewOrOpen(
+private fun openFileFromExplorer(
     item: RealFileItem,
     context: android.content.Context,
-    viewModel: LauncherViewModel?,
-    onPreview: (RealFileItem) -> Unit
+    viewModel: LauncherViewModel?
 ) {
     if (item.isDirectory) return
-    val previewExtensions = listOf(
-        "jpg", "jpeg", "png", "gif", "bmp", "webp",
-        "txt", "log", "md", "xml", "json", "csv",
-        "html", "htm"
-    )
-    if (item.extension in previewExtensions) {
-        onPreview(item)
-        return
-    }
-    // Shortcut files (native app shortcuts + installed web apps) open internally through
-    // the same shared path Desktop uses, instead of falling through to the system's
-    // "Open with" chooser — this is what makes them behave like real apps from File Explorer.
-    if (viewModel != null && item.extension.lowercase() in setOf("io.github.norbertweb.io.github.norbertweb.bluebird", "webapp")) {
-        val info = io.github.norbertweb.bluebird.ui.components.loadDesktopFileInfo(item.file, context)
-        if (info != null) {
-            io.github.norbertweb.bluebird.ui.components.openDesktopItem(info, context, viewModel)
-            return
-        }
-    }
+    if (viewModel?.openFileInternally(context, item.file.absolutePath) == true) return
+
+    // Unsupported formats still get normal Android handling.
     viewModel?.openFileWithSystem(context, item.file.absolutePath) ?: run {
         try {
-            val uri = FileProvider.getUriForFile(
-                context, "${context.packageName}.fileprovider", item.file
-            )
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", item.file)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, getMimeType(item.file))
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             context.startActivity(Intent.createChooser(intent, "Open with"))
-        } catch (e: Exception) {
-            // Graceful fallback
+        } catch (_: Exception) {
+            android.widget.Toast.makeText(context, "No app can open ${item.name}", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 }
@@ -934,7 +1260,8 @@ private fun BreadcrumbBar(
 ) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(4.dp))
+            .horizontalScroll(rememberScrollState())
+            .clip(RoundedCornerShape(6.dp))
             .background(surfaceBg.copy(alpha = 0.5f))
             .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -965,6 +1292,7 @@ private fun Ribbon(
     onCopy: () -> Unit,
     onPaste: () -> Unit,
     onDelete: () -> Unit,
+    onSelectAll: () -> Unit,
     sortBy: String,
     sortAscending: Boolean,
     onSortChange: (String, Boolean) -> Unit,
@@ -999,6 +1327,9 @@ private fun Ribbon(
         }
         IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
             Icon(Icons.Default.Delete, null, tint = textColor, modifier = Modifier.size(14.dp))
+        }
+        IconButton(onClick = onSelectAll, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.Default.SelectAll, null, tint = textColor, modifier = Modifier.size(14.dp))
         }
         Divider(Modifier.width(1.dp).height(20.dp).background(textColor.copy(alpha = 0.1f)))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1048,7 +1379,7 @@ private fun NavigationPane(
     isDark: Boolean
 ) {
     Column(
-        modifier = Modifier.width(200.dp).fillMaxHeight()
+        modifier = Modifier.width(188.dp).fillMaxHeight()
             .background(navBg)
             .verticalScroll(rememberScrollState())
             .padding(vertical = 8.dp)
@@ -1128,22 +1459,123 @@ private fun NavItem(
 @Composable
 private fun StatusBar(textColor: Color, itemCount: Int, selectedCount: Int) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(24.dp)
-            .background(textColor.copy(alpha = 0.05f))
-            .padding(horizontal = 8.dp),
+        modifier = Modifier.fillMaxWidth().height(26.dp)
+            .background(textColor.copy(alpha = 0.045f))
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text("$itemCount items", color = textColor.copy(alpha = 0.4f), fontSize = 10.sp)
-        if (selectedCount > 0) {
-            Text("$selectedCount selected", color = bluebirdColors.AccentBlue, fontSize = 10.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("$itemCount items", color = textColor.copy(alpha = 0.45f), fontSize = 10.sp)
+            if (selectedCount > 0) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = bluebirdColors.AccentBlue.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        "$selectedCount selected",
+                        color = bluebirdColors.AccentBlue,
+                        fontSize = 9.sp,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                    )
+                }
+            }
         }
+        Text("Bluebird Explorer", color = textColor.copy(alpha = 0.25f), fontSize = 9.sp)
     }
 }
 
 // ────────────────────────────────────────────────────────
 // List & Grid Items
 // ────────────────────────────────────────────────────────
+
+
+// Small process-local cache for generated video frames. Coil already caches image
+// thumbnails; video frames are generated with MediaMetadataRetriever, so keep a
+// separate bounded cache to avoid decoding the same frame every time a row/grid
+// item is rebound while scrolling.
+private object ExplorerVideoThumbnailCache {
+    private const val MAX_BYTES = 12 * 1024 * 1024
+    private val cache = object : LruCache<String, Bitmap>(MAX_BYTES) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+    }
+
+    @Synchronized
+    fun get(key: String): Bitmap? = cache.get(key)
+
+    @Synchronized
+    fun put(key: String, bitmap: Bitmap) {
+        cache.put(key, bitmap)
+    }
+}
+
+@Composable
+private fun FileExplorerThumbnail(
+    item: RealFileItem,
+    modifier: Modifier,
+    iconSize: Dp
+) {
+    val extension = item.extension
+    val isImage = !item.isDirectory && extension in setOf("jpg", "jpeg", "png", "gif", "webp", "bmp")
+    val isVideo = !item.isDirectory && extension in setOf("mp4", "mkv", "avi", "mov", "webm", "3gp")
+    val videoThumbnail by produceState<Bitmap?>(
+        initialValue = null,
+        item.file.absolutePath,
+        item.lastModified,
+        item.size,
+        isVideo
+    ) {
+        if (!isVideo) return@produceState
+        val cacheKey = "${item.file.absolutePath}|${item.lastModified}|${item.size}"
+        ExplorerVideoThumbnailCache.get(cacheKey)?.let {
+            value = it
+            return@produceState
+        }
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                MediaMetadataRetriever().use { retriever ->
+                    retriever.setDataSource(item.file.absolutePath)
+                    val frame = retriever.getFrameAtTime(1_000_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    if (frame != null) ExplorerVideoThumbnailCache.put(cacheKey, frame)
+                    frame
+                }
+            }.getOrNull()
+        }
+    }
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        when {
+            isImage -> {
+                // Coil handles decoding/downsampling off the UI thread. This is a
+                // thumbnail only; Explorer never renders the file itself.
+                coil.compose.AsyncImage(
+                    model = item.file,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+            }
+            isVideo && videoThumbnail != null -> {
+                androidx.compose.foundation.Image(
+                    bitmap = videoThumbnail!!.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = Color.Black.copy(alpha = 0.55f),
+                    modifier = Modifier.size(iconSize.coerceAtMost(28.dp))
+                ) {
+                    Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.padding(4.dp))
+                }
+            }
+            else -> {
+                Icon(getFileIcon(item), null, tint = getFileIconColor(item), modifier = Modifier.size(iconSize))
+            }
+        }
+    }
+}
 
 @Composable
 private fun ListFileItem(
@@ -1152,24 +1584,61 @@ private fun ListFileItem(
     textColor: Color,
     isDark: Boolean,
     onClick: () -> Unit,
-    onLongPress: () -> Unit,
-    onSelect: () -> Unit
+    onDoubleClick: () -> Unit,
+    onLongPress: (Offset) -> Unit
 ) {
+    val rowColor = if (isSelected) bluebirdColors.AccentBlue.copy(alpha = if (isDark) 0.18f else 0.12f) else Color.Transparent
     Row(
-        modifier = Modifier.fillMaxWidth()
-            .background(if (isSelected) bluebirdColors.AccentBlue.copy(alpha = 0.2f) else Color.Transparent)
-            .pointerInput(Unit) {
-                detectTapGestures(onTap = { onClick() }, onLongPress = { onLongPress() })
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(38.dp)
+            .background(rowColor)
+            .pointerInput(item.file.absolutePath) {
+                detectTapGestures(
+                    onTap = { onClick() },
+                    onDoubleTap = { onDoubleClick() },
+                    onLongPress = { offset -> onLongPress(offset) }
+                )
             }
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(getFileIcon(item), null, tint = getFileIconColor(item), modifier = Modifier.size(18.dp))
+        FileExplorerThumbnail(
+            item = item,
+            modifier = Modifier.size(26.dp).clip(RoundedCornerShape(6.dp)),
+            iconSize = 18.dp
+        )
         Spacer(Modifier.width(6.dp))
-        Text(item.name, color = textColor, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(formatDate(item.lastModified), color = textColor.copy(alpha = 0.5f), fontSize = 11.sp, modifier = Modifier.width(130.dp))
-        Text(if (item.isDirectory) "Folder" else item.extension.uppercase().ifEmpty { "File" }, color = textColor.copy(alpha = 0.5f), fontSize = 11.sp, modifier = Modifier.width(70.dp))
-        Text(if (item.isDirectory) "" else formatFileSize(item.size), color = textColor.copy(alpha = 0.5f), fontSize = 11.sp, modifier = Modifier.width(60.dp))
+        Text(
+            item.name,
+            color = textColor,
+            fontSize = 12.sp,
+            fontWeight = if (item.isDirectory) FontWeight.Medium else FontWeight.Normal,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            formatDate(item.lastModified),
+            color = textColor.copy(alpha = 0.48f),
+            fontSize = 10.sp,
+            modifier = Modifier.width(128.dp),
+            maxLines = 1
+        )
+        Text(
+            if (item.isDirectory) "Folder" else item.extension.uppercase().ifEmpty { "File" },
+            color = textColor.copy(alpha = 0.48f),
+            fontSize = 10.sp,
+            modifier = Modifier.width(68.dp),
+            maxLines = 1
+        )
+        Text(
+            if (item.isDirectory) "" else formatFileSize(item.size),
+            color = textColor.copy(alpha = 0.48f),
+            fontSize = 10.sp,
+            modifier = Modifier.width(62.dp),
+            maxLines = 1
+        )
     }
 }
 
@@ -1180,24 +1649,54 @@ private fun GridFileItem(
     textColor: Color,
     isDark: Boolean,
     onClick: () -> Unit,
-    onLongPress: () -> Unit,
-    onSelect: () -> Unit
+    onDoubleClick: () -> Unit,
+    onLongPress: (Offset) -> Unit
 ) {
+    val cardColor = if (isSelected) bluebirdColors.AccentBlue.copy(alpha = if (isDark) 0.20f else 0.13f) else Color.Transparent
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(if (isSelected) bluebirdColors.AccentBlue.copy(alpha = 0.2f) else Color.Transparent)
-            .pointerInput(Unit) {
-                detectTapGestures(onTap = { onClick() }, onLongPress = { onLongPress() })
+            .fillMaxWidth()
+            .heightIn(min = 104.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(cardColor)
+            .pointerInput(item.file.absolutePath) {
+                detectTapGestures(
+                    onTap = { onClick() },
+                    onDoubleTap = { onDoubleClick() },
+                    onLongPress = { offset -> onLongPress(offset) }
+                )
             }
-            .padding(8.dp)
+            .padding(horizontal = 8.dp, vertical = 10.dp)
     ) {
-        Icon(getFileIcon(item), null, tint = getFileIconColor(item), modifier = Modifier.size(32.dp))
-        Spacer(Modifier.height(4.dp))
-        Text(item.name, color = textColor, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = if (isSelected) bluebirdColors.AccentBlue.copy(alpha = 0.10f) else textColor.copy(alpha = 0.045f)
+        ) {
+            FileExplorerThumbnail(
+                item = item,
+                modifier = Modifier.padding(6.dp).size(52.dp),
+                iconSize = 32.dp
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            item.name,
+            color = textColor,
+            fontSize = 11.sp,
+            fontWeight = if (item.isDirectory) FontWeight.Medium else FontWeight.Normal,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            lineHeight = 13.sp
+        )
         if (!item.isDirectory) {
-            Text(formatFileSize(item.size), color = textColor.copy(alpha = 0.4f), fontSize = 10.sp)
+            Text(
+                formatFileSize(item.size),
+                color = textColor.copy(alpha = 0.38f),
+                fontSize = 9.sp,
+                maxLines = 1
+            )
         }
     }
 }
@@ -1209,36 +1708,92 @@ private fun GridFileItem(
 @Composable
 private fun FileContextMenu(
     fileItem: RealFileItem,
+    offset: Offset,
     isDark: Boolean,
     onDismiss: () -> Unit,
     onOpen: () -> Unit,
     onCopy: () -> Unit,
     onCut: () -> Unit,
+    onPaste: (() -> Unit)? = null,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onCreateShortcut: () -> Unit,
-    onPreview: () -> Unit,
     onProperties: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(fileItem.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        text = {
-            Column {
-                ContextMenuItem("Open", Icons.Default.OpenInNew, onOpen)
-                ContextMenuItem("Preview", Icons.Default.Visibility, onPreview)
-                Divider(Modifier.padding(vertical = 4.dp))
-                ContextMenuItem("Cut", Icons.Default.ContentCut, onCut)
-                ContextMenuItem("Copy", Icons.Default.ContentCopy, onCopy)
-                ContextMenuItem("Rename", Icons.Default.DriveFileRenameOutline, onRename)
-                ContextMenuItem("Create shortcut", Icons.Default.Link, onCreateShortcut)
-                ContextMenuItem("Delete", Icons.Default.Delete, onDelete, tint = bluebirdColors.DangerRed)
-                Divider(Modifier.padding(vertical = 4.dp))
-                ContextMenuItem("Properties", Icons.Default.Info, onProperties)
+    ExplorerContextPopup(
+        offset = offset,
+        isDark = isDark,
+        onDismiss = onDismiss
+    ) {
+        if (!fileItem.isDirectory) ContextMenuItem("Open", Icons.Default.OpenInNew, onOpen)
+        if (fileItem.isDirectory && onPaste != null) ContextMenuItem("Paste", Icons.Default.ContentPaste, onPaste)
+        ContextMenuItem("Cut", Icons.Default.ContentCut, onCut)
+        ContextMenuItem("Copy", Icons.Default.ContentCopy, onCopy)
+        ContextMenuItem("Rename", Icons.Default.DriveFileRenameOutline, onRename)
+        ContextMenuItem("Create shortcut", Icons.Default.Link, onCreateShortcut)
+        ContextMenuItem("Delete", Icons.Default.Delete, onDelete, tint = bluebirdColors.DangerRed)
+        Divider(Modifier.padding(vertical = 2.dp))
+        ContextMenuItem("Properties", Icons.Default.Info, onProperties)
+    }
+}
+
+@Composable
+private fun ExplorerContextPopup(
+    offset: Offset,
+    isDark: Boolean,
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val position = IntOffset(offset.x.roundToInt(), offset.y.roundToInt())
+    Popup(
+        popupPositionProvider = object : PopupPositionProvider {
+            override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+                val margin = 8
+                return IntOffset(
+                    position.x.coerceIn(margin, (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin)),
+                    position.y.coerceIn(margin, (windowSize.height - popupContentSize.height - margin).coerceAtLeast(margin))
+                )
             }
         },
-        confirmButton = {}
-    )
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true, dismissOnClickOutside = true)
+    ) {
+        val bg = if (isDark) Color(0xFA1E1E1E) else Color(0xFCEFF4F9)
+        val border = if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5)
+        Surface(
+            modifier = Modifier.width(218.dp),
+            shape = RoundedCornerShape(8.dp),
+            color = bg,
+            shadowElevation = 14.dp,
+            border = BorderStroke(1.dp, border)
+        ) {
+            Column(Modifier.padding(vertical = 4.dp), content = content)
+        }
+    }
+}
+
+@Composable
+private fun ExplorerBackgroundContextMenu(
+    offset: Offset,
+    isDark: Boolean,
+    hasPaste: Boolean,
+    onDismiss: () -> Unit,
+    onRefresh: () -> Unit,
+    onPaste: () -> Unit,
+    onNewFolder: () -> Unit,
+    onNewTextFile: () -> Unit,
+    onSelectAll: () -> Unit,
+    onToggleHidden: () -> Unit
+) {
+    ExplorerContextPopup(offset, isDark, onDismiss) {
+        ContextMenuItem("Refresh", Icons.Default.Refresh, { onRefresh(); onDismiss() })
+        if (hasPaste) ContextMenuItem("Paste", Icons.Default.ContentPaste, { onPaste(); onDismiss() })
+        Divider(Modifier.padding(vertical = 2.dp))
+        ContextMenuItem("New folder", Icons.Default.CreateNewFolder, { onNewFolder(); onDismiss() })
+        ContextMenuItem("Text document", Icons.Default.Description, { onNewTextFile(); onDismiss() })
+        ContextMenuItem("Select all", Icons.Default.SelectAll, { onSelectAll(); onDismiss() })
+        ContextMenuItem("Show hidden files", Icons.Default.Visibility, { onToggleHidden(); onDismiss() })
+    }
 }
 
 @Composable
@@ -1252,71 +1807,11 @@ private fun ContextMenuItem(
         modifier = Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(4.dp))
             .clickable(onClick = onClick)
-            .padding(10.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Icon(icon, null, tint = tint, modifier = Modifier.size(18.dp))
         Text(label, fontSize = 13.sp)
     }
-}
-
-// ────────────────────────────────────────────────────────
-// File Preview Dialog
-// ────────────────────────────────────────────────────────
-
-@Composable
-private fun FilePreviewDialog(
-    file: RealFileItem,
-    isDark: Boolean,
-    onDismiss: () -> Unit
-) {
-    val bg = if (isDark) Color(0xFF1E1E1E) else Color.White
-    val textColor = if (isDark) Color.White else Color.Black
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(file.name, color = textColor) },
-        text = {
-            when {
-                file.extension in listOf("jpg", "jpeg", "png", "gif", "bmp", "webp") -> {
-                    AsyncImage(
-                        model = Uri.fromFile(file.file),
-                        contentDescription = file.name,
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
-                    )
-                }
-                file.extension in listOf("txt", "log", "md", "xml", "json", "csv") -> {
-                    val content = remember {
-                        try { file.file.readText() } catch (e: Exception) { "Could not read file." }
-                    }
-                    SelectionContainer {
-                        Text(
-                            text = content,
-                            color = textColor,
-                            fontSize = 12.sp,
-                            modifier = Modifier.verticalScroll(rememberScrollState()).heightIn(max = 400.dp)
-                        )
-                    }
-                }
-                file.extension in listOf("html", "htm") -> {
-                    AndroidView(
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                settings.javaScriptEnabled = false
-                                webViewClient = WebViewClient()
-                                loadUrl(Uri.fromFile(file.file).toString())
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().height(400.dp)
-                    )
-                }
-                else -> {
-                    Text("Preview not available", color = textColor.copy(alpha = 0.5f))
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-        containerColor = bg
-    )
 }

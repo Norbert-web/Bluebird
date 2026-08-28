@@ -45,12 +45,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -195,6 +200,16 @@ data class WindowSize(
 // Per-window persisted geometry — stored in ViewModel so closing and reopening
 // a window restores the last position and size.
 // ─────────────────────────────────────────────────────────────────────────────
+/** Runtime visibility contract for a window's content. Closed windows are removed
+ * from WindowManager and therefore disposed. Minimized windows remain alive, but
+ * expensive UI-only work should suspend while they are hidden. */
+data class WindowRuntimeState(
+    val isMinimized: Boolean = false,
+    val isActive: Boolean = true
+)
+
+val LocalWindowRuntime = compositionLocalOf { WindowRuntimeState() }
+
 data class WindowGeometry(
     val offsetX: Float,
     val offsetY: Float,
@@ -298,12 +313,18 @@ fun FloatingWindow(
     var windowWidthDp  by remember { mutableStateOf(savedGeometry?.widthDp  ?: defaultW) }
     var windowHeightDp by remember { mutableStateOf(savedGeometry?.heightDp ?: defaultH) }
 
-    // ── Save geometry whenever it changes ─────────────────────────────────────
-    LaunchedEffect(offsetX, offsetY, windowWidthDp, windowHeightDp) {
-        viewModel.saveWindowGeometry(
-            windowState.id,
+    // ── Persist geometry after the user pauses, rather than once per drag frame.
+    // Dragging can produce dozens of state changes per second; the old keyed
+    // LaunchedEffect restarted a coroutine and wrote the geometry for every one.
+    LaunchedEffect(windowState.id) {
+        snapshotFlow {
             WindowGeometry(offsetX, offsetY, windowWidthDp, windowHeightDp)
-        )
+        }
+            .distinctUntilChanged()
+            .debounce(150)
+            .collect { geometry ->
+                viewModel.saveWindowGeometry(windowState.id, geometry)
+            }
     }
 
     // ── Snap layout picker visibility ─────────────────────────────────────────
@@ -452,24 +473,19 @@ fun FloatingWindow(
                         }
                     }
                 }
-                // Hover support for mouse (PointerEventType.Enter/Exit)
-                .pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            // Hover events are informational; child composables handle
-                            // their own hover state via the same mechanism.
-                            // This block is reserved for future global hover effects.
-                        }
-                    }
-                }
         ) {
             val winSize = WindowSize.from(animW.dp, animH.dp)
 
             if (!isPip) {
                 // ── Full window content ───────────────────────────────────────
-                WindowContent(
-                    windowState     = windowState,
+                CompositionLocalProvider(
+                    LocalWindowRuntime provides WindowRuntimeState(
+                        isMinimized = windowState.isMinimized,
+                        isActive = isActive
+                    )
+                ) {
+                    WindowContent(
+                        windowState     = windowState,
                     windowSize      = winSize,
                     isDark          = isDark,
                     viewModel       = viewModel,
@@ -503,8 +519,9 @@ fun FloatingWindow(
                             offsetY = newY.coerceIn(0f, maxY.coerceAtLeast(40f))
                         }
                     },
-                    onDragEnd = { isSnapping = false }
-                )
+                        onDragEnd = { isSnapping = false }
+                    )
+                }
 
                 if (!windowState.isMaximized) {
                     ResizeHandles(isDark = isDark)
@@ -1012,7 +1029,7 @@ fun WindowContent(
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             val extras = windowState.extras
             when (windowState.screen) {
-                LauncherScreen.PremiumTextEditorScreen -> PremiumTextEditorScreen(isDark)
+                LauncherScreen.PremiumTextEditorScreen -> PremiumTextEditorScreen(isDark, filePath = extras["filePath"] ?: "")
                 LauncherScreen.SETTINGS      -> SettingsScreen(isDark, viewModel)
                 LauncherScreen.FILE_EXPLORER -> FileExplorerScreen(isDark, viewModel, startPath = extras["path"])
                 LauncherScreen.BROWSER       -> BrowserScreen(isDark)
@@ -1028,7 +1045,7 @@ fun WindowContent(
                     val filePath = remember(windowState.id) { extras["filePath"] ?: "" }
                     ImageViewerScreen(isDark, filePath, viewModel)
                 }
-                LauncherScreen.WORD_IMPRESS      -> PhoneScreen(isDark)
+                LauncherScreen.WORD_IMPRESS      -> PhoneScreen(isDark, initialPath = extras["filePath"] ?: "")
                 LauncherScreen.BLUEBIRD_STORE   -> MessagesScreen(isDark)
                 LauncherScreen.RECYCLE_BIN -> RecycleBinScreen(isDark, viewModel)
                 LauncherScreen.TERMINAL    -> TerminalScreen(isDark)

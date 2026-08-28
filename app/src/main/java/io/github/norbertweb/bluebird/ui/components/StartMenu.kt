@@ -104,9 +104,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -134,6 +136,9 @@ import io.github.norbertweb.bluebird.LauncherScreen
 import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Calendar
@@ -311,6 +316,11 @@ fun StartMenu(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+
+    // Installed-app discovery is intentionally lazy: the launcher shell can start
+    // without PackageManager/icon enumeration. Start it only when Start Menu is visible.
+    LaunchedEffect(Unit) { viewModel.ensureInstalledAppsLoaded() }
+
     var activeTab by remember { mutableStateOf(StartMenuTab.PINNED) }
     // Persisted (not just `remember`ed) so the size survives the Start Menu being closed/reopened.
     var sizeMode by remember { mutableStateOf(getSavedSizeMode(context)) }
@@ -362,6 +372,19 @@ fun StartMenu(
     val borderColor  = if (isDark) DS.borderDark else DS.borderLight
     val textPrimary  = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
+    var localSearchQuery by rememberSaveable { mutableStateOf(uiState.searchQuery) }
+
+    LaunchedEffect(uiState.searchQuery) {
+        if (uiState.searchQuery != localSearchQuery) localSearchQuery = uiState.searchQuery
+    }
+
+    LaunchedEffect(localSearchQuery) {
+        delay(120)
+        if (localSearchQuery != uiState.searchQuery) {
+            viewModel.updateSearchQuery(localSearchQuery)
+        }
+    }
+
     Box(
         modifier = modifier
             .then(
@@ -385,9 +408,9 @@ fun StartMenu(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 PremiumSearchBar(
-                    query = uiState.searchQuery,
+                    query = localSearchQuery,
                     onQueryChange = {
-                        viewModel.updateSearchQuery(it)
+                        localSearchQuery = it
                         activeTab = if (it.isNotEmpty()) StartMenuTab.SEARCH else StartMenuTab.PINNED
                     },
                     isDark = isDark,
@@ -598,12 +621,12 @@ fun StartMenu(
                                 layoutPrefs = layoutPrefs
                             )
                             StartMenuTab.SEARCH -> SearchResultsView(
-                                query = uiState.searchQuery,
+                                query = localSearchQuery,
                                 uiState = uiState,
                                 viewModel = viewModel,
                                 isDark = isDark,
                                 onClearSearch = {
-                                    viewModel.updateSearchQuery("")
+                                    localSearchQuery = ""
                                     activeTab = StartMenuTab.PINNED
                                 },
                                 context = context,
@@ -805,6 +828,13 @@ private fun PinnedView(
                     editMode   = editMode,
                     layoutPrefs = layoutPrefs,
                     onAppClick = { screen -> viewModel.openWindow(screen) },
+                    onAddToDesktop = { label, screen ->
+                        val dir = File(android.os.Environment.getExternalStorageDirectory(), "Desktop").apply { mkdirs() }
+                        var file = File(dir, "$label.desktop")
+                        var n = 2
+                        while (file.exists()) { file = File(dir, "$label ($n).desktop"); n++ }
+                        runCatching { file.writeText("type=app\nlabel=$label\nbluebirdScreen=${screen.name}\n") }
+                    },
                     category   = AppCategory.SYSTEM
                 )
                 Spacer(Modifier.height(18.dp))
@@ -1124,24 +1154,39 @@ private fun RecentAppsView(
     context: Context,
     layoutPrefs: LayoutPreferences
 ) {
-    val pm = context.packageManager
+    // PackageManager and preference reads can be surprisingly expensive on some devices.
+    // Do not perform them synchronously during Start Menu composition.
+    val recentAndFrequent = produceState(
+        initialValue = emptyList<AppInfo>() to emptyList<AppInfo>(),
+        key1 = uiState.installedApps
+    ) {
+        value = withContext(Dispatchers.IO) {
+            val pm = context.packageManager
+            val recent = uiState.installedApps.sortedByDescending { app ->
+                try {
+                    pm.getPackageInfo(app.packageName, 0).firstInstallTime
+                } catch (_: Exception) {
+                    0L
+                }
+            }.take(12)
 
-    val recentApps = remember(uiState.installedApps) {
-        uiState.installedApps.sortedByDescending { app ->
-            try {
-                pm.getPackageInfo(app.packageName, 0).firstInstallTime
-            } catch (e: Exception) {
-                0L
+            val openCounts = uiState.installedApps.associate { app ->
+                app.packageName to getAppOpenCount(context, app.packageName)
             }
-        }.take(12)
-    }
+            val frequent = uiState.installedApps
+                .mapNotNull { app ->
+                    val count = openCounts[app.packageName] ?: 0
+                    if (count > 0) app to count else null
+                }
+                .sortedByDescending { it.second }
+                .take(6)
+                .map { it.first }
 
-    val frequentApps = remember(uiState.installedApps) {
-        uiState.installedApps
-            .filter { getAppOpenCount(context, it.packageName) > 0 }
-            .sortedByDescending { getAppOpenCount(context, it.packageName) }
-            .take(6)
+            recent to frequent
+        }
     }
+    val recentApps = recentAndFrequent.value.first
+    val frequentApps = recentAndFrequent.value.second
 
     if (recentApps.isEmpty() && frequentApps.isEmpty()) {
         EmptyStateView("No recent activities detected", isDark)
@@ -1196,6 +1241,12 @@ private fun RecentAppsView(
     }
 }
 
+private val SEARCH_SETTING_KEYWORDS = listOf(
+    "wifi", "bluetooth", "brightness", "sound", "display", "theme",
+    "language", "notification", "battery", "storage", "account",
+    "password", "lock", "airplane"
+)
+
 // ─────────────────────────────────────────────────────────
 // SEARCH RESULTS VIEW
 // ─────────────────────────────────────────────────────────
@@ -1211,10 +1262,22 @@ private fun SearchResultsView(
 ) {
     val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
-    val appResults    = uiState.installedApps.filter { it.name.contains(query, ignoreCase = true) }
-    val systemResults = builtInApps.filter { it.first.contains(query, ignoreCase = true) }
-    val settingsKw    = listOf("wifi", "bluetooth", "brightness", "sound", "display", "theme", "language", "notification", "battery", "storage", "account", "password", "lock", "airplane")
-    val settingResults = settingsKw.filter { it.contains(query, ignoreCase = true) }
+    val normalizedQuery = remember(query) { query.trim().lowercase() }
+    val appResults = remember(uiState.installedApps, normalizedQuery) {
+        if (normalizedQuery.isEmpty()) emptyList()
+        else uiState.installedApps.filter {
+            it.name.contains(normalizedQuery, ignoreCase = true) ||
+                    it.packageName.contains(normalizedQuery, ignoreCase = true)
+        }
+    }
+    val systemResults = remember(normalizedQuery) {
+        if (normalizedQuery.isEmpty()) emptyList()
+        else builtInApps.filter { it.first.contains(normalizedQuery, ignoreCase = true) }
+    }
+    val settingResults = remember(normalizedQuery) {
+        if (normalizedQuery.isEmpty()) emptyList()
+        else SEARCH_SETTING_KEYWORDS.filter { it.contains(normalizedQuery, ignoreCase = true) }
+    }
 
     val totalCount = appResults.size + systemResults.size + settingResults.size
 
@@ -1477,6 +1540,7 @@ private fun BuiltInAppGridLayout(
     editMode: Boolean,
     layoutPrefs: LayoutPreferences,
     onAppClick: (LauncherScreen) -> Unit,
+    onAddToDesktop: (String, LauncherScreen) -> Unit = { _, _ -> },
     category: AppCategory = AppCategory.SYSTEM
 ) {
     if (apps.isEmpty()) return
@@ -1496,6 +1560,7 @@ private fun BuiltInAppGridLayout(
                         isDark = isDark,
                         editMode = editMode,
                         onClick = { onAppClick(screen) },
+                        onAddToDesktop = { onAddToDesktop(name, screen) },
                         iconSize = layoutPrefs.iconSize,
                         showLabel = layoutPrefs.showLabels
                     )
@@ -1676,6 +1741,7 @@ fun AnimatedBuiltInIcon(
     isDark: Boolean,
     editMode: Boolean,
     onClick: () -> Unit,
+    onAddToDesktop: () -> Unit = {},
     iconSize: Int = 38,
     showLabel: Boolean = true
 ) {
@@ -1685,6 +1751,7 @@ fun AnimatedBuiltInIcon(
         label = "wobble2"
     )
     var pressed by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -1695,7 +1762,8 @@ fun AnimatedBuiltInIcon(
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = { pressed = true; tryAwaitRelease(); pressed = false },
-                    onTap = { onClick() }
+                    onTap = { onClick() },
+                    onLongPress = { showMenu = true }
                 )
             }
             .padding(vertical = 8.dp, horizontal = 4.dp)
@@ -1716,6 +1784,10 @@ fun AnimatedBuiltInIcon(
                 textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 fontWeight = FontWeight.Normal, modifier = Modifier.fillMaxWidth()
             )
+        }
+        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+            DropdownMenuItem(text = { Text("Open") }, onClick = { showMenu = false; onClick() })
+            DropdownMenuItem(text = { Text("Add to desktop") }, onClick = { showMenu = false; onAddToDesktop() })
         }
     }
 }

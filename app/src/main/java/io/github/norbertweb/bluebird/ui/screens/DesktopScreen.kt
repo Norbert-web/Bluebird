@@ -58,6 +58,10 @@ fun DesktopScreen(viewModel: LauncherViewModel) {
     // Floating bluebird-style toast popups — fed by the ViewModel's one-shot
     // toastEvents flow (fires exactly once per new device notification).
     val activeToasts = remember { mutableStateListOf<ToastNotifData>() }
+
+    // Defer PackageManager/app-icon discovery until the first desktop composition has
+    // rendered. This keeps expensive launcher enumeration out of the critical startup frame.
+    LaunchedEffect(Unit) { viewModel.ensureInstalledAppsLoaded() }
     LaunchedEffect(Unit) {
         viewModel.toastEvents.collect { toast -> activeToasts.add(toast) }
     }

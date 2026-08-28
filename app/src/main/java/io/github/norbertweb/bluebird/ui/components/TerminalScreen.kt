@@ -46,10 +46,12 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.norbertweb.bluebird.core.filesystem.BluebirdFileSystem
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -207,6 +209,8 @@ fun TerminalScreen(
     onEnterGui: (() -> Unit)? = null,
     onExit: (() -> Unit)? = null
 ) {
+    val windowRuntime = LocalWindowRuntime.current
+
     val context   = LocalContext.current
     val scope     = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -239,9 +243,18 @@ fun TerminalScreen(
     // Session env vars (SET) — not persisted, matching real cmd.exe
     val envVars = remember { mutableStateMapOf<String, String>() }
 
-    // Persisted settings + aliases
-    val settingsMap = remember { mutableStateMapOf<String, String>().apply { putAll(loadKeyValueFile(configFile())) } }
-    val aliasMap = remember { mutableStateMapOf<String, String>().apply { putAll(loadKeyValueFile(aliasFile())) } }
+    // Persisted settings + aliases are hydrated lazily off the UI thread.
+    // Terminal should open its shell immediately instead of doing filesystem reads
+    // during composition.
+    val settingsMap = remember { mutableStateMapOf<String, String>() }
+    val aliasMap = remember { mutableStateMapOf<String, String>() }
+    LaunchedEffect(Unit) {
+        val (settings, aliases) = withContext(Dispatchers.IO) {
+            loadKeyValueFile(configFile()) to loadKeyValueFile(aliasFile())
+        }
+        settingsMap.clear(); settingsMap.putAll(settings)
+        aliasMap.clear(); aliasMap.putAll(aliases)
+    }
 
     // PATH-like search locations for `where`
     val searchPath = remember { mutableStateListOf("C:\\Program Files") }
@@ -253,15 +266,34 @@ fun TerminalScreen(
     val jsWebView = remember { WebView(context).apply { settings.javaScriptEnabled = true } }
     var jsReady by remember { mutableStateOf(false) }
 
-    // Installed launchable apps, queried once and cached — backs both
-    // `openapp` fuzzy matching and its tab-autocomplete, so typing the
-    // exact label/package is no longer required.
-    val installedApps = remember {
-        try {
-            val pm = context.packageManager
-            pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
-                .associate { it.activityInfo.applicationInfo.loadLabel(pm).toString() to it.activityInfo.packageName }
-        } catch (_: Exception) { emptyMap() }
+    // Minimized terminal keeps its state, but the embedded JS engine should not
+    // continue ticking while the window is hidden. It is fully destroyed when
+    // the Terminal window is actually closed/disposed.
+    DisposableEffect(windowRuntime.isMinimized, jsWebView) {
+        if (windowRuntime.isMinimized) {
+            runCatching { jsWebView.onPause() }
+            runCatching { jsWebView.pauseTimers() }
+        } else {
+            runCatching { jsWebView.onResume() }
+            runCatching { jsWebView.resumeTimers() }
+        }
+        onDispose { }
+    }
+
+    // Installed-app discovery is lazy. PackageManager enumeration and label loading
+    // can be surprisingly expensive on devices with many applications, so never do
+    // it while composing the first Terminal frame.
+    var installedApps by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    LaunchedEffect(Unit) {
+        installedApps = withContext(Dispatchers.IO) {
+            try {
+                val pm = context.packageManager
+                pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+                    .asSequence()
+                    .map { it.activityInfo.applicationInfo.loadLabel(pm).toString() to it.activityInfo.packageName }
+                    .toMap()
+            } catch (_: Exception) { emptyMap() }
+        }
     }
 
     /** Resolves a typed app name/package to (packageName, displayLabel),
@@ -439,6 +471,12 @@ fun TerminalScreen(
             lyricsJob = scope.launch {
                 var idx = 0
                 while (isActive) {
+                    if (windowRuntime.isMinimized) {
+                        // Keep terminal playback alive, but stop high-frequency
+                        // lyric UI work while the window is hidden.
+                        delay(1000)
+                        continue
+                    }
                     val pos = try { mediaPlayer.currentPosition.toLong() } catch (_: Exception) { break }
                     while (idx < lyrics.size && lyrics[idx].first <= pos) {
                         val text = lyrics[idx].second
@@ -1325,6 +1363,10 @@ fun TerminalScreen(
     DisposableEffect(Unit) {
         onDispose {
             lyricsJob?.cancel()
+            lyricsJob = null
+            runCatching { jsWebView.stopLoading() }
+            runCatching { jsWebView.onPause() }
+            runCatching { jsWebView.destroy() }
             try { mediaPlayer.release() } catch (_: Exception) { }
         }
     }
