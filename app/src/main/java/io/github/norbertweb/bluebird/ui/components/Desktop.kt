@@ -2389,7 +2389,7 @@ fun Desktop(
 
             // ── Desktop context menu ──
             if (showDesktopCtx) {
-                Win11DesktopContextMenu(
+                bluebirdDesktopContextMenu(
                     offset              = desktopCtxOffset,
                     isDark              = isDark,
                     screenWidthDp       = screenW,
@@ -2453,7 +2453,7 @@ fun Desktop(
 
             // ── Icon context menu ──
             iconCtxTarget?.let { target ->
-                Win11IconContextMenu(
+                bluebirdIconContextMenu(
                     item               = target,
                     isDark             = isDark,
                     offset             = iconCtxOffset,
@@ -2711,7 +2711,7 @@ private fun DesktopIcon(
             .graphicsLayer(alpha = refreshFlickerAlpha),
         contentAlignment = Alignment.TopCenter
     ) {
-        // Win11-style selection: subtle blue tint + blue border glow
+        // bluebird-style selection: subtle blue tint + blue border glow
         val glowColor by animateColorAsState(
             targetValue   = if (isSelected) Color(0xFF0078D4).copy(alpha = 0.28f) else Color.Transparent,
             animationSpec = tween(150),
@@ -2792,7 +2792,7 @@ private fun DesktopIcon(
 
             Spacer(Modifier.height(5.dp))
 
-            // ── Win11 inline rename field ──
+            // ── bluebird inline rename field ──
             // White background, tight padding, blue 1.5dp border — matches
             // the Windows 11 desktop rename UX exactly.
             if (inlineRenaming) {
@@ -3246,10 +3246,10 @@ fun WallpaperPersonalisePanel(
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Win11 style Desktop Context Menu
+// bluebird style Desktop Context Menu
 // ─────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────
-// Win11-style context menu infrastructure
+// bluebird-style context menu infrastructure
 //
 // Uses real Compose Popups positioned with the ACTUAL measured menu size and
 // the real window bounds (both supplied by Compose itself via
@@ -3335,7 +3335,7 @@ private fun LayoutCoordinates.trueScreenPosition(view: android.view.View): Offse
 }
 
 @Composable
-private fun Win11MenuPopup(
+private fun bluebirdMenuPopup(
     clickWindowPos: Offset,
     onDismiss: () -> Unit,
     content: @Composable () -> Unit
@@ -3353,7 +3353,7 @@ private fun Win11MenuPopup(
 /** A menu row that owns a flyout submenu — tapping the row toggles its flyout,
  *  positioned beside the row's own real on-screen bounds instead of expanding inline. */
 @Composable
-private fun Win11FlyoutRow(
+private fun bluebirdFlyoutRow(
     icon: ImageVector,
     label: String,
     tc: Color,
@@ -3388,7 +3388,7 @@ private fun Win11FlyoutRow(
 }
 
 @Composable
-fun Win11DesktopContextMenu(
+fun bluebirdDesktopContextMenu(
     offset: Offset,
     isDark: Boolean,
     screenWidthDp: Int,
@@ -3424,7 +3424,7 @@ fun Win11DesktopContextMenu(
 
     var openSub by remember { mutableStateOf<String?>(null) }
 
-    Win11MenuPopup(clickWindowPos = offset, onDismiss = onDismiss) {
+    bluebirdMenuPopup(clickWindowPos = offset, onDismiss = onDismiss) {
         Surface(
             modifier        = Modifier.width(menuW.dp),
             shape           = RoundedCornerShape(8.dp),
@@ -3433,7 +3433,7 @@ fun Win11DesktopContextMenu(
             border          = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
         ) {
             Column(Modifier.padding(vertical = 5.dp)) {
-                Win11FlyoutRow(
+                bluebirdFlyoutRow(
                     icon = Icons.Default.ViewModule, label = "View", tc = tc, tcDim = tcDim,
                     isOpen = openSub == "view",
                     onToggle = { openSub = if (openSub == "view") null else "view" },
@@ -3456,7 +3456,7 @@ fun Win11DesktopContextMenu(
                     }
                 }
 
-                Win11FlyoutRow(
+                bluebirdFlyoutRow(
                     icon = Icons.Default.Sort, label = "Sort by", tc = tc, tcDim = tcDim,
                     isOpen = openSub == "sort",
                     onToggle = { openSub = if (openSub == "sort") null else "sort" },
@@ -3488,7 +3488,7 @@ fun Win11DesktopContextMenu(
                     if (hasPaste) tc else tcDim, tcDim, enabled = hasPaste) { onPaste(); onDismiss() }
                 W11CtxDivider(divColor)
 
-                Win11FlyoutRow(
+                bluebirdFlyoutRow(
                     icon = Icons.Default.Add, label = "New", tc = tc, tcDim = tcDim,
                     isOpen = openSub == "new",
                     onToggle = { openSub = if (openSub == "new") null else "new" },
@@ -3517,11 +3517,11 @@ fun Win11DesktopContextMenu(
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Win11 style Icon Context Menu
+// bluebird style Icon Context Menu
 // FIX: added optional onSetAsWallpaper for image files
 // ─────────────────────────────────────────────────────────────────
 @Composable
-fun Win11IconContextMenu(
+fun bluebirdIconContextMenu(
     item: DesktopFileInfo,
     isDark: Boolean,
     offset: Offset,
@@ -3550,7 +3550,7 @@ fun Win11IconContextMenu(
 
     var openSub by remember { mutableStateOf<String?>(null) }
 
-    Win11MenuPopup(clickWindowPos = offset, onDismiss = onDismiss) {
+    bluebirdMenuPopup(clickWindowPos = offset, onDismiss = onDismiss) {
         Surface(
             modifier        = Modifier.width(menuW.dp),
             shape           = RoundedCornerShape(8.dp),
@@ -3579,7 +3579,7 @@ fun Win11IconContextMenu(
                     W11CtxRow(Icons.Default.ContentPaste, "Paste", tc, tcDim) { onPaste(); onDismiss() }
                 }
 
-                Win11FlyoutRow(
+                bluebirdFlyoutRow(
                     icon = Icons.Default.OpenWith, label = "Open with", tc = tc, tcDim = tcDim,
                     isOpen = openSub == "openwith",
                     onToggle = { openSub = if (openSub == "openwith") null else "openwith" },
