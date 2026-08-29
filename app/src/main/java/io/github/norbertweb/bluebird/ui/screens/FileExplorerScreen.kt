@@ -391,7 +391,8 @@ private fun FileExplorerContent(
     val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val bgColor = if (isDark) Color(0xFF1C1C1C) else Color(0xFFFAFAFA)
     val surfaceBg = if (isDark) Color(0xFF252525) else Color(0xFFF0F0F0)
-    val navBg = if (isDark) Color(0xFF1F1F1F) else Color(0xFFF5F5F5)
+    val navBg = if (isDark) Color(0xFF202020) else Color(0xFFF3F5F7)
+    val contentBorder = textColor.copy(alpha = if (isDark) 0.10f else 0.08f)
     val explorerFocusRequester = remember { FocusRequester() }
     var ctrlMouseSelection by remember { mutableStateOf(false) }
     var shiftMouseSelection by remember { mutableStateOf(false) }
@@ -725,9 +726,14 @@ private fun FileListArea(
             state.isLoading -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = bluebirdColors.AccentBlue, strokeWidth = 2.dp)
+                        Icon(
+                            Icons.Default.FolderOpen,
+                            contentDescription = null,
+                            tint = textColor.copy(alpha = 0.28f),
+                            modifier = Modifier.size(30.dp)
+                        )
                         Spacer(Modifier.height(8.dp))
-                        Text("Loading…", color = textColor.copy(alpha = 0.5f), fontSize = 11.sp)
+                        Text("Loading", color = textColor.copy(alpha = 0.5f), fontSize = 11.sp)
                     }
                 }
             }
@@ -735,14 +741,14 @@ private fun FileListArea(
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Surface(
-                            shape = RoundedCornerShape(18.dp),
-                            color = surfaceBg.copy(alpha = 0.7f)
+                            shape = RoundedCornerShape(12.dp),
+                            color = surfaceBg.copy(alpha = 0.55f)
                         ) {
                             Icon(
                                 if (state.searchQuery.isNotBlank()) Icons.Default.SearchOff else Icons.Default.FolderOpen,
                                 null,
                                 tint = textColor.copy(alpha = 0.25f),
-                                modifier = Modifier.padding(18.dp).size(34.dp)
+                                modifier = Modifier.padding(14.dp).size(30.dp)
                             )
                         }
                         Spacer(Modifier.height(10.dp))
@@ -764,8 +770,8 @@ private fun FileListArea(
             }
             state.isGridView -> {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 112.dp),
-                    contentPadding = PaddingValues(12.dp),
+                    columns = GridCells.Adaptive(minSize = 128.dp),
+                    contentPadding = PaddingValues(8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -829,12 +835,12 @@ private fun FileListHeader(surfaceBg: Color, textColor: Color) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(28.dp)
+            .height(30.dp)
             .background(surfaceBg)
-            .padding(horizontal = 10.dp),
+            .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("Name", color = textColor.copy(alpha = 0.58f), fontSize = 10.sp, modifier = Modifier.weight(1f))
+        Text("Name", color = textColor.copy(alpha = 0.62f), fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
         Text("Date modified", color = textColor.copy(alpha = 0.58f), fontSize = 10.sp, modifier = Modifier.width(128.dp))
         Text("Type", color = textColor.copy(alpha = 0.58f), fontSize = 10.sp, modifier = Modifier.width(68.dp))
         Text("Size", color = textColor.copy(alpha = 0.58f), fontSize = 10.sp, modifier = Modifier.width(62.dp))
@@ -1200,52 +1206,113 @@ private fun CommandBar(
     surfaceBg: Color,
     isDark: Boolean
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().height(44.dp)
-            .background(surfaceBg)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = surfaceBg,
+        shadowElevation = 1.dp
     ) {
-        IconButton(onClick = onBack, modifier = Modifier.size(28.dp)) {
-            Icon(Icons.Default.ArrowBack, null, tint = textColor, modifier = Modifier.size(16.dp))
-        }
-        IconButton(onClick = onUp, modifier = Modifier.size(28.dp)) {
-            Icon(Icons.Default.ArrowUpward, null, tint = textColor, modifier = Modifier.size(16.dp))
-        }
-        IconButton(onClick = onRefresh, modifier = Modifier.size(28.dp)) {
-            Icon(Icons.Default.Refresh, null, tint = textColor, modifier = Modifier.size(16.dp))
-        }
-        BreadcrumbBar(
-            parts = pathParts,
-            onNavigate = onNavigate,
-            textColor = textColor,
-            surfaceBg = surfaceBg,
-            modifier = Modifier.weight(1f).height(28.dp)
-        )
-        Box(
-            modifier = Modifier.width(160.dp).height(28.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(if (isDark) Color(0xFF3A3A3A) else Color(0xFFE0E0E0))
-                .padding(horizontal = 10.dp),
-            contentAlignment = Alignment.CenterStart
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            if (searchQuery.isEmpty()) {
-                Text("Search", color = textColor.copy(alpha = 0.4f), fontSize = 12.sp)
+            IconButton(
+                onClick = onBack,
+                enabled = true,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(Icons.Default.ArrowBack, "Back", tint = textColor, modifier = Modifier.size(18.dp))
             }
-            BasicTextField(
-                value = searchQuery,
-                onValueChange = onSearchChange,
-                textStyle = TextStyle(color = textColor, fontSize = 12.sp),
-                cursorBrush = SolidColor(bluebirdColors.AccentBlue),
-                modifier = Modifier.fillMaxWidth()
+            IconButton(
+                onClick = onUp,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(Icons.Default.ArrowUpward, "Up", tint = textColor, modifier = Modifier.size(18.dp))
+            }
+            IconButton(
+                onClick = onRefresh,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(Icons.Default.Refresh, "Refresh", tint = textColor, modifier = Modifier.size(18.dp))
+            }
+
+            BreadcrumbBar(
+                parts = pathParts,
+                onNavigate = onNavigate,
+                textColor = textColor,
+                surfaceBg = surfaceBg,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(36.dp)
             )
-        }
-        IconButton(onClick = onToggleView, modifier = Modifier.size(28.dp)) {
-            Icon(
-                if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
-                null, tint = textColor, modifier = Modifier.size(16.dp)
-            )
+
+            Surface(
+                modifier = Modifier.width(220.dp).height(36.dp),
+                shape = RoundedCornerShape(9.dp),
+                color = if (isDark) Color(0xFF303030) else Color(0xFFE7EAED),
+                border = BorderStroke(1.dp, textColor.copy(alpha = 0.07f))
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = textColor.copy(alpha = 0.48f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    Box(Modifier.weight(1f)) {
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                "Search this folder",
+                                color = textColor.copy(alpha = 0.42f),
+                                fontSize = 11.sp,
+                                maxLines = 1
+                            )
+                        }
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = onSearchChange,
+                            singleLine = true,
+                            textStyle = TextStyle(color = textColor, fontSize = 11.sp),
+                            cursorBrush = SolidColor(bluebirdColors.AccentBlue),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { onSearchChange("") },
+                            modifier = Modifier.size(22.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear search",
+                                tint = textColor.copy(alpha = 0.55f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(9.dp),
+                color = if (isDark) Color(0xFF303030) else Color(0xFFE7EAED)
+            ) {
+                IconButton(onClick = onToggleView, modifier = Modifier.size(34.dp)) {
+                    Icon(
+                        if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
+                        if (isGridView) "List view" else "Grid view",
+                        tint = textColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -1258,29 +1325,41 @@ private fun BreadcrumbBar(
     surfaceBg: Color,
     modifier: Modifier
 ) {
-    Row(
-        modifier = modifier
-            .horizontalScroll(rememberScrollState())
-            .clip(RoundedCornerShape(6.dp))
-            .background(surfaceBg.copy(alpha = 0.5f))
-            .padding(horizontal = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(9.dp),
+        color = surfaceBg.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, textColor.copy(alpha = 0.07f))
     ) {
-        parts.forEachIndexed { index, (label, dir) ->
-            if (index > 0) {
-                Icon(Icons.Default.ChevronRight, null, tint = textColor.copy(alpha = 0.3f), modifier = Modifier.size(12.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            parts.forEachIndexed { index, (label, dir) ->
+                if (index > 0) {
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        null,
+                        tint = textColor.copy(alpha = 0.28f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+                Text(
+                    label,
+                    color = if (index == parts.lastIndex) textColor else bluebirdColors.AccentBlueLight,
+                    fontSize = 11.sp,
+                    fontWeight = if (index == parts.lastIndex) FontWeight.Medium else FontWeight.Normal,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(5.dp))
+                        .clickable { onNavigate(dir) }
+                        .padding(horizontal = 5.dp, vertical = 4.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-            Text(
-                label,
-                color = if (index == parts.size - 1) textColor else bluebirdColors.AccentBlueLight,
-                fontSize = 11.sp,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(2.dp))
-                    .clickable { onNavigate(dir) }
-                    .padding(horizontal = 3.dp, vertical = 1.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
     }
 }
@@ -1304,67 +1383,93 @@ private fun Ribbon(
     isDark: Boolean,
     itemCount: Int
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().height(32.dp)
-            .background(if (isDark) Color(0xFF2D2D2D) else Color(0xFFE8E8E8))
-            .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = if (isDark) Color(0xFF2A2A2A) else Color(0xFFE9ECEF),
+        tonalElevation = 1.dp
     ) {
-        IconButton(onClick = onNewFolder, modifier = Modifier.size(24.dp)) {
-            Icon(Icons.Default.CreateNewFolder, null, tint = textColor, modifier = Modifier.size(14.dp))
-        }
-        IconButton(onClick = onCut, modifier = Modifier.size(24.dp)) {
-            Icon(Icons.Default.ContentCut, null, tint = textColor, modifier = Modifier.size(14.dp))
-        }
-        IconButton(onClick = onCopy, modifier = Modifier.size(24.dp)) {
-            Icon(Icons.Default.ContentCopy, null, tint = textColor, modifier = Modifier.size(14.dp))
-        }
-        if (clipboardActive) {
-            IconButton(onClick = onPaste, modifier = Modifier.size(24.dp)) {
-                Icon(Icons.Default.ContentPaste, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
-            }
-        }
-        IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
-            Icon(Icons.Default.Delete, null, tint = textColor, modifier = Modifier.size(14.dp))
-        }
-        IconButton(onClick = onSelectAll, modifier = Modifier.size(24.dp)) {
-            Icon(Icons.Default.SelectAll, null, tint = textColor, modifier = Modifier.size(14.dp))
-        }
-        Divider(Modifier.width(1.dp).height(20.dp).background(textColor.copy(alpha = 0.1f)))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Sort:", color = textColor.copy(alpha = 0.6f), fontSize = 11.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth().height(38.dp).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ExplorerAction("New folder", Icons.Default.CreateNewFolder, onNewFolder, textColor)
+            ExplorerAction("Cut", Icons.Default.ContentCut, onCut, textColor, enabled = true)
+            ExplorerAction("Copy", Icons.Default.ContentCopy, onCopy, textColor, enabled = true)
+            ExplorerAction(
+                "Paste",
+                Icons.Default.ContentPaste,
+                onPaste,
+                if (clipboardActive) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.28f),
+                enabled = clipboardActive
+            )
+            ExplorerAction("Delete", Icons.Default.Delete, onDelete, textColor, enabled = true)
+
+            Spacer(Modifier.width(4.dp))
+            VerticalDivider(modifier = Modifier.height(22.dp), color = textColor.copy(alpha = 0.10f))
+            Spacer(Modifier.width(5.dp))
+
+            Text(
+                "Sort",
+                color = textColor.copy(alpha = 0.50f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium
+            )
             listOf("name", "date", "size", "type").forEach { sort ->
                 TextButton(
                     onClick = {
                         if (sortBy == sort) onSortChange(sort, !sortAscending)
                         else onSortChange(sort, true)
                     },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    modifier = Modifier.height(24.dp)
+                    contentPadding = PaddingValues(horizontal = 5.dp),
+                    modifier = Modifier.height(30.dp)
                 ) {
                     Text(
                         sort.replaceFirstChar { it.uppercase() },
-                        color = if (sortBy == sort) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.7f),
-                        fontSize = 11.sp
+                        color = if (sortBy == sort) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.65f),
+                        fontSize = 10.sp
                     )
                     if (sortBy == sort) {
                         Icon(
                             if (sortAscending) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                            null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(12.dp)
+                            null,
+                            tint = bluebirdColors.AccentBlue,
+                            modifier = Modifier.size(13.dp)
                         )
                     }
                 }
             }
-        }
-        Spacer(Modifier.weight(1f))
-        IconButton(onClick = onToggleHidden, modifier = Modifier.size(24.dp)) {
-            Icon(
+
+            Spacer(Modifier.weight(1f))
+            ExplorerAction(
+                if (showHidden) "Hide hidden files" else "Show hidden files",
                 if (showHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                null, tint = textColor, modifier = Modifier.size(14.dp)
+                onToggleHidden,
+                textColor
+            )
+            Text(
+                "$itemCount items",
+                color = textColor.copy(alpha = 0.42f),
+                fontSize = 10.sp,
+                modifier = Modifier.padding(start = 4.dp)
             )
         }
-        Text("$itemCount items", color = textColor.copy(alpha = 0.4f), fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun ExplorerAction(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    tint: Color,
+    enabled: Boolean = true
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(30.dp)
+    ) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(16.dp))
     }
 }
 
@@ -1379,17 +1484,19 @@ private fun NavigationPane(
     isDark: Boolean
 ) {
     Column(
-        modifier = Modifier.width(188.dp).fillMaxHeight()
+        modifier = Modifier
+            .width(196.dp)
+            .fillMaxHeight()
             .background(navBg)
             .verticalScroll(rememberScrollState())
-            .padding(vertical = 8.dp)
+            .padding(horizontal = 7.dp, vertical = 9.dp)
     ) {
         Text(
-            "Quick Access",
-            color = textColor.copy(alpha = 0.5f),
-            fontSize = 11.sp,
+            "Quick access",
+            color = textColor.copy(alpha = 0.48f),
+            fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
         )
         quickAccess.forEach { (label, dir) ->
             NavItem(
@@ -1410,27 +1517,53 @@ private fun NavigationPane(
             )
         }
 
-        Divider(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = textColor.copy(alpha = 0.1f))
+        Spacer(Modifier.height(7.dp))
+        HorizontalDivider(
+            modifier = Modifier.padding(horizontal = 5.dp),
+            color = textColor.copy(alpha = 0.08f)
+        )
+        Spacer(Modifier.height(8.dp))
 
         val stat = remember { StatFs(Environment.getExternalStorageDirectory().path) }
         val totalBytes = stat.totalBytes
         val freeBytes = stat.availableBytes
         val usedBytes = totalBytes - freeBytes
 
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-            Text("Internal Storage (C:)", color = textColor.copy(alpha = 0.5f), fontSize = 10.sp)
-            Spacer(Modifier.height(4.dp))
-            LinearProgressIndicator(
-                progress = { if (totalBytes > 0) (usedBytes.toFloat() / totalBytes) else 0f },
-                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                color = bluebirdColors.AccentBlue,
-                trackColor = textColor.copy(alpha = 0.1f)
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                "${formatFileSize(usedBytes)} / ${formatFileSize(totalBytes)}",
-                color = textColor.copy(alpha = 0.5f), fontSize = 10.sp
-            )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp),
+            color = surfaceBg.copy(alpha = 0.58f)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Storage,
+                        null,
+                        tint = textColor.copy(alpha = 0.60f),
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        "Internal storage",
+                        color = textColor.copy(alpha = 0.72f),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(Modifier.height(7.dp))
+                LinearProgressIndicator(
+                    progress = { if (totalBytes > 0) (usedBytes.toFloat() / totalBytes) else 0f },
+                    modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)),
+                    color = bluebirdColors.AccentBlue,
+                    trackColor = textColor.copy(alpha = 0.10f)
+                )
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    "${formatFileSize(freeBytes)} free of ${formatFileSize(totalBytes)}",
+                    color = textColor.copy(alpha = 0.46f),
+                    fontSize = 9.sp
+                )
+            }
         }
     }
 }
@@ -1444,15 +1577,32 @@ private fun NavItem(
     onClick: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth()
-            .background(if (isSelected) bluebirdColors.AccentBlue.copy(alpha = 0.2f) else Color.Transparent)
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (isSelected) bluebirdColors.AccentBlue.copy(alpha = 0.15f)
+                else Color.Transparent
+            )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 9.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
     ) {
-        Icon(icon, null, tint = if (isSelected) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
-        Text(label, color = if (isSelected) bluebirdColors.AccentBlue else textColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Icon(
+            icon,
+            null,
+            tint = if (isSelected) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.66f),
+            modifier = Modifier.size(17.dp)
+        )
+        Text(
+            label,
+            color = if (isSelected) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.88f),
+            fontSize = 11.sp,
+            fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -1495,7 +1645,7 @@ private fun StatusBar(textColor: Color, itemCount: Int, selectedCount: Int) {
 // separate bounded cache to avoid decoding the same frame every time a row/grid
 // item is rebound while scrolling.
 private object ExplorerVideoThumbnailCache {
-    private const val MAX_BYTES = 12 * 1024 * 1024
+    private const val MAX_BYTES = 8 * 1024 * 1024
     private val cache = object : LruCache<String, Bitmap>(MAX_BYTES) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
@@ -1591,7 +1741,8 @@ private fun ListFileItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(38.dp)
+            .height(42.dp)
+            .clip(RoundedCornerShape(7.dp))
             .background(rowColor)
             .pointerInput(item.file.absolutePath) {
                 detectTapGestures(
@@ -1600,13 +1751,13 @@ private fun ListFileItem(
                     onLongPress = { offset -> onLongPress(offset) }
                 )
             }
-            .padding(horizontal = 10.dp),
+            .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         FileExplorerThumbnail(
             item = item,
-            modifier = Modifier.size(26.dp).clip(RoundedCornerShape(6.dp)),
-            iconSize = 18.dp
+            modifier = Modifier.size(30.dp).clip(RoundedCornerShape(7.dp)),
+            iconSize = 19.dp
         )
         Spacer(Modifier.width(6.dp))
         Text(
@@ -1657,7 +1808,7 @@ private fun GridFileItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 104.dp)
+            .heightIn(min = 108.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(cardColor)
             .pointerInput(item.file.absolutePath) {
@@ -1675,8 +1826,8 @@ private fun GridFileItem(
         ) {
             FileExplorerThumbnail(
                 item = item,
-                modifier = Modifier.padding(6.dp).size(52.dp),
-                iconSize = 32.dp
+                modifier = Modifier.padding(7.dp).size(56.dp),
+                iconSize = 33.dp
             )
         }
         Spacer(Modifier.height(6.dp))
@@ -1761,13 +1912,13 @@ private fun ExplorerContextPopup(
         val bg = if (isDark) Color(0xFA1E1E1E) else Color(0xFCEFF4F9)
         val border = if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5)
         Surface(
-            modifier = Modifier.width(218.dp),
-            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.width(204.dp),
+            shape = RoundedCornerShape(6.dp),
             color = bg,
-            shadowElevation = 14.dp,
+            shadowElevation = 8.dp,
             border = BorderStroke(1.dp, border)
         ) {
-            Column(Modifier.padding(vertical = 4.dp), content = content)
+            Column(Modifier.padding(vertical = 3.dp), content = content)
         }
     }
 }
@@ -1790,7 +1941,7 @@ private fun ExplorerBackgroundContextMenu(
         if (hasPaste) ContextMenuItem("Paste", Icons.Default.ContentPaste, { onPaste(); onDismiss() })
         Divider(Modifier.padding(vertical = 2.dp))
         ContextMenuItem("New folder", Icons.Default.CreateNewFolder, { onNewFolder(); onDismiss() })
-        ContextMenuItem("Text document", Icons.Default.Description, { onNewTextFile(); onDismiss() })
+        ContextMenuItem("New text document", Icons.Default.Description, { onNewTextFile(); onDismiss() })
         ContextMenuItem("Select all", Icons.Default.SelectAll, { onSelectAll(); onDismiss() })
         ContextMenuItem("Show hidden files", Icons.Default.Visibility, { onToggleHidden(); onDismiss() })
     }
@@ -1807,11 +1958,11 @@ private fun ContextMenuItem(
         modifier = Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(4.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 9.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Icon(icon, null, tint = tint, modifier = Modifier.size(18.dp))
-        Text(label, fontSize = 13.sp)
+        Icon(icon, null, tint = tint, modifier = Modifier.size(17.dp))
+        Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
     }
 }
