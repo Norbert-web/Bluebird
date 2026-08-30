@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🐦 Bluebird
+#  Bluebird
 
 ### A full Windows 11 desktop experience — on Android.
 
@@ -18,13 +18,13 @@
 
 <br/>
 
-**[📦 Download APK](#-download--releases) · [📸 Screenshots](#-screenshots) · [✨ Features](#-features) · [🏗️ Architecture](#-architecture) · [🚀 Getting Started](#-getting-started)**
+**[ Download APK](#-download--releases) · [ Screenshots](#-screenshots) · [ Features](#-features) · [ Architecture](#-architecture) · [ Getting Started](#-getting-started)**
 
 </div>
 
 ---
 
-## 📋 Table of Contents
+##  Table of Contents
 
 - [Overview](#-overview)
 - [Screenshots](#-screenshots)
@@ -46,7 +46,7 @@
 
 ---
 
-## 🔭 Overview
+##  Overview
 
 **Bluebird** transforms your Android device into a Windows 11 desktop. It is a fully functional **home screen launcher** — set it as your default launcher and your phone becomes a PC-style productivity device.
 
@@ -67,7 +67,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 
 ---
 
-## 📸 Screenshots
+##  Screenshots
 
 <p align="center">
   <img src="screenshots/desktop.png" width="32%">
@@ -81,9 +81,9 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 
 ---
 
-## ✨ Features
+##  Features
 
-### 🖥️ Desktop Environment
+###  Desktop Environment
 
 | Feature | Description |
 |---------|-------------|
@@ -101,7 +101,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Double-tap taskbar toggle** | Double-tap the desktop to hide/show the taskbar (full immersive mode) |
 | **Dark / Light theme** | Full dark and light mode switching, live and persistent |
 
-### 📌 Taskbar
+###  Taskbar
 
 | Feature | Description |
 |---------|-------------|
@@ -113,7 +113,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **System tray** | Battery level, Wi-Fi indicator, Bluetooth, clock, date |
 | **Notification badge** | Badge count on Action Center button when there are unread notifications |
 
-### 🪟 Start Menu
+###  Start Menu
 
 | Feature | Description |
 |---------|-------------|
@@ -124,7 +124,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **App context menu** | Long-press any app → Open / Add to Desktop / Pin to Taskbar |
 | **Power menu** | Sleep, Lock, Restart, Shut Down options |
 
-### 🗂️ File Explorer (Real Filesystem)
+###  File Explorer (Real Filesystem)
 
 | Feature | Description |
 |---------|-------------|
@@ -143,7 +143,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Storage progress bar** | Shows used/free internal storage in left panel |
 | **File type icons** | Distinct color-coded icons for images, video, audio, PDF, text, archives, APKs |
 
-### 🖼️ Image Viewer
+###  Image Viewer
 
 | Feature | Description |
 |---------|-------------|
@@ -157,7 +157,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Delete to bin** | Delete to Recycle Bin from inside the viewer |
 | **Image info panel** | File name, size, date modified, path |
 
-### 🎵 Media Player
+###  Media Player
 
 | Feature | Description |
 |---------|-------------|
@@ -170,7 +170,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Playlist panel** | Left sidebar with all tracks, now-playing indicator, equalizer animation |
 | **Duration display** | Track duration and current position always visible |
 
-### 📱 Phone
+###  Phone
 
 | Feature | Description |
 |---------|-------------|
@@ -180,7 +180,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Contact search** | Search by name or number |
 | **One-tap call** | Tap any contact or call log entry to dial |
 
-### 💬 Messages (SMS)
+###  Messages (SMS)
 
 | Feature | Description |
 |---------|-------------|
@@ -191,7 +191,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **New message** | Start a new conversation with any number |
 | **Conversation search** | Filter threads by name or message content |
 
-### 🗑️ Recycle Bin
+### ️ Recycle Bin
 
 | Feature | Description |
 |---------|-------------|
@@ -203,7 +203,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Multi-select** | Checkbox multi-select for bulk operations |
 | **Item details** | Original path, deletion date, file size for every item |
 
-### ⚙️ Settings
+###  Settings
 
 | Section | Features |
 |---------|---------|
@@ -217,7 +217,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Accounts** | User profile with avatar and name from OOBE |
 | **About** | Device model, manufacturer, Android version, API level, RAM, app version |
 
-### 🔔 Notifications
+###  Notifications
 
 | Feature | Description |
 |---------|-------------|
@@ -226,7 +226,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Dismiss** | Dismiss individual notifications or clear all |
 | **Auto-reconnect** | Service callbacks re-registered on every `onResume()` |
 
-### 🔐 First-Launch Setup (OOBE)
+###  First-Launch Setup (OOBE)
 
 | Step | Description |
 |------|-------------|
@@ -236,7 +236,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Profile picture** | Pick from Gallery — stored persistently in internal storage |
 | **Skip support** | Every step can be skipped and revisited in Settings later |
 
-### 🔒 Lock Screen
+###  Lock Screen
 
 | Feature | Description |
 |---------|-------------|
@@ -247,27 +247,27 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 
 ---
 
-## 📱 Built-in Apps
+##  Built-in Apps
 
 | App | Icon | Description |
-|-----|------|-------------|
-| **File Explorer** | 📁 | Real filesystem browser |
-| **Settings** | ⚙️ | Full settings panel |
-| **Phone** | 📞 | Real dialer with contacts & call log |
-| **Messages** | 💬 | Real SMS reader and sender |
-| **Media Player** | 🎵 | Audio/video player with playlist |
-| **Image Viewer** | 🖼️ | Full-screen image viewer |
-| **Recycle Bin** | 🗑️ | Deleted files manager |
-| **Browser** | 🌐 | WebView-based browser |
-| **Calculator** | 🔢 | Standard calculator |
-| **Calendar** | 📅 | Month calendar view |
-| **Photos** | 🖼️ | Photo gallery |
-| **Task Manager** | 📊 | Running processes viewer |
-| **Text Editor** | 📝 | In-launcher editor with syntax highlighting |
+|-----|----|-------------|
+| **File Explorer** |  | Real filesystem browser |
+| **Settings** |  | Full settings panel |
+| **Phone** |  | Real dialer with contacts & call log |
+| **Messages** |  | Real SMS reader and sender |
+| **Media Player** |  | Audio/video player with playlist |
+| **Image Viewer** |  | Full-screen image viewer |
+| **Recycle Bin** |  | Deleted files manager |
+| **Browser** |  | WebView-based browser |
+| **Calculator** |  | Standard calculator |
+| **Calendar** |  | Month calendar view |
+| **Photos** |  | Photo gallery |
+| **Task Manager** |  | Running processes viewer |
+| **Text Editor** |  | In-launcher editor with syntax highlighting |
 
 ---
 
-## 🏗️ Architecture
+##  Architecture
 
 Bluebird uses a single-ViewModel, unidirectional data flow architecture:
 
@@ -337,7 +337,7 @@ All state lives in a single `LauncherUiState` data class, collected as `StateFlo
 
 ---
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 | Category | Technology | Version |
 |----------|-----------|---------|
@@ -361,7 +361,7 @@ All state lives in a single `LauncherUiState` data class, collected as `StateFlo
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 Bluebird/
@@ -474,37 +474,37 @@ Bluebird/
 
 ---
 
-## 🔐 Permissions
+##  Permissions
 
 Bluebird requests the following permissions, each explained:
 
 | Permission | Why it's needed | Required? |
-|-----------|-----------------|-----------|
-| `QUERY_ALL_PACKAGES` | List all installed apps in Start Menu | ✅ Yes |
-| `RECEIVE_BOOT_COMPLETED` | Auto-start as home screen after reboot | ✅ Yes |
-| `SET_WALLPAPER` / `SET_WALLPAPER_HINTS` | Apply custom wallpaper to system | ✅ Yes |
-| `READ_MEDIA_IMAGES/VIDEO/AUDIO` | Browse media files in File Explorer | ✅ Yes |
-| `READ_EXTERNAL_STORAGE` | Filesystem access (Android ≤ 12) | ✅ Yes |
-| `MANAGE_EXTERNAL_STORAGE` | Full filesystem access for File Explorer | ⚠️ Optional |
-| `READ_CONTACTS` | Show real contacts in Phone app | ⚠️ Optional |
-| `CALL_PHONE` | Dial calls from the Phone dialer | ⚠️ Optional |
-| `READ_CALL_LOG` | Show recent calls in Phone app | ⚠️ Optional |
-| `READ_SMS` / `SEND_SMS` / `RECEIVE_SMS` | Read and send messages | ⚠️ Optional |
-| `CAMERA` | Take profile picture during OOBE | ⚠️ Optional |
-| `POST_NOTIFICATIONS` | Show system notifications | ⚠️ Optional |
-| `BIND_NOTIFICATION_LISTENER_SERVICE` | Read live notifications via system service | ⚠️ Optional |
-| `INTERNET` / `ACCESS_NETWORK_STATE` | Browser app, network status, update checker | ⚠️ Optional |
-| `BLUETOOTH_CONNECT` / `BLUETOOTH_SCAN` | Bluetooth status in Quick Settings | ⚠️ Optional |
-| `WRITE_SETTINGS` | Adjust screen brightness | ⚠️ Optional |
-| `BATTERY_STATS` | Real battery level in status bar | ⚠️ Optional |
+|-----------|-----------------|------|
+| `QUERY_ALL_PACKAGES` | List all installed apps in Start Menu |  Yes |
+| `RECEIVE_BOOT_COMPLETED` | Auto-start as home screen after reboot |  Yes |
+| `SET_WALLPAPER` / `SET_WALLPAPER_HINTS` | Apply custom wallpaper to system |  Yes |
+| `READ_MEDIA_IMAGES/VIDEO/AUDIO` | Browse media files in File Explorer |  Yes |
+| `READ_EXTERNAL_STORAGE` | Filesystem access (Android ≤ 12) |  Yes |
+| `MANAGE_EXTERNAL_STORAGE` | Full filesystem access for File Explorer |  Optional |
+| `READ_CONTACTS` | Show real contacts in Phone app |  Optional |
+| `CALL_PHONE` | Dial calls from the Phone dialer |  Optional |
+| `READ_CALL_LOG` | Show recent calls in Phone app |  Optional |
+| `READ_SMS` / `SEND_SMS` / `RECEIVE_SMS` | Read and send messages |  Optional |
+| `CAMERA` | Take profile picture during OOBE |  Optional |
+| `POST_NOTIFICATIONS` | Show system notifications |  Optional |
+| `BIND_NOTIFICATION_LISTENER_SERVICE` | Read live notifications via system service |  Optional |
+| `INTERNET` / `ACCESS_NETWORK_STATE` | Browser app, network status, update checker |  Optional |
+| `BLUETOOTH_CONNECT` / `BLUETOOTH_SCAN` | Bluetooth status in Quick Settings |  Optional |
+| `WRITE_SETTINGS` | Adjust screen brightness |  Optional |
+| `BATTERY_STATS` | Real battery level in status bar |  Optional |
 
-> ⚠️ `MANAGE_EXTERNAL_STORAGE` requires manual grant in Android Settings on API 30+. The OOBE wizard guides the user through this.
+>  `MANAGE_EXTERNAL_STORAGE` requires manual grant in Android Settings on API 30+. The OOBE wizard guides the user through this.
 
-> ⚠️ **Notification Listener** must be manually granted in **Settings → Notifications → Notification Access**. The OOBE wizard opens this screen directly.
+>  **Notification Listener** must be manually granted in **Settings → Notifications → Notification Access**. The OOBE wizard opens this screen directly.
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 
@@ -536,7 +536,7 @@ After installing, Android will prompt you to select a default launcher. Choose *
 
 ---
 
-## 🔨 Building from Source
+##  Building from Source
 
 ### Debug Build (for development)
 
@@ -609,11 +609,11 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
-## 📦 Download & Releases
+##  Download & Releases
 
 ### Latest Release: v1.6.0
 
-**[⬇️ Download from GitHub Releases →](https://github.com/norbert-web/bluebird/releases/latest)**
+**[ Download from GitHub Releases →](https://github.com/norbert-web/bluebird/releases/latest)**
 
 ### Installing the APK
 
@@ -631,7 +631,7 @@ adb install io.github.norbertweb.bluebird-release.apk
 
 ---
 
-## ⚙️ Configuration
+##  Configuration
 
 Bluebird stores all user preferences in `SharedPreferences` under the key `launcher_prefs_v2`. There is no config file — everything is configured through the in-app **Settings** and **OOBE wizard**.
 
@@ -655,7 +655,7 @@ If you want to publish your own fork, change the package name in:
 
 ---
 
-## ⚠️ Known Limitations
+##  Known Limitations
 
 | Limitation | Reason | Workaround |
 |-----------|--------|-----------|
@@ -669,7 +669,7 @@ If you want to publish your own fork, change the package name in:
 
 ---
 
-## 🗺️ Roadmap
+##  Roadmap
 
 ### Upcoming
 - [ ] Resizable floating windows (drag handles on edges/corners)
@@ -689,7 +689,7 @@ If you want to publish your own fork, change the package name in:
 
 ---
 
-## 🤝 Contributing
+##  Contributing
 
 Contributions are warmly welcome! Here's how to get started:
 
@@ -731,7 +731,7 @@ Use the [GitHub Issues](https://github.com/norbert-web/bluebird/issues) tracker.
 
 ---
 
-## 📜 License
+##  License
 
 ```
 MIT License
@@ -759,7 +759,7 @@ SOFTWARE.
 
 ---
 
-## 🙏 Credits
+##  Credits
 
 ### Libraries Used
 
@@ -785,7 +785,7 @@ SOFTWARE.
 
 ---
 
-## 📬 Contact
+##  Contact
 
 - **GitHub Issues**: [github.com/norbert-web/bluebird/issues](https://github.com/norbert-web/bluebird/issues)
 - **Discussions**: [github.com/norbert-web/bluebird/discussions](https://github.com/norbert-web/bluebird/discussions)
@@ -795,6 +795,6 @@ SOFTWARE.
 
 <div align="center">
 
-Made with 🫡💪💗 and Kotlin · [⬆️ Back to top](#-bluebird)
+ · [⬆ Back to top](#-bluebird)
 
 </div>

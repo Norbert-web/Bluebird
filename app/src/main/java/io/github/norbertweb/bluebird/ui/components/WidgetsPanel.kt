@@ -29,8 +29,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
+// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
+// Dependency (module build.gradle.kts):
+//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -234,7 +236,7 @@ fun WidgetsPanel(
                             scope.launch { delay(1500); isRefreshing = false }
                         }
                     }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Refresh, null,
+                        Icon(imageVector = FluentIcon.ArrowSync, contentDescription = null,
                             tint = textColor.copy(alpha = 0.6f),
                             modifier = Modifier.size(18.dp).rotate(rotation))
                     }
@@ -242,8 +244,8 @@ fun WidgetsPanel(
                     IconButton(onClick = { editMode = !editMode },
                         modifier = Modifier.size(32.dp)) {
                         Icon(
-                            if (editMode) Icons.Default.Check else Icons.Default.Edit,
-                            null, tint = if (editMode) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.6f),
+                            imageVector = if (editMode) FluentIcon.Checkmark else FluentIcon.Edit,
+                            contentDescription = null, tint = if (editMode) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.6f),
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -362,10 +364,10 @@ private fun WidgetEditPanel(
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = { onMoveUp(id) }, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.KeyboardArrowUp, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+                    Icon(imageVector = FluentIcon.ChevronUp, contentDescription = null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
                 }
                 IconButton(onClick = { onMoveDown(id) }, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.KeyboardArrowDown, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+                    Icon(imageVector = FluentIcon.ChevronDown, contentDescription = null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
                 }
             }
         }
@@ -394,7 +396,7 @@ private fun WidgetCard(
 private fun WidgetHeader(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, textColor: Color, textScale: Float) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(title, style = MaterialTheme.typography.titleMedium, color = textColor, fontSize = (14 * textScale).sp)
-        Icon(icon, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(18.dp))
+        Icon(imageVector = icon, contentDescription = null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -456,7 +458,7 @@ private fun ClockWidget(isDark: Boolean, context: Context, textScale: Float) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Language, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
+                        Icon(imageVector = FluentIcon.Globe, contentDescription = null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
                         Text(wc.label, color = textColor.copy(alpha = 0.7f), fontSize = (12 * textScale).sp)
                     }
                     Text(time, color = textColor, fontSize = (13 * textScale).sp, fontWeight = FontWeight.Medium)
@@ -602,7 +604,7 @@ private fun WeatherWidget(isDark: Boolean, context: Context, textScale: Float, r
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.LocationOff, null,
+                        Icon(imageVector = FluentIcon.LocationOff, contentDescription = null,
                             tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(28.dp))
                         Spacer(Modifier.height(4.dp))
                         Text("Location permission needed",
@@ -614,7 +616,7 @@ private fun WeatherWidget(isDark: Boolean, context: Context, textScale: Float, r
                 }
                 error -> Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.CloudOff, null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(28.dp))
+                        Icon(imageVector = FluentIcon.CloudOff, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(28.dp))
                         Spacer(Modifier.height(4.dp))
                         Text("Could not load weather", color = Color.White.copy(alpha = 0.7f), fontSize = (11 * textScale).sp)
                     }
@@ -632,10 +634,10 @@ private fun WeatherWidget(isDark: Boolean, context: Context, textScale: Float, r
                             }
                             Icon(
                                 when {
-                                    data.condition.contains("Clear") || data.condition.contains("Sunny") -> Icons.Default.WbSunny
-                                    data.condition.contains("Cloud") -> Icons.Default.WbCloudy
-                                    data.condition.contains("Rain")  -> Icons.Default.Umbrella
-                                    else -> Icons.Default.WbSunny
+                                    data.condition.contains("Clear") || data.condition.contains("Sunny") -> FluentIcon.WeatherSunny
+                                    data.condition.contains("Cloud") -> FluentIcon.WeatherCloudy
+                                    data.condition.contains("Rain")  -> FluentIcon.WeatherRain
+                                    else -> FluentIcon.WeatherSunny
                                 },
                                 null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(56.dp)
                             )
@@ -748,7 +750,7 @@ private fun NowPlayingWidget(isDark: Boolean, context: Context, textScale: Float
     val albumImage = remember(albumArt) { albumArt?.asImageBitmap() }
 
     WidgetCard(isDark) {
-        WidgetHeader("Now Playing", Icons.Default.MusicNote, textColor, textScale)
+        WidgetHeader("Now Playing", FluentIcon.MusicNote2, textColor, textScale)
         Spacer(Modifier.height(10.dp))
 
         if (!hasPermission) {
@@ -774,7 +776,7 @@ private fun NowPlayingWidget(isDark: Boolean, context: Context, textScale: Float
                         modifier = Modifier.size(52.dp).clip(RoundedCornerShape(8.dp))
                             .background(bluebirdColors.AccentBlue.copy(alpha = 0.2f)),
                         contentAlignment = Alignment.Center
-                    ) { Icon(Icons.Default.MusicNote, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(24.dp)) }
+                    ) { Icon(imageVector = FluentIcon.MusicNote2, contentDescription = null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(24.dp)) }
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
@@ -791,7 +793,7 @@ private fun NowPlayingWidget(isDark: Boolean, context: Context, textScale: Float
             ) {
                 val ctrl = controller
                 IconButton(onClick = { ctrl?.transportControls?.skipToPrevious() }) {
-                    Icon(Icons.Default.SkipPrevious, null, tint = textColor, modifier = Modifier.size(28.dp))
+                    Icon(imageVector = FluentIcon.SkipBack, contentDescription = null, tint = textColor, modifier = Modifier.size(28.dp))
                 }
                 Spacer(Modifier.width(8.dp))
                 Box(
@@ -804,11 +806,11 @@ private fun NowPlayingWidget(isDark: Boolean, context: Context, textScale: Float
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    Icon(imageVector = if (isPlaying) FluentIcon.Pause else FluentIcon.Play, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
                 }
                 Spacer(Modifier.width(8.dp))
                 IconButton(onClick = { ctrl?.transportControls?.skipToNext() }) {
-                    Icon(Icons.Default.SkipNext, null, tint = textColor, modifier = Modifier.size(28.dp))
+                    Icon(imageVector = FluentIcon.SkipForward, contentDescription = null, tint = textColor, modifier = Modifier.size(28.dp))
                 }
             }
         }
@@ -847,7 +849,7 @@ private fun StepsWidget(isDark: Boolean, context: Context, textScale: Float) {
     }
 
     WidgetCard(isDark) {
-        WidgetHeader("Steps", Icons.Default.DirectionsWalk, textColor, textScale)
+        WidgetHeader("Steps", FluentIcon.WalkingIcon, textColor, textScale)
         Spacer(Modifier.height(12.dp))
 
         if (!hasSensor) {
@@ -909,7 +911,7 @@ private fun StockWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Markets", style = MaterialTheme.typography.titleMedium, color = textColor, fontSize = (14 * textScale).sp)
             if (loading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = bluebirdColors.AccentBlue)
-            else Icon(Icons.Default.TrendingUp, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(18.dp))
+            else Icon(imageVector = FluentIcon.ArrowTrendingUp, contentDescription = null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(18.dp))
         }
         Spacer(Modifier.height(10.dp))
         stocks.forEach { stock ->
@@ -974,7 +976,7 @@ private fun NewsWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("News", style = MaterialTheme.typography.titleMedium, color = textColor, fontSize = (14 * textScale).sp)
             if (loading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = bluebirdColors.AccentBlue)
-            else Icon(Icons.Default.Article, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(18.dp))
+            else Icon(imageVector = FluentIcon.DocumentText, contentDescription = null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(18.dp))
         }
         Spacer(Modifier.height(10.dp))
         articles.take(4).forEach { article ->
@@ -988,7 +990,7 @@ private fun NewsWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
                 Box(
                     modifier = Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)).background(bluebirdColors.AccentBlue.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
-                ) { Icon(Icons.Default.Article, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(22.dp)) }
+                ) { Icon(imageVector = FluentIcon.DocumentText, contentDescription = null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(22.dp)) }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(article.title, style = MaterialTheme.typography.labelLarge, color = textColor,
                         fontSize = (12 * textScale).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -1028,7 +1030,7 @@ private fun CalendarWidget(isDark: Boolean, context: Context, textScale: Float) 
     }
 
     WidgetCard(isDark) {
-        WidgetHeader("Calendar", Icons.Default.CalendarToday, textColor, textScale)
+        WidgetHeader("Calendar", FluentIcon.Calendar, textColor, textScale)
         Spacer(Modifier.height(10.dp))
         when {
             !hasPermission -> TextButton(onClick = { permLauncher.launch(Manifest.permission.READ_CALENDAR) }) {
@@ -1096,7 +1098,7 @@ private fun PhotosWidget(isDark: Boolean, context: Context, textScale: Float) {
     }
 
     WidgetCard(isDark) {
-        WidgetHeader("Photos", Icons.Default.Photo, textColor, textScale)
+        WidgetHeader("Photos", FluentIcon.Image, textColor, textScale)
         Spacer(Modifier.height(10.dp))
         when {
             !hasPermission -> TextButton(onClick = { permLauncher.launch(permission) }) {
@@ -1152,7 +1154,7 @@ private fun SportsWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
     }
 
     WidgetCard(isDark) {
-        WidgetHeader("Sports", Icons.Default.SportsBasketball, textColor, textScale)
+        WidgetHeader("Sports", FluentIcon.Trophy, textColor, textScale)
         Spacer(Modifier.height(10.dp))
         scores.forEach { (team1, score1, team2, score2) ->
             Row(
@@ -1181,10 +1183,10 @@ private fun SportsWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
 private fun TrafficWidget(isDark: Boolean, textScale: Float) {
     val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     WidgetCard(isDark) {
-        WidgetHeader("Traffic", Icons.Default.DirectionsCar, textColor, textScale)
+        WidgetHeader("Traffic", FluentIcon.VehicleCar, textColor, textScale)
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(Icons.Default.Warning, null, tint = Color(0xFFFFB900), modifier = Modifier.size(16.dp))
+            Icon(imageVector = FluentIcon.Warning, contentDescription = null, tint = Color(0xFFFFB900), modifier = Modifier.size(16.dp))
             Text("Moderate traffic on your route", color = textColor, fontSize = (12 * textScale).sp)
         }
         Spacer(Modifier.height(4.dp))
@@ -1212,7 +1214,7 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                 Text("$done/${tasks.size}", color = textColor.copy(alpha = 0.45f), fontSize = (11 * textScale).sp,
                     modifier = Modifier.align(Alignment.CenterVertically).padding(end = 6.dp))
                 IconButton(onClick = { showAddField = !showAddField }, modifier = Modifier.size(22.dp)) {
-                    Icon(Icons.Default.Add, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(16.dp))
+                    Icon(imageVector = FluentIcon.Add, contentDescription = null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(16.dp))
                 }
             }
         }
@@ -1232,7 +1234,7 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                         modifier = Modifier.matchParentSize().clip(RoundedCornerShape(8.dp))
                             .background(bluebirdColors.Error.copy(alpha = (-offsetX / 200f).coerceIn(0f, 1f))),
                         contentAlignment = Alignment.CenterEnd
-                    ) { Icon(Icons.Default.Delete, null, tint = Color.White, modifier = Modifier.padding(end = 12.dp).size(16.dp)) }
+                    ) { Icon(imageVector = FluentIcon.Delete, contentDescription = null, tint = Color.White, modifier = Modifier.padding(end = 12.dp).size(16.dp)) }
                 }
                 Row(
                     modifier = Modifier
@@ -1278,7 +1280,7 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                         save(tasks + TodoTask(newTaskText.trim(), false))
                         newTaskText = ""; showAddField = false
                     }
-                }) { Icon(Icons.Default.Check, null, tint = bluebirdColors.SuccessGreen) }
+                }) { Icon(imageVector = FluentIcon.Checkmark, contentDescription = null, tint = bluebirdColors.SuccessGreen) }
             }
         }
     }
@@ -1301,13 +1303,13 @@ private fun AlarmWidget(isDark: Boolean, context: Context, textScale: Float) {
     }
 
     WidgetCard(isDark) {
-        WidgetHeader("Next Alarm", Icons.Default.Alarm, textColor, textScale)
+        WidgetHeader("Next Alarm", FluentIcon.Alarm, textColor, textScale)
         Spacer(Modifier.height(10.dp))
         if (nextAlarm == null) {
             Text("No alarm set", color = textColor.copy(alpha = 0.5f), fontSize = (12 * textScale).sp)
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Alarm, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(20.dp))
+                Icon(imageVector = FluentIcon.Alarm, contentDescription = null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(20.dp))
                 Text(nextAlarm, color = textColor, fontSize = (14 * textScale).sp, fontWeight = FontWeight.Medium)
             }
         }
@@ -1341,12 +1343,12 @@ private fun NetworkSpeedWidget(isDark: Boolean, textScale: Float) {
     }
 
     WidgetCard(isDark) {
-        WidgetHeader("Network Speed", Icons.Default.Speed, textColor, textScale)
+        WidgetHeader("Network Speed", FluentIcon.TopSpeed, textColor, textScale)
         Spacer(Modifier.height(10.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Default.ArrowDownward, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
+                    Icon(imageVector = FluentIcon.ArrowDownload, contentDescription = null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
                     Text("Download", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textScale).sp)
                 }
                 Text(rxSpeed, color = textColor, fontSize = (15 * textScale).sp, fontWeight = FontWeight.SemiBold)
@@ -1354,7 +1356,7 @@ private fun NetworkSpeedWidget(isDark: Boolean, textScale: Float) {
             Box(modifier = Modifier.width(1.dp).height(36.dp).background(if (isDark) Color(0xFF3A3A3A) else Color(0xFFCCCCCC)))
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Default.ArrowUpward, null, tint = bluebirdColors.Success, modifier = Modifier.size(14.dp))
+                    Icon(imageVector = FluentIcon.ArrowUpload, contentDescription = null, tint = bluebirdColors.Success, modifier = Modifier.size(14.dp))
                     Text("Upload", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textScale).sp)
                 }
                 Text(txSpeed, color = textColor, fontSize = (15 * textScale).sp, fontWeight = FontWeight.SemiBold)
@@ -1421,7 +1423,7 @@ private fun ScreenTimeWidget(isDark: Boolean, context: Context, textScale: Float
     }
 
     WidgetCard(isDark) {
-        WidgetHeader("Screen Time", Icons.Default.PhoneAndroid, textColor, textScale)
+        WidgetHeader("Screen Time", FluentIcon.PhoneAndroid, textColor, textScale)
         Spacer(Modifier.height(10.dp))
         if (!hasPermission) {
             TextButton(onClick = {

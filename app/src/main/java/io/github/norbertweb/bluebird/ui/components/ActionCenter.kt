@@ -9,8 +9,10 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
+// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
+// Dependency (module build.gradle.kts):
+//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -118,7 +119,7 @@ fun ActionCenter(
                     SmallIconButton(isDark = isDark, onClick = {
                         viewModel.openWindow(io.github.norbertweb.bluebird.LauncherScreen.SETTINGS)
                     }) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings",
+                        Icon(imageVector = FluentIcon.Settings, contentDescription = "Settings",
                             tint = textColor, modifier = Modifier.size(16.dp))
                     }
                 }
@@ -131,42 +132,42 @@ fun ActionCenter(
                 ToggleData(
                     label    = if (uiState.isWifiOn) "Wi-Fi" else "Wi-Fi Off",
                     subLabel = if (uiState.isWifiOn) "Connected" else "Disconnected",
-                    icon     = if (uiState.isWifiOn) Icons.Default.Wifi else Icons.Default.WifiOff,
+                    icon     = if (uiState.isWifiOn) FluentIcon.Wifi else FluentIcon.WifiOff,
                     active   = uiState.isWifiOn,
                     onClick  = { viewModel.openWifiSettings(context) }
                 ),
                 ToggleData(
                     label    = if (uiState.isBluetoothOn) "Bluetooth" else "Bluetooth",
                     subLabel = if (uiState.isBluetoothOn) "On" else "Off",
-                    icon     = Icons.Default.Bluetooth,
+                    icon     = FluentIcon.Bluetooth,
                     active   = uiState.isBluetoothOn,
                     onClick  = { viewModel.openBluetoothSettings(context) }
                 ),
                 ToggleData(
                     label    = "Airplane",
                     subLabel = if (uiState.isAirplaneMode) "On" else "Off",
-                    icon     = Icons.Default.AirplanemodeActive,
+                    icon     = FluentIcon.Airplane,
                     active   = uiState.isAirplaneMode,
                     onClick  = { viewModel.toggleAirplaneMode() }
                 ),
                 ToggleData(
                     label    = if (uiState.isDarkTheme) "Dark Mode" else "Light Mode",
                     subLabel = if (uiState.isDarkTheme) "Active" else "Active",
-                    icon     = if (uiState.isDarkTheme) Icons.Default.DarkMode else Icons.Default.LightMode,
+                    icon     = if (uiState.isDarkTheme) FluentIcon.Moon else FluentIcon.WeatherSunny,
                     active   = true,
                     onClick  = { viewModel.toggleTheme() }
                 ),
                 ToggleData(
                     label    = "Focus Assist",
                     subLabel = if (uiState.focusAssist) "On" else "Off",
-                    icon     = Icons.Default.DoNotDisturb,
+                    icon     = FluentIcon.Prohibited,
                     active   = uiState.focusAssist,
                     onClick  = { viewModel.setFocusAssist(!uiState.focusAssist) }
                 ),
                 ToggleData(
                     label    = "Data Saver",
                     subLabel = if (uiState.dataSaver) "On" else "Off",
-                    icon     = Icons.Default.DataSaverOn,
+                    icon     = FluentIcon.DataUsage,
                     active   = uiState.dataSaver,
                     onClick  = { viewModel.setDataSaver(!uiState.dataSaver) }
                 )
@@ -194,10 +195,10 @@ fun ActionCenter(
                 leadIcon  = {
                     Icon(
                         imageVector = when {
-                            uiState.volume < 0.01f -> Icons.Default.VolumeOff
-                            uiState.volume < 0.5f  -> Icons.Default.VolumeDown
-                            else                   -> Icons.Default.VolumeUp
-                        },
+                                uiState.volume < 0.01f -> FluentIcon.SpeakerMute
+                                uiState.volume < 0.5f  -> FluentIcon.Speaker1
+                                else                   -> FluentIcon.Speaker2
+                            },
                         contentDescription = "Volume",
                         tint     = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight,
                         modifier = Modifier.size(20.dp)
@@ -219,7 +220,7 @@ fun ActionCenter(
                 textScale = textScale,
                 leadIcon  = {
                     Icon(
-                        imageVector        = Icons.Default.Brightness6,
+                        imageVector            = FluentIcon.BrightnessHigh,
                         contentDescription = "Brightness",
                         tint     = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight,
                         modifier = Modifier.size(20.dp)
@@ -379,7 +380,7 @@ private fun DndPill(
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Icon(
-            Icons.Default.DoNotDisturb, contentDescription = "DND",
+            imageVector = FluentIcon.Prohibited, contentDescription = "DND",
             tint = fg, modifier = Modifier.size(13.dp)
         )
         Text(
@@ -414,7 +415,7 @@ private fun SmallIconButton(
 private data class ToggleData(
     val label: String,
     val subLabel: String,
-    val icon: ImageVector,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
     val active: Boolean,
     val onClick: () -> Unit
 )
@@ -488,7 +489,7 @@ private fun QuickToggleTile(
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Icon(
-            imageVector        = data.icon,
+            imageVector            = data.icon,
             contentDescription = data.label,
             tint               = iconTint,
             modifier           = Modifier.size(20.dp)
@@ -579,7 +580,7 @@ private fun TextScaleSection(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Icon(
-                    Icons.Default.TextFields,
+                    imageVector = FluentIcon.TextFont,
                     contentDescription = "Text Size",
                     tint     = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight,
                     modifier = Modifier.size(20.dp)
@@ -676,13 +677,13 @@ private fun BatterySection(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Icon(
-            imageVector = if (charging) Icons.Default.BatteryChargingFull else
-                when {
-                    level > 80 -> Icons.Default.BatteryFull
-                    level > 50 -> Icons.Default.Battery5Bar
-                    level > 20 -> Icons.Default.Battery3Bar
-                    else       -> Icons.Default.Battery1Bar
-                },
+            imageVector = if (charging) FluentIcon.BatteryCharge else
+                    when {
+                        level > 80 -> FluentIcon.Battery9
+                        level > 50 -> FluentIcon.Battery6
+                        level > 20 -> FluentIcon.Battery3
+                        else       -> FluentIcon.Battery0
+                    },
             contentDescription = "Battery",
             tint     = batteryColor,
             modifier = Modifier.size(22.dp)
@@ -700,7 +701,7 @@ private fun BatterySection(
                 )
                 if (charging) {
                     Icon(
-                        Icons.Default.FlashOn,
+                        imageVector = FluentIcon.Flash,
                         contentDescription = null,
                         tint     = bluebirdColors.AccentBlue,
                         modifier = Modifier.size(14.dp)
@@ -773,7 +774,7 @@ private fun NotificationGroup(
                 }
             }
             Icon(
-                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                imageVector = if (expanded) FluentIcon.ChevronUp else FluentIcon.ChevronDown,
                 contentDescription = null,
                 tint = textColor.copy(alpha = 0.5f),
                 modifier = Modifier.size(16.dp)
@@ -830,7 +831,7 @@ private fun SwipeToDismissNotifCard(
                 contentAlignment = Alignment.CenterEnd
             ) {
                 Icon(
-                    Icons.Default.Delete,
+                    imageVector = FluentIcon.Delete,
                     contentDescription = null,
                     tint     = Color.White,
                     modifier = Modifier.padding(end = 16.dp).size(20.dp)
@@ -867,7 +868,7 @@ private fun SwipeToDismissNotifCard(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.Notifications,
+                    imageVector = FluentIcon.Alert,
                     contentDescription = null,
                     tint     = bluebirdColors.AccentBlue,
                     modifier = Modifier.size(16.dp)
@@ -1010,7 +1011,7 @@ private fun BluebirdRemoteNotifCard(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                Icons.Default.Close,
+                imageVector = FluentIcon.Dismiss,
                 contentDescription = "Dismiss",
                 tint     = textColor.copy(alpha = 0.4f),
                 modifier = Modifier.size(14.dp)
@@ -1038,7 +1039,7 @@ private fun EmptyNotificationsPlaceholder(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Icon(
-                Icons.Default.NotificationsNone,
+                imageVector = FluentIcon.AlertOff,
                 contentDescription = null,
                 tint     = textColor.copy(alpha = 0.3f),
                 modifier = Modifier.size(24.dp)

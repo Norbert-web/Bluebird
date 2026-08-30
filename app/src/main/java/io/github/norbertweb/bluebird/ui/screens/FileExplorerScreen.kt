@@ -23,8 +23,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -62,9 +60,58 @@ import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+
 import io.github.norbertweb.bluebird.LauncherViewModel
 import io.github.norbertweb.bluebird.LauncherScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fluent.ui.system.icons.FluentIcons
+import fluent.ui.system.icons.regular.Apps
+import fluent.ui.system.icons.regular.ArrowClockwise
+import fluent.ui.system.icons.regular.ArrowDownload
+import fluent.ui.system.icons.regular.ArrowLeft
+import fluent.ui.system.icons.regular.ArrowUp
+import fluent.ui.system.icons.regular.Camera
+import fluent.ui.system.icons.regular.ChevronDown
+import fluent.ui.system.icons.regular.ChevronRight
+import fluent.ui.system.icons.regular.ChevronUp
+import fluent.ui.system.icons.regular.ClipboardPaste
+import fluent.ui.system.icons.regular.Code
+import fluent.ui.system.icons.regular.Copy
+import fluent.ui.system.icons.regular.Cut
+import fluent.ui.system.icons.regular.Delete
+import fluent.ui.system.icons.regular.Desktop
+import fluent.ui.system.icons.regular.DiamondDismiss
+import fluent.ui.system.icons.regular.Document
+import fluent.ui.system.icons.regular.DocumentOnePage
+import fluent.ui.system.icons.regular.DocumentPdf
+import fluent.ui.system.icons.regular.Eye
+import fluent.ui.system.icons.regular.EyeOff
+import fluent.ui.system.icons.regular.Folder
+import fluent.ui.system.icons.regular.FolderAdd
+//import fluent.ui.system.icons.regular.FolderOff
+import fluent.ui.system.icons.regular.FolderOpen
+import fluent.ui.system.icons.regular.FolderZip
+import fluent.ui.system.icons.regular.Globe
+import fluent.ui.system.icons.regular.Grid
+import fluent.ui.system.icons.regular.HardDrive
+import fluent.ui.system.icons.regular.Image
+import fluent.ui.system.icons.regular.Info
+import fluent.ui.system.icons.regular.Link
+
+import fluent.ui.system.icons.regular.MusicNote2
+
+import fluent.ui.system.icons.regular.Phone
+import fluent.ui.system.icons.regular.Rename
+import fluent.ui.system.icons.regular.Search
+
+import fluent.ui.system.icons.regular.SelectAllOn
+import fluent.ui.system.icons.regular.SlideLayout
+import fluent.ui.system.icons.regular.Table
+import fluent.ui.system.icons.regular.VideoClip
+import fluent.ui.system.icons.filled.Play
+import fluent.ui.system.icons.regular.FolderProhibited
+import fluent.ui.system.icons.regular.List
+import fluent.ui.system.icons.regular.Open
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -89,21 +136,21 @@ data class RealFileItem(
 
 
 fun getFileIcon(item: RealFileItem): ImageVector = when {
-    item.isDirectory -> Icons.Default.Folder
-    item.extension in listOf("jpg", "jpeg", "png", "gif", "webp", "bmp") -> Icons.Default.Image
-    item.extension in listOf("mp4", "mkv", "avi", "mov", "webm", "3gp") -> Icons.Default.OndemandVideo
-    item.extension in listOf("mp3", "wav", "ogg", "flac", "aac", "m4a") -> Icons.Default.AudioFile
-    item.extension in listOf("pdf") -> Icons.Default.PictureAsPdf
-    item.extension in listOf("txt", "log", "md", "xml", "json", "csv") -> Icons.Default.Description
-    item.extension in listOf("zip", "rar", "7z", "tar", "gz") -> Icons.Default.Archive
-    item.extension in listOf("apk") -> Icons.Default.Android
-    item.extension in listOf("doc", "docx") -> Icons.Default.Article
-    item.extension in listOf("xls", "xlsx") -> Icons.Default.TableChart
-    item.extension in listOf("ppt", "pptx") -> Icons.Default.Slideshow
-    item.extension in listOf("html", "htm") -> Icons.Default.Code
-    item.extension == "webapp" -> Icons.Default.Public
-    item.extension == "io.github.norbertweb.io.github.norbertweb.bluebird" -> Icons.Default.Apps
-    else -> Icons.Default.InsertDriveFile
+    item.isDirectory -> FluentIcons.Regular.Folder
+    item.extension in listOf("jpg", "jpeg", "png", "gif", "webp", "bmp") -> FluentIcons.Regular.Image
+    item.extension in listOf("mp4", "mkv", "avi", "mov", "webm", "3gp") -> FluentIcons.Regular.VideoClip
+    item.extension in listOf("mp3", "wav", "ogg", "flac", "aac", "m4a") -> FluentIcons.Regular.MusicNote2
+    item.extension in listOf("pdf") -> FluentIcons.Regular.DocumentPdf
+    item.extension in listOf("txt", "log", "md", "xml", "json", "csv") -> FluentIcons.Regular.Document
+    item.extension in listOf("zip", "rar", "7z", "tar", "gz") -> FluentIcons.Regular.FolderZip
+    item.extension in listOf("apk") -> FluentIcons.Regular.Phone
+    item.extension in listOf("doc", "docx") -> FluentIcons.Regular.DocumentOnePage
+    item.extension in listOf("xls", "xlsx") -> FluentIcons.Regular.Table
+    item.extension in listOf("ppt", "pptx") -> FluentIcons.Regular.SlideLayout
+    item.extension in listOf("html", "htm") -> FluentIcons.Regular.Code
+    item.extension == "webapp" -> FluentIcons.Regular.Globe
+    item.extension == "io.github.norbertweb.io.github.norbertweb.bluebird" -> FluentIcons.Regular.Apps
+    else -> FluentIcons.Regular.Document
 }
 
 fun getFileIconColor(item: RealFileItem): Color = when {
@@ -338,7 +385,7 @@ private fun PermissionGate(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Icon(
-                Icons.Default.FolderOff,
+                FluentIcons.Regular.FolderProhibited,
                 contentDescription = null,
                 tint = textColor.copy(alpha = 0.4f),
                 modifier = Modifier.size(48.dp)
@@ -727,7 +774,7 @@ private fun FileListArea(
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            Icons.Default.FolderOpen,
+                            FluentIcons.Regular.FolderOpen,
                             contentDescription = null,
                             tint = textColor.copy(alpha = 0.28f),
                             modifier = Modifier.size(30.dp)
@@ -745,7 +792,7 @@ private fun FileListArea(
                             color = surfaceBg.copy(alpha = 0.55f)
                         ) {
                             Icon(
-                                if (state.searchQuery.isNotBlank()) Icons.Default.SearchOff else Icons.Default.FolderOpen,
+                                if (state.searchQuery.isNotBlank()) FluentIcons.Regular.Search else FluentIcons.Regular.FolderOpen,
                                 null,
                                 tint = textColor.copy(alpha = 0.25f),
                                 modifier = Modifier.padding(14.dp).size(30.dp)
@@ -1224,19 +1271,19 @@ private fun CommandBar(
                 enabled = true,
                 modifier = Modifier.size(36.dp)
             ) {
-                Icon(Icons.Default.ArrowBack, "Back", tint = textColor, modifier = Modifier.size(18.dp))
+                Icon(FluentIcons.Regular.ArrowLeft, "Back", tint = textColor, modifier = Modifier.size(18.dp))
             }
             IconButton(
                 onClick = onUp,
                 modifier = Modifier.size(36.dp)
             ) {
-                Icon(Icons.Default.ArrowUpward, "Up", tint = textColor, modifier = Modifier.size(18.dp))
+                Icon(FluentIcons.Regular.ArrowUp, "Up", tint = textColor, modifier = Modifier.size(18.dp))
             }
             IconButton(
                 onClick = onRefresh,
                 modifier = Modifier.size(36.dp)
             ) {
-                Icon(Icons.Default.Refresh, "Refresh", tint = textColor, modifier = Modifier.size(18.dp))
+                Icon(FluentIcons.Regular.ArrowClockwise, "Refresh", tint = textColor, modifier = Modifier.size(18.dp))
             }
 
             BreadcrumbBar(
@@ -1260,7 +1307,7 @@ private fun CommandBar(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Default.Search,
+                        FluentIcons.Regular.Search,
                         contentDescription = "Search",
                         tint = textColor.copy(alpha = 0.48f),
                         modifier = Modifier.size(16.dp)
@@ -1290,7 +1337,7 @@ private fun CommandBar(
                             modifier = Modifier.size(22.dp)
                         ) {
                             Icon(
-                                Icons.Default.Close,
+                                FluentIcons.Regular.DiamondDismiss,
                                 contentDescription = "Clear search",
                                 tint = textColor.copy(alpha = 0.55f),
                                 modifier = Modifier.size(14.dp)
@@ -1306,7 +1353,7 @@ private fun CommandBar(
             ) {
                 IconButton(onClick = onToggleView, modifier = Modifier.size(34.dp)) {
                     Icon(
-                        if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
+                        if (isGridView) FluentIcons.Regular.List else FluentIcons.Regular.Grid,
                         if (isGridView) "List view" else "Grid view",
                         tint = textColor,
                         modifier = Modifier.size(18.dp)
@@ -1341,7 +1388,7 @@ private fun BreadcrumbBar(
             parts.forEachIndexed { index, (label, dir) ->
                 if (index > 0) {
                     Icon(
-                        Icons.Default.ChevronRight,
+                        FluentIcons.Regular.ChevronRight,
                         null,
                         tint = textColor.copy(alpha = 0.28f),
                         modifier = Modifier.size(14.dp)
@@ -1392,17 +1439,17 @@ private fun Ribbon(
             modifier = Modifier.fillMaxWidth().height(38.dp).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ExplorerAction("New folder", Icons.Default.CreateNewFolder, onNewFolder, textColor)
-            ExplorerAction("Cut", Icons.Default.ContentCut, onCut, textColor, enabled = true)
-            ExplorerAction("Copy", Icons.Default.ContentCopy, onCopy, textColor, enabled = true)
+            ExplorerAction("New folder", FluentIcons.Regular.FolderAdd, onNewFolder, textColor)
+            ExplorerAction("Cut", FluentIcons.Regular.Cut, onCut, textColor, enabled = true)
+            ExplorerAction("Copy", FluentIcons.Regular.Copy, onCopy, textColor, enabled = true)
             ExplorerAction(
                 "Paste",
-                Icons.Default.ContentPaste,
+                FluentIcons.Regular.ClipboardPaste,
                 onPaste,
                 if (clipboardActive) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.28f),
                 enabled = clipboardActive
             )
-            ExplorerAction("Delete", Icons.Default.Delete, onDelete, textColor, enabled = true)
+            ExplorerAction("Delete", FluentIcons.Regular.Delete, onDelete, textColor, enabled = true)
 
             Spacer(Modifier.width(4.dp))
             VerticalDivider(modifier = Modifier.height(22.dp), color = textColor.copy(alpha = 0.10f))
@@ -1430,7 +1477,7 @@ private fun Ribbon(
                     )
                     if (sortBy == sort) {
                         Icon(
-                            if (sortAscending) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            if (sortAscending) FluentIcons.Regular.ChevronUp else FluentIcons.Regular.ChevronDown,
                             null,
                             tint = bluebirdColors.AccentBlue,
                             modifier = Modifier.size(13.dp)
@@ -1442,7 +1489,7 @@ private fun Ribbon(
             Spacer(Modifier.weight(1f))
             ExplorerAction(
                 if (showHidden) "Hide hidden files" else "Show hidden files",
-                if (showHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                if (showHidden) FluentIcons.Regular.EyeOff else FluentIcons.Regular.Eye,
                 onToggleHidden,
                 textColor
             )
@@ -1502,14 +1549,14 @@ private fun NavigationPane(
             NavItem(
                 label = label,
                 icon = when (label) {
-                    "Downloads" -> Icons.Default.CloudDownload
-                    "Pictures" -> Icons.Default.Image
-                    "Music" -> Icons.Default.MusicNote
-                    "Movies" -> Icons.Default.Movie
-                    "Desktop" -> Icons.Default.DesktopWindows
-                    "DCIM" -> Icons.Default.PhotoCamera
-                    "Documents" -> Icons.Default.Description
-                    else -> Icons.Default.Storage
+                    "Downloads" -> FluentIcons.Regular.ArrowDownload
+                    "Pictures" -> FluentIcons.Regular.Image
+                    "Music" -> FluentIcons.Regular.MusicNote2
+                    "Movies" -> FluentIcons.Regular.VideoClip
+                    "Desktop" -> FluentIcons.Regular.Desktop
+                    "DCIM" -> FluentIcons.Regular.Camera
+                    "Documents" -> FluentIcons.Regular.Document
+                    else -> FluentIcons.Regular.HardDrive
                 },
                 isSelected = currentDir == dir,
                 textColor = textColor,
@@ -1537,7 +1584,7 @@ private fun NavigationPane(
             Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        Icons.Default.Storage,
+                        FluentIcons.Regular.HardDrive,
                         null,
                         tint = textColor.copy(alpha = 0.60f),
                         modifier = Modifier.size(15.dp)
@@ -1717,7 +1764,7 @@ private fun FileExplorerThumbnail(
                     color = Color.Black.copy(alpha = 0.55f),
                     modifier = Modifier.size(iconSize.coerceAtMost(28.dp))
                 ) {
-                    Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.padding(4.dp))
+                    Icon(FluentIcons.Filled.Play, null, tint = Color.White, modifier = Modifier.padding(4.dp))
                 }
             }
             else -> {
@@ -1876,15 +1923,15 @@ private fun FileContextMenu(
         isDark = isDark,
         onDismiss = onDismiss
     ) {
-        if (!fileItem.isDirectory) ContextMenuItem("Open", Icons.Default.OpenInNew, onOpen)
-        if (fileItem.isDirectory && onPaste != null) ContextMenuItem("Paste", Icons.Default.ContentPaste, onPaste)
-        ContextMenuItem("Cut", Icons.Default.ContentCut, onCut)
-        ContextMenuItem("Copy", Icons.Default.ContentCopy, onCopy)
-        ContextMenuItem("Rename", Icons.Default.DriveFileRenameOutline, onRename)
-        ContextMenuItem("Create shortcut", Icons.Default.Link, onCreateShortcut)
-        ContextMenuItem("Delete", Icons.Default.Delete, onDelete, tint = bluebirdColors.DangerRed)
+        if (!fileItem.isDirectory) ContextMenuItem("Open", FluentIcons.Regular.Open, onOpen)
+        if (fileItem.isDirectory && onPaste != null) ContextMenuItem("Paste", FluentIcons.Regular.ClipboardPaste, onPaste)
+        ContextMenuItem("Cut", FluentIcons.Regular.Cut, onCut)
+        ContextMenuItem("Copy", FluentIcons.Regular.Copy, onCopy)
+        ContextMenuItem("Rename", FluentIcons.Regular.Rename, onRename)
+        ContextMenuItem("Create shortcut", FluentIcons.Regular.Link, onCreateShortcut)
+        ContextMenuItem("Delete", FluentIcons.Regular.Delete, onDelete, tint = bluebirdColors.DangerRed)
         Divider(Modifier.padding(vertical = 2.dp))
-        ContextMenuItem("Properties", Icons.Default.Info, onProperties)
+        ContextMenuItem("Properties", FluentIcons.Regular.Info, onProperties)
     }
 }
 
@@ -1937,13 +1984,13 @@ private fun ExplorerBackgroundContextMenu(
     onToggleHidden: () -> Unit
 ) {
     ExplorerContextPopup(offset, isDark, onDismiss) {
-        ContextMenuItem("Refresh", Icons.Default.Refresh, { onRefresh(); onDismiss() })
-        if (hasPaste) ContextMenuItem("Paste", Icons.Default.ContentPaste, { onPaste(); onDismiss() })
+        ContextMenuItem("Refresh", FluentIcons.Regular.ArrowClockwise, { onRefresh(); onDismiss() })
+        if (hasPaste) ContextMenuItem("Paste", FluentIcons.Regular.ClipboardPaste, { onPaste(); onDismiss() })
         Divider(Modifier.padding(vertical = 2.dp))
-        ContextMenuItem("New folder", Icons.Default.CreateNewFolder, { onNewFolder(); onDismiss() })
-        ContextMenuItem("New text document", Icons.Default.Description, { onNewTextFile(); onDismiss() })
-        ContextMenuItem("Select all", Icons.Default.SelectAll, { onSelectAll(); onDismiss() })
-        ContextMenuItem("Show hidden files", Icons.Default.Visibility, { onToggleHidden(); onDismiss() })
+        ContextMenuItem("New folder", FluentIcons.Regular.FolderAdd, { onNewFolder(); onDismiss() })
+        ContextMenuItem("New text document", FluentIcons.Regular.Document, { onNewTextFile(); onDismiss() })
+        ContextMenuItem("Select all", FluentIcons.Regular.SelectAllOn, { onSelectAll(); onDismiss() })
+        ContextMenuItem("Show hidden files", FluentIcons.Regular.Eye, { onToggleHidden(); onDismiss() })
     }
 }
 

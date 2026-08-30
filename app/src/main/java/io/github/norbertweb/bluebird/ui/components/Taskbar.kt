@@ -45,51 +45,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.BatteryFull
-import androidx.compose.material.icons.filled.Bluetooth
-import androidx.compose.material.icons.filled.Calculate
-import androidx.compose.material.icons.filled.CalendarToday
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Dashboard
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DesktopWindows
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.LayersClear
-import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Minimize
-import androidx.compose.material.icons.filled.Monitor
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.NightsStay
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Print
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SwipeRight
-import androidx.compose.material.icons.filled.SyncAlt
-import androidx.compose.material.icons.filled.TextRotationAngledown
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.ViewDay
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.VolumeDown
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material.icons.filled.WifiOff
-import androidx.compose.material.icons.filled.Window
+// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
+// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
+// Dependency (module build.gradle.kts):
+//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -117,7 +76,6 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -255,24 +213,8 @@ private object TaskbarPrefs {
 }
 
 
-private fun iconForKey(key: String): ImageVector = when (key) {
-    WindowIconKey.SETTINGS      -> Icons.Default.Settings
-    WindowIconKey.FILE_EXPLORER -> Icons.Default.Folder
-    WindowIconKey.BROWSER       -> Icons.Default.Public
-    WindowIconKey.CALCULATOR    -> Icons.Default.Calculate
-    WindowIconKey.CALENDAR      -> Icons.Default.CalendarToday
-    WindowIconKey.PHOTOS        -> Icons.Default.PhotoLibrary
-    WindowIconKey.TASK_MANAGER  -> Icons.Default.Monitor
-    WindowIconKey.MEDIA_PLAYER  -> Icons.Default.LiveTv
-    WindowIconKey.IMAGE_VIEWER  -> Icons.Default.Image
-    WindowIconKey.WORD_IMPRESS         -> Icons.Default.TextRotationAngledown
-    WindowIconKey.BLUEBIRD_STORE      -> Icons.Default.NightsStay
-    WindowIconKey.RECYCLE_BIN   -> Icons.Default.Delete
-    WindowIconKey.WEB_APP       -> Icons.Default.Public
-    WindowIconKey.COPY_PROGRESS -> Icons.Default.ContentCopy
-    WindowIconKey.WEB_APP_MANAGER -> Icons.Default.Public
-    else                        -> Icons.Default.Window
-}
+// Icon lookups (including `iconForKey`) now come from the shared FluentIcon.kt,
+// used by every UI file in this package (Start Menu, Desktop, TaskBar, WindowManager, Settings).
 
 /**
  * Resolves a window's real bitmap icon (e.g. a fetched favicon) off the main thread.
@@ -540,7 +482,7 @@ private fun ClassicTaskbarLayout(
         if (settings.showWidgets) {
             Row(Modifier.align(Alignment.CenterStart).padding(start = 6.dp)) {
                 TaskbarIconButton(
-                    icon = Icons.Default.Dashboard,
+                    icon = FluentIcon.Widget,
                     contentDescription = "Widgets (or swipe right)",
                     isActive = uiState.isWidgetsOpen,
                     onClick = { viewModel.toggleWidgets() },
@@ -581,7 +523,7 @@ private fun ClassicTaskbarLayout(
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             TaskbarIconButton(
-                icon = Icons.Default.DesktopWindows,
+                icon = FluentIcon.Desktop,
                 contentDescription = "Show Desktop",
                 onClick = { viewModel.dismissAllOverlays() },
                 iconSize = iconSize
@@ -624,7 +566,7 @@ private fun SeparatedTaskbarLayout(
             Surface(shape = pillShape, color = pillBg, border = pillBorder,
                 modifier = Modifier.shadow(8.dp, pillShape)) {
                 TaskbarIconButton(
-                    icon = Icons.Default.Dashboard,
+                    icon = FluentIcon.Widget,
                     contentDescription = "Widgets",
                     isActive = uiState.isWidgetsOpen,
                     onClick = { viewModel.toggleWidgets() },
@@ -658,7 +600,7 @@ private fun SeparatedTaskbarLayout(
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 TaskbarIconButton(
-                    icon = Icons.Default.DesktopWindows,
+                    icon = FluentIcon.Desktop,
                     contentDescription = "Show Desktop",
                     onClick = { viewModel.dismissAllOverlays() },
                     iconSize = iconSize
@@ -721,7 +663,7 @@ private fun TaskbarCenterCluster(
 
         if (settings.showTaskView) {
             TaskbarIconButton(
-                icon = Icons.Default.ViewDay,
+                icon = FluentIcon.DesktopMultiple,
                 contentDescription = "Task View",
                 onClick = {},
                 iconSize = iconSize
@@ -864,8 +806,8 @@ private fun OverflowIconsPopup(
     onDismiss: () -> Unit
 ) {
     Surface(
-        modifier = Modifier.widthIn(max = 320.dp).shadow(20.dp, RoundedCornerShape(12.dp)),
-        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.widthIn(max = 320.dp).shadow(20.dp, RoundedCornerShape(8.dp)),
+        shape = RoundedCornerShape(8.dp),
         color = bluebirdColors.TaskbarBg,
         border = BorderStroke(0.5.dp, Color(0x25FFFFFF))
     ) {
@@ -896,13 +838,13 @@ private fun OverflowIconsPopup(
                     if (bmpIcon != null) {
                         Image(bmpIcon, null, modifier = Modifier.size(16.dp).clip(RoundedCornerShape(3.dp)))
                     } else {
-                        Icon(icon, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Icon(imageVector = icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                     }
                     Text(window.title, color = Color.White, fontSize = 12.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f))
                     if (window.isMinimized) {
-                        Icon(Icons.Default.Minimize, null,
+                        Icon(imageVector = FluentIcon.Subtract, contentDescription = null,
                             tint = Color.White.copy(0.4f), modifier = Modifier.size(11.dp))
                     }
                 }
@@ -930,7 +872,7 @@ private fun HiddenIconsChevron(isOpen: Boolean, onClick: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            Icons.Default.ExpandLess,
+            imageVector = FluentIcon.ChevronUp,
             contentDescription = "Show hidden icons",
             tint = Color.White,
             modifier = Modifier.size(13.dp).graphicsLayer { rotationZ = rotation }
@@ -942,14 +884,25 @@ private fun HiddenIconsChevron(isOpen: Boolean, onClick: () -> Unit) {
 // Hidden Icons Tray Panel
 // Rendered via Popup() — never clipped by taskbar constraints.
 // ─────────────────────────────────────────────────────────────────────────────
+private val HIDDEN_TRAY_ICONS = listOf(
+    FluentIcon.Bluetooth      to "Bluetooth",
+    FluentIcon.Location       to "Location",
+    FluentIcon.Mic            to "Microphone",
+    FluentIcon.Alert          to "Notifications",
+    FluentIcon.Shield         to "Security",
+    FluentIcon.ArrowSync      to "Sync",
+    FluentIcon.CloudCheckmark to "Cloud Backup",
+    FluentIcon.Print          to "Print Queue"
+)
+
 @Composable
 private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
     Surface(
         modifier = Modifier
             .width(220.dp)
             .wrapContentHeight()
-            .shadow(20.dp, RoundedCornerShape(12.dp)),
-        shape = RoundedCornerShape(12.dp),
+            .shadow(20.dp, RoundedCornerShape(8.dp)),
+        shape = RoundedCornerShape(8.dp),
         color = bluebirdColors.TaskbarBg,
         border = BorderStroke(0.5.dp, Color(0x25FFFFFF))
     ) {
@@ -972,23 +925,14 @@ private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
                         .clickable(onClick = onOpenSettings),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Settings, "Taskbar Settings",
+                    Icon(imageVector = FluentIcon.Settings, contentDescription = "Taskbar Settings",
                         tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
                 }
             }
 
             Spacer(Modifier.height(10.dp))
 
-            val hiddenIcons = listOf(
-                Icons.Default.Bluetooth     to "Bluetooth",
-                Icons.Default.LocationOn    to "Location",
-                Icons.Default.Mic           to "Microphone",
-                Icons.Default.Notifications to "Notifications",
-                Icons.Default.Security      to "Security",
-                Icons.Default.SyncAlt       to "Sync",
-                Icons.Default.CloudDone     to "Cloud Backup",
-                Icons.Default.Print         to "Print Queue"
-            )
+            val hiddenIcons = HIDDEN_TRAY_ICONS
 
             hiddenIcons.chunked(4).forEach { row ->
                 Row(
@@ -1010,7 +954,7 @@ private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
                                 },
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(icon, label, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(imageVector = icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(18.dp))
                             if (showTooltip) {
                                 Box(
                                     Modifier
@@ -1043,7 +987,7 @@ private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Default.Tune, null, tint = bluebirdColors.AccentBlue,
+                Icon(imageVector = FluentIcon.Options, contentDescription = null, tint = bluebirdColors.AccentBlue,
                     modifier = Modifier.size(14.dp))
                 Text("Taskbar settings", color = Color.White, fontSize = 12.sp)
             }
@@ -1066,9 +1010,9 @@ private fun TaskbarSettingsPanel(
         modifier = Modifier
             .width(280.dp)
             .wrapContentHeight()
-            .shadow(24.dp, RoundedCornerShape(14.dp)),
-        shape = RoundedCornerShape(14.dp),
-        color = Color(0xFF1E1E2E),
+            .shadow(24.dp, RoundedCornerShape(8.dp)),
+        shape = RoundedCornerShape(8.dp),
+        color = bluebirdColors.TaskbarBg,
         border = BorderStroke(0.5.dp, Color(0x28FFFFFF))
     ) {
         Column(
@@ -1090,7 +1034,7 @@ private fun TaskbarSettingsPanel(
                     modifier = Modifier.size(22.dp).clip(CircleShape).clickable(onClick = onDismiss),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Close, null, tint = Color.White.copy(0.6f),
+                    Icon(imageVector = FluentIcon.Dismiss, contentDescription = null, tint = Color.White.copy(0.6f),
                         modifier = Modifier.size(13.dp))
                 }
             }
@@ -1139,7 +1083,7 @@ private fun TaskbarSettingsPanel(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                TaskbarHeight.values().forEach { h ->
+                TaskbarHeight.entries.forEach { h ->
                     val sel = settings.taskbarHeight == h
                     Box(
                         modifier = Modifier
@@ -1162,7 +1106,7 @@ private fun TaskbarSettingsPanel(
                 modifier = Modifier.padding(horizontal = 4.dp))
             Spacer(Modifier.height(6.dp))
 
-            IconOverflowMode.values().forEach { mode ->
+            IconOverflowMode.entries.forEach { mode ->
                 val sel = settings.iconOverflowMode == mode
                 Row(
                     modifier = Modifier
@@ -1175,16 +1119,16 @@ private fun TaskbarSettingsPanel(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     val icon = when (mode) {
-                        IconOverflowMode.SCROLL        -> Icons.Default.SwipeRight
-                        IconOverflowMode.OVERFLOW_MENU -> Icons.Default.MoreHoriz
-                        IconOverflowMode.GROUPED       -> Icons.Default.LayersClear
+                        IconOverflowMode.SCROLL        -> FluentIcon.SwipeRight
+                        IconOverflowMode.OVERFLOW_MENU -> FluentIcon.MoreHorizontal
+                        IconOverflowMode.GROUPED       -> FluentIcon.Stack
                     }
                     val desc = when (mode) {
                         IconOverflowMode.SCROLL        -> "Scroll the icon row"
                         IconOverflowMode.OVERFLOW_MENU -> "Show +N overflow button"
                         IconOverflowMode.GROUPED       -> "Collapse same-app windows"
                     }
-                    Icon(icon, null,
+                    Icon(imageVector = icon, contentDescription = null,
                         tint = if (sel) bluebirdColors.AccentBlue else Color.White.copy(0.6f),
                         modifier = Modifier.size(15.dp))
                     Column {
@@ -1194,7 +1138,7 @@ private fun TaskbarSettingsPanel(
                     }
                     Spacer(Modifier.weight(1f))
                     if (sel) {
-                        Icon(Icons.Default.CheckCircle, null,
+                        Icon(imageVector = FluentIcon.CheckmarkCircle, contentDescription = null,
                             tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
                     }
                 }
@@ -1244,7 +1188,7 @@ private fun TaskbarSettingsPanel(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Default.VisibilityOff, null, tint = Color(0xFFFF7070),
+                Icon(imageVector = FluentIcon.EyeOff, contentDescription = null, tint = Color(0xFFFF7070),
                     modifier = Modifier.size(14.dp))
                 Text("Hide taskbar", color = Color(0xFFFF7070), fontSize = 12.sp)
                 Spacer(Modifier.weight(1f))
@@ -1358,10 +1302,10 @@ private fun SearchPill(onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Icon(Icons.Default.Search, "Search", tint = Color(0xFFAAAAAA), modifier = Modifier.size(13.dp))
+        Icon(imageVector = FluentIcon.Search, contentDescription = "Search", tint = Color(0xFFAAAAAA), modifier = Modifier.size(13.dp))
         Text("Search", color = Color(0xFF999999), fontSize = 11.sp)
         Spacer(Modifier.weight(1f))
-        Icon(Icons.Default.AutoAwesome, null, tint = bluebirdColors.AccentBlue.copy(alpha = 0.7f),
+        Icon(imageVector = FluentIcon.Sparkle, contentDescription = null, tint = bluebirdColors.AccentBlue.copy(alpha = 0.7f),
             modifier = Modifier.size(11.dp))
     }
 }
@@ -1371,7 +1315,7 @@ private fun SearchPill(onClick: () -> Unit) {
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 internal fun TaskbarIconButton(
-    icon: ImageVector,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
     isActive: Boolean = false,
     onClick: () -> Unit,
@@ -1398,7 +1342,7 @@ internal fun TaskbarIconButton(
                 },
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription, tint = Color.White, modifier = Modifier.size(iconSize))
+            Icon(imageVector = icon, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(iconSize))
         }
         if (isActive) {
             Box(Modifier.width(12.dp).height(2.dp)
@@ -1471,19 +1415,19 @@ private fun TaskbarAppIcon(
                 DropdownMenuItem(
                     text = { Text("Open", color = Color.White, fontSize = 12.sp) },
                     onClick = { showMenu = false; onClick() },
-                    leadingIcon = { Icon(Icons.Default.OpenInNew, null, tint = Color.White,
+                    leadingIcon = { Icon(imageVector = FluentIcon.Open, contentDescription = null, tint = Color.White,
                         modifier = Modifier.size(13.dp)) }
                 )
                 DropdownMenuItem(
                     text = { Text("Unpin from taskbar", color = Color.White, fontSize = 12.sp) },
                     onClick = { showMenu = false; onLongClick() },
-                    leadingIcon = { Icon(Icons.Default.PushPin, null, tint = Color.White,
+                    leadingIcon = { Icon(imageVector = FluentIcon.Pin, contentDescription = null, tint = Color.White,
                         modifier = Modifier.size(13.dp)) }
                 )
                 DropdownMenuItem(
                     text = { Text("Close window", color = Color(0xFFFF6B6B), fontSize = 12.sp) },
                     onClick = { showMenu = false },
-                    leadingIcon = { Icon(Icons.Default.Close, null, tint = Color(0xFFFF6B6B),
+                    leadingIcon = { Icon(imageVector = FluentIcon.Dismiss, contentDescription = null, tint = Color(0xFFFF6B6B),
                         modifier = Modifier.size(13.dp)) }
                 )
             }
@@ -1593,7 +1537,7 @@ private fun SystemTray(
     ) {
         if (settings.showNetwork) {
             Icon(
-                imageVector = if (uiState.isWifiOn) Icons.Default.Wifi else Icons.Default.WifiOff,
+                imageVector = if (uiState.isWifiOn) FluentIcon.Wifi else FluentIcon.WifiOff,
                 contentDescription = "Wi-Fi",
                 tint = Color.White,
                 modifier = Modifier.size(13.dp)
@@ -1602,17 +1546,17 @@ private fun SystemTray(
         if (settings.showVolume) {
             Icon(
                 imageVector = when {
-                    uiState.volume < 0.01f -> Icons.Default.VolumeOff
-                    uiState.volume < 0.5f  -> Icons.Default.VolumeDown
-                    else                   -> Icons.Default.VolumeUp
-                },
+                        uiState.volume < 0.01f -> FluentIcon.SpeakerMute
+                        uiState.volume < 0.5f  -> FluentIcon.Speaker1
+                        else                   -> FluentIcon.Speaker2
+                    },
                 contentDescription = "Volume",
                 tint = Color.White,
                 modifier = Modifier.size(13.dp)
             )
         }
         if (settings.showBattery) {
-            Icon(Icons.Default.BatteryFull, "Battery", tint = Color.White,
+            Icon(imageVector = FluentIcon.Battery10, contentDescription = "Battery", tint = Color.White,
                 modifier = Modifier.size(13.dp))
         }
         if (settings.showClock) {

@@ -57,6 +57,8 @@ configurations.all {
 
 
 dependencies {
+implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
+
     // Already in Compose projects — confirm these are present:
     implementation("androidx.webkit:webkit:1.8.0")
 // WebSettingsCompat dark mode

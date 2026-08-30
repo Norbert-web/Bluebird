@@ -21,9 +21,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Notifications
+// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
+// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
+// Dependency (module build.gradle.kts):
+//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -245,7 +246,7 @@ private fun bluebirdToast(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.Default.Notifications,
+                        imageVector = FluentIcon.Alert,
                         contentDescription = null,
                         tint     = toast.accent,
                         modifier = Modifier.size(15.dp)
@@ -307,7 +308,7 @@ private fun bluebirdToast(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.Default.Close,
+                        imageVector = FluentIcon.Dismiss,
                         contentDescription = "Dismiss",
                         tint     = textColor.copy(alpha = 0.4f),
                         modifier = Modifier.size(13.dp)

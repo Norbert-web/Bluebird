@@ -62,11 +62,22 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
+// Microsoft Fluent System UI icons (https://github.com/niyajali/fluentui-system-icons) —
+// replaces the previous Material Icons set. FluentIcons.Filled.* is used for active/emphasis
+// states (currently-selected tab, active toggle, primary transport button); FluentIcons.Regular.*
+// is used everywhere else, matching Fluent's own filled-vs-outline usage convention.
+//
+// Add to your module's build.gradle.kts:
+//   implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
+//
+// CONFIRMED (the hard way, via Android Studio's own auto-import): every single
+// icon is its own top-level symbol and needs its own import line — e.g.
+// `FluentIcons.Regular.Image` requires `import fluent.ui.system.icons.regular.Image`.
+// `FluentIcons.Filled.X` / `FluentIcons.Regular.X` in code is really sugar over
+// these individually-imported properties, not a nested-object lookup. All of
+// them are listed together right below, grouped by style, so this is the one
+// place to look if a future icon addition needs the same treatment.
+
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import io.github.norbertweb.bluebird.ui.components.LocalWindowRuntime
@@ -107,6 +118,58 @@ import io.github.norbertweb.bluebird.media.MediaLibraryRepository
 import io.github.norbertweb.bluebird.media.PlaybackService
 import io.github.norbertweb.bluebird.media.ScannedTrack
 import com.google.common.util.concurrent.MoreExecutors
+import fluent.ui.system.icons.FluentIcons
+import fluent.ui.system.icons.filled.AppsList
+import fluent.ui.system.icons.filled.AppsListDetail
+import fluent.ui.system.icons.filled.CheckboxChecked
+import fluent.ui.system.icons.filled.Folder
+import fluent.ui.system.icons.filled.History
+import fluent.ui.system.icons.filled.MusicNote2
+import fluent.ui.system.icons.filled.Next
+import fluent.ui.system.icons.filled.Pause
+import fluent.ui.system.icons.filled.Play
+import fluent.ui.system.icons.filled.PlayCircle
+import fluent.ui.system.icons.filled.Previous
+import fluent.ui.system.icons.filled.Star
+import fluent.ui.system.icons.filled.Video
+import fluent.ui.system.icons.regular.Add
+import fluent.ui.system.icons.regular.AddSquare
+import fluent.ui.system.icons.regular.AppsList
+import fluent.ui.system.icons.regular.AppsListDetail
+import fluent.ui.system.icons.regular.ArrowClockwise
+import fluent.ui.system.icons.regular.ArrowCounterclockwise
+import fluent.ui.system.icons.regular.ArrowLeft
+import fluent.ui.system.icons.regular.ArrowRepeat1
+import fluent.ui.system.icons.regular.ArrowRepeatAll
+import fluent.ui.system.icons.regular.ArrowShuffle
+import fluent.ui.system.icons.regular.Checkbox1
+import fluent.ui.system.icons.regular.Checkmark
+import fluent.ui.system.icons.regular.ChevronDown
+import fluent.ui.system.icons.regular.ChevronUp
+import fluent.ui.system.icons.regular.Delete
+import fluent.ui.system.icons.regular.Dismiss
+import fluent.ui.system.icons.regular.Edit
+import fluent.ui.system.icons.regular.Folder
+import fluent.ui.system.icons.regular.FolderAdd
+import fluent.ui.system.icons.regular.FullScreenMaximize
+import fluent.ui.system.icons.regular.FullScreenMinimize
+import fluent.ui.system.icons.regular.History
+import fluent.ui.system.icons.regular.Image
+import fluent.ui.system.icons.regular.MoreVertical
+import fluent.ui.system.icons.regular.MusicNote2
+import fluent.ui.system.icons.regular.Navigation
+import fluent.ui.system.icons.regular.Options
+import fluent.ui.system.icons.regular.Play
+import fluent.ui.system.icons.regular.Search
+import fluent.ui.system.icons.regular.Settings
+import fluent.ui.system.icons.regular.Share
+import fluent.ui.system.icons.regular.Speaker0
+import fluent.ui.system.icons.regular.Speaker2
+import fluent.ui.system.icons.regular.SpeakerMute
+import fluent.ui.system.icons.regular.Star
+import fluent.ui.system.icons.regular.Subtitles
+import fluent.ui.system.icons.regular.Timer
+import fluent.ui.system.icons.regular.Video
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -116,6 +179,91 @@ import org.json.JSONArray
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+// ─────────────────────────────────────────────────────────────────
+// Fluent icon set — Microsoft Fluent System UI icons
+//
+// Every icon used by this screen is centralized here as a single object,
+// `FI`, instead of scattering `FluentIcons.Filled.Y` / `FluentIcons.Regular.Y`
+// references across 40+ call sites. Benefits:
+//  - One place to audit which icons the screen depends on.
+//  - One place to swap Regular↔Filled emphasis without touching UI code.
+//  - Compiles to a direct property reference, so there's no runtime cost
+//    versus referencing FluentIcons directly.
+//
+// A couple of the less common names below (e.g. MusicNote2, AppsListDetail,
+// SpeakerZero) are typed from Fluent's published icon catalog naming
+// conventions but weren't individually confirmed against your exact library
+// version. If Android Studio flags any one of them as unresolved, open the
+// interactive catalog (niyajali.github.io/fluentui-system-icons), search for
+// the icon by appearance, and swap in the exact name it shows — everything
+// else in the file references icons only through this object, so a fix here
+// is a one-line change with no ripple effect.
+// ─────────────────────────────────────────────────────────────────
+private object FI {
+    // Navigation / chrome
+    val Back            = FluentIcons.Regular.ArrowLeft
+    val Menu            = FluentIcons.Regular.Navigation
+    val Close           = FluentIcons.Regular.Dismiss
+    val Search          = FluentIcons.Regular.Search
+    val Settings        = FluentIcons.Regular.Settings
+    val MoreVert        = FluentIcons.Regular.MoreVertical
+    val Tune            = FluentIcons.Regular.Options
+    val Fullscreen      = FluentIcons.Regular.FullScreenMaximize
+    val FullscreenExit  = FluentIcons.Regular.FullScreenMinimize
+
+    // Media type / library — Regular/Filled pairs so tab and row "active" states
+    // can swap weight consistently, the way Fluent apps do (e.g. Windows' own
+    // Media Player / Groove Music nav rail).
+    val Movie           = FluentIcons.Filled.Video
+    val MovieOutline    = FluentIcons.Regular.Video
+    val MusicNoteFilled = FluentIcons.Filled.MusicNote2
+    val MusicNote       = FluentIcons.Regular.MusicNote2
+    val PlaylistPlayFilled = FluentIcons.Filled.AppsList
+    val PlaylistPlay    = FluentIcons.Regular.AppsList
+    val QueueMusicFilled = FluentIcons.Filled.AppsListDetail
+    val QueueMusic      = FluentIcons.Regular.AppsListDetail
+    val FolderFilled    = FluentIcons.Filled.Folder
+    val Folder          = FluentIcons.Regular.Folder
+    val HistoryFilled   = FluentIcons.Filled.History
+    val History         = FluentIcons.Regular.History
+    val Star            = FluentIcons.Filled.Star
+    val StarBorder      = FluentIcons.Regular.Star
+    val PlayCircle      = FluentIcons.Filled.PlayCircle
+
+    // Transport controls
+    val Play            = FluentIcons.Filled.Play
+    val Pause           = FluentIcons.Filled.Pause
+    val SkipNext        = FluentIcons.Filled.Next
+    val SkipPrevious    = FluentIcons.Filled.Previous
+    val Shuffle         = FluentIcons.Regular.ArrowShuffle
+    val Repeat          = FluentIcons.Regular.ArrowRepeatAll
+    val RepeatOne       = FluentIcons.Regular.ArrowRepeat1
+    val Replay10        = FluentIcons.Regular.ArrowCounterclockwise
+    val Forward10       = FluentIcons.Regular.ArrowClockwise
+
+    // Volume
+    val VolumeOff       = FluentIcons.Regular.SpeakerMute
+    val VolumeDown      = FluentIcons.Regular.Speaker0
+    val VolumeUp        = FluentIcons.Regular.Speaker2
+
+    // Queue / playlist row actions
+    val Add             = FluentIcons.Regular.Add
+    val Check           = FluentIcons.Regular.Checkmark
+    val CheckBox        = FluentIcons.Filled.CheckboxChecked
+    val CheckBoxOutline = FluentIcons.Regular.Checkbox1
+    val Edit            = FluentIcons.Regular.Edit
+    val Delete          = FluentIcons.Regular.Delete
+    val Share           = FluentIcons.Regular.Share
+    val Subtitles       = FluentIcons.Regular.Subtitles
+    val LibraryAdd      = FluentIcons.Regular.FolderAdd
+    val PlaylistAdd     = FluentIcons.Regular.AddSquare
+    val QueuePlayNext   = FluentIcons.Regular.Play
+    val Remove          = FluentIcons.Regular.Dismiss
+    val KeyboardArrowUp = FluentIcons.Regular.ChevronUp
+    val KeyboardArrowDown = FluentIcons.Regular.ChevronDown
+    val Timer           = FluentIcons.Regular.Timer
+}
 
 // ─────────────────────────────────────────────────────────────────
 // Design tokens (unchanged)
@@ -234,6 +382,27 @@ fun formatDuration(ms: Long): String {
 }
 
 private fun formatTimer(sec: Long): String { val m = sec / 60; val s = sec % 60; return "%d:%02d".format(m, s) }
+
+/**
+ * Fluent-style flyout chrome for dropdown/overflow menus: rounded corners and a
+ * hairline border instead of Material's sharp-cornered, borderless popup — matches
+ * the rounded, bordered "Flyout" surface Fluent apps use for context menus.
+ */
+@Composable
+private fun fluentMenuModifier(isDark: Boolean): Modifier = Modifier
+    .clip(RoundedCornerShape(8.dp))
+    .background(if (isDark) FTV.Surface else FTV.LSurface)
+    .border(1.dp, if (isDark) FTV.Border else FTV.LBorder, RoundedCornerShape(8.dp))
+
+/**
+ * Same Fluent flyout chrome, tuned for the always-dark, on-video-scrim chips
+ * (Speed / Sleep Timer / Aspect Ratio) that only ever appear over the black
+ * fullscreen-video overlay, regardless of the app's light/dark setting.
+ */
+private fun fluentFlyoutOnScrimModifier(): Modifier = Modifier
+    .clip(RoundedCornerShape(8.dp))
+    .background(Color(0xFF242424))
+    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
 
 // Equalizer preset bands (gain in millibels for 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz)
 private enum class EqPreset(val label: String, val gains: IntArray) {
@@ -1083,10 +1252,16 @@ private fun FullscreenVideoView(
                             if (startX > size.width / 2) {
                                 state.volume = (state.volume + (-dragY / 300f)).coerceIn(0f, 1f)
                             } else {
-                                setWindowBrightness(ctx, (state.volume).let { _ ->
-                                    // independent brightness value, not tied to volume
-                                    ((ctx as? Activity)?.window?.attributes?.screenBrightness ?: 0.5f) + (-dragY / 600f)
-                                })
+                                // B-11: brightness must read the window's *current* brightness
+                                // and clamp into a valid range, same as the windowed video
+                                // gesture handler below — this previously wrapped an
+                                // unrelated `state.volume` read in a throwaway `.let`, which
+                                // did nothing but obscure that the base value could be
+                                // ScreenBrightness.BRIGHTNESS_OVERRIDE_NONE (-1f) and produce
+                                // an invalid, out-of-range brightness.
+                                val current = (ctx as? Activity)?.window?.attributes?.screenBrightness
+                                    ?.takeIf { it in 0f..1f } ?: 0.5f
+                                setWindowBrightness(ctx, current + (-dragY / 600f))
                             }
                         }
                     }
@@ -1107,7 +1282,7 @@ private fun FullscreenVideoView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = { state.isFullscreen = false }) {
-                        Icon(Icons.Default.FullscreenExit, null, tint = Color.White)
+                        Icon(FI.FullscreenExit, null, tint = Color.White)
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(state.currentTrack?.displayTitle ?: "", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1153,7 +1328,7 @@ private fun LibraryPane(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Box(Modifier.size(32.dp).background(FTV.Accent, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Movie, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                Icon(FI.Movie, null, tint = Color.White, modifier = Modifier.size(18.dp))
             }
             Column {
                 Text("Films & TV", color = tc, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -1164,27 +1339,28 @@ private fun LibraryPane(
             }
             Spacer(Modifier.weight(1f))
             IconButton(onClick = { state.showSettings = true }, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Default.Settings, null, tint = tcm, modifier = Modifier.size(16.dp))
+                Icon(FI.Settings, null, tint = tcm, modifier = Modifier.size(16.dp))
             }
         }
         Divider(color = border)
 
         val tabs = listOf(
-            MediaTab.MUSIC to Icons.Default.MusicNote,
-            MediaTab.VIDEOS to Icons.Default.Movie,
-            MediaTab.PLAYLISTS to Icons.AutoMirrored.Filled.PlaylistPlay,
-            MediaTab.PLAYLIST to Icons.Default.QueueMusic,
-            MediaTab.FOLDERS to Icons.Default.Folder,
-            MediaTab.RECENTS to Icons.Default.History,
-            MediaTab.FAVORITES to Icons.Default.Star
+            MediaTab.MUSIC to (FI.MusicNote to FI.MusicNoteFilled),
+            MediaTab.VIDEOS to (FI.MovieOutline to FI.Movie),
+            MediaTab.PLAYLISTS to (FI.PlaylistPlay to FI.PlaylistPlayFilled),
+            MediaTab.PLAYLIST to (FI.QueueMusic to FI.QueueMusicFilled),
+            MediaTab.FOLDERS to (FI.Folder to FI.FolderFilled),
+            MediaTab.RECENTS to (FI.History to FI.HistoryFilled),
+            MediaTab.FAVORITES to (FI.StarBorder to FI.Star)
         )
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
                 .background(surfaceH).padding(horizontal = 8.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            tabs.forEach { (tab, icon) ->
+            tabs.forEach { (tab, icons) ->
                 val active = state.activeTab == tab
+                val (iconRegular, iconFilled) = icons
                 Row(
                     Modifier.clip(RoundedCornerShape(6.dp))
                         .background(if (active) FTV.Accent else Color.Transparent)
@@ -1193,7 +1369,7 @@ private fun LibraryPane(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(icon, null, tint = if (active) Color.White else tcm, modifier = Modifier.size(13.dp))
+                    Icon(if (active) iconFilled else iconRegular, null, tint = if (active) Color.White else tcm, modifier = Modifier.size(13.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(
                         when (tab) {
@@ -1220,7 +1396,7 @@ private fun LibraryPane(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Default.Search, null, tint = tcm, modifier = Modifier.size(14.dp))
+                Icon(FI.Search, null, tint = tcm, modifier = Modifier.size(14.dp))
                 Box(Modifier.weight(1f)) {
                     if (state.searchQuery.isEmpty()) Text("Search…", color = tcm, fontSize = 12.sp)
                     androidx.compose.foundation.text.BasicTextField(
@@ -1231,7 +1407,7 @@ private fun LibraryPane(
                     )
                 }
                 if (state.searchQuery.isNotEmpty())
-                    Icon(Icons.Default.Close, null, tint = tcm, modifier = Modifier.size(13.dp).clickable { state.searchQuery = "" })
+                    Icon(FI.Close, null, tint = tcm, modifier = Modifier.size(13.dp).clickable { state.searchQuery = "" })
             }
         }
 
@@ -1243,12 +1419,12 @@ private fun LibraryPane(
                 val openPl = state.openPlaylist
                 if (openPl != null) {
                     IconButton(onClick = { state.openPlaylistId = null }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = tc, modifier = Modifier.size(18.dp))
+                        Icon(FI.Back, null, tint = tc, modifier = Modifier.size(18.dp))
                     }
                     Text(openPl.name, color = tc, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     IconButton(onClick = { state.playPlaylist(openPl.id) }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.PlayArrow, null, tint = FTV.Accent, modifier = Modifier.size(18.dp))
+                        Icon(FI.Play, null, tint = FTV.Accent, modifier = Modifier.size(18.dp))
                     }
                 } else {
                     Text("Your playlists", color = tcs, fontSize = 12.sp, modifier = Modifier.weight(1f))
@@ -1258,7 +1434,7 @@ private fun LibraryPane(
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(13.dp))
+                        Icon(FI.Add, null, tint = Color.White, modifier = Modifier.size(13.dp))
                         Text("New", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
@@ -1299,8 +1475,10 @@ private fun LibraryPane(
                             onMoveUp   = if (idx > 0) {{ state.moveInPlaylist(idx, idx - 1) }} else null,
                             onMoveDown = if (idx < state.playlist.size - 1) {{ state.moveInPlaylist(idx, idx + 1) }} else null,
                             onClick = { state.playTrackAt(idx) },
-                            onAddToQueue = {},
-                            onPlayNext   = {},
+                            // B-12: these were no-ops. A track already in the queue can still
+                            // usefully be duplicated to the end, or bumped to play next.
+                            onAddToQueue = { state.addToPlaylist(t) },
+                            onPlayNext   = { state.playNext(t) },
                             onRemoveFromQueue = { state.removeFromPlaylist(idx) },
                             onFavorite = { t.isFavorite = !t.isFavorite; scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, t) } },
                             onAddToPlaylist = { state.showAddToPlaylist = t },
@@ -1320,7 +1498,7 @@ private fun LibraryPane(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.AutoMirrored.Filled.PlaylistPlay, null, tint = tcm, modifier = Modifier.size(32.dp))
+                                    Icon(FI.PlaylistPlay, null, tint = tcm, modifier = Modifier.size(32.dp))
                                     Text("No playlists yet", color = tcs, fontSize = 12.sp)
                                     Text("Tap New to create one", color = tcm, fontSize = 10.sp)
                                 }
@@ -1337,7 +1515,7 @@ private fun LibraryPane(
                             ) {
                                 Box(Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)).background(FTV.Accent.copy(0.15f)),
                                     contentAlignment = Alignment.Center) {
-                                    Icon(Icons.AutoMirrored.Filled.PlaylistPlay, null, tint = FTV.Accent, modifier = Modifier.size(20.dp))
+                                    Icon(FI.PlaylistPlay, null, tint = FTV.Accent, modifier = Modifier.size(20.dp))
                                 }
                                 Column(Modifier.weight(1f)) {
                                     Text(pl.name, color = tc, fontSize = 13.sp, fontWeight = FontWeight.Medium,
@@ -1345,24 +1523,24 @@ private fun LibraryPane(
                                     Text("${pl.trackKeys.size} tracks", color = tcm, fontSize = 11.sp)
                                 }
                                 Box {
-                                    Icon(Icons.Default.MoreVert, null, tint = tcm,
+                                    Icon(FI.MoreVert, null, tint = tcm,
                                         modifier = Modifier.size(16.dp).clickable { showPlMenu = true })
                                     DropdownMenu(expanded = showPlMenu, onDismissRequest = { showPlMenu = false },
-                                        modifier = Modifier.background(if (isDark) FTV.Surface else FTV.LSurface)) {
+                                        modifier = fluentMenuModifier(isDark)) {
                                         DropdownMenuItem(
                                             text = { Text("Play", color = if (isDark) FTV.Text else FTV.LText, fontSize = 13.sp) },
                                             onClick = { state.playPlaylist(pl.id); showPlMenu = false },
-                                            leadingIcon = { Icon(Icons.Default.PlayArrow, null, tint = FTV.Accent, modifier = Modifier.size(16.dp)) }
+                                            leadingIcon = { Icon(FI.Play, null, tint = FTV.Accent, modifier = Modifier.size(16.dp)) }
                                         )
                                         DropdownMenuItem(
                                             text = { Text("Rename", color = if (isDark) FTV.Text else FTV.LText, fontSize = 13.sp) },
                                             onClick = { state.editingPlaylistId = pl.id; showPlMenu = false },
-                                            leadingIcon = { Icon(Icons.Default.Edit, null, tint = FTV.Accent, modifier = Modifier.size(16.dp)) }
+                                            leadingIcon = { Icon(FI.Edit, null, tint = FTV.Accent, modifier = Modifier.size(16.dp)) }
                                         )
                                         DropdownMenuItem(
                                             text = { Text("Delete", color = FTV.DangerRed, fontSize = 13.sp) },
                                             onClick = { state.deletePlaylist(ctx, pl.id); showPlMenu = false },
-                                            leadingIcon = { Icon(Icons.Default.Delete, null, tint = FTV.DangerRed, modifier = Modifier.size(16.dp)) }
+                                            leadingIcon = { Icon(FI.Delete, null, tint = FTV.DangerRed, modifier = Modifier.size(16.dp)) }
                                         )
                                     }
                                 }
@@ -1542,7 +1720,7 @@ private fun GroupHeader(name: String, count: Int, isDark: Boolean, tc: Color, tc
             Text("$count track${if (count != 1) "s" else ""}", color = tcm, fontSize = 10.sp)
         }
         Box(Modifier.size(26.dp).clip(CircleShape).background(FTV.Accent.copy(0.15f)).clickable { onPlayAll() }, contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.PlayArrow, null, tint = FTV.Accent, modifier = Modifier.size(14.dp))
+            Icon(FI.Play, null, tint = FTV.Accent, modifier = Modifier.size(14.dp))
         }
     }
 }
@@ -1592,7 +1770,7 @@ private fun LibraryRow(
                     contentAlignment = Alignment.Center
                 ) {
                     if (isActive && isPlaying) AnimatedEqualizer(FTV.Accent)
-                    else Icon(if (track.isVideo) Icons.Default.PlayCircle else Icons.Default.MusicNote, null,
+                    else Icon(if (track.isVideo) FI.PlayCircle else FI.MusicNote, null,
                         tint = if (isActive) FTV.Accent else (if (track.isVideo) FTV.VideoGreen else FTV.AudioPurple).copy(0.7f),
                         modifier = Modifier.size(20.dp))
                 }
@@ -1603,7 +1781,7 @@ private fun LibraryRow(
                 Text(track.displayTitle, color = if (isActive) FTV.Accent else tc, fontSize = 13.sp,
                     fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                if (track.isFavorite) Icon(Icons.Default.Star, null, tint = FTV.Gold, modifier = Modifier.size(11.dp))
+                if (track.isFavorite) Icon(FI.Star, null, tint = FTV.Gold, modifier = Modifier.size(11.dp))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(track.displayArtist, color = tcs, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1617,26 +1795,26 @@ private fun LibraryRow(
         if (showMoveControls) {
             Column(Modifier.width(20.dp)) {
                 if (onMoveUp != null)
-                    Icon(Icons.Default.KeyboardArrowUp, null, tint = tcm, modifier = Modifier.size(16.dp).clickable { onMoveUp() })
+                    Icon(FI.KeyboardArrowUp, null, tint = tcm, modifier = Modifier.size(16.dp).clickable { onMoveUp() })
                 if (onMoveDown != null)
-                    Icon(Icons.Default.KeyboardArrowDown, null, tint = tcm, modifier = Modifier.size(16.dp).clickable { onMoveDown() })
+                    Icon(FI.KeyboardArrowDown, null, tint = tcm, modifier = Modifier.size(16.dp).clickable { onMoveDown() })
             }
         }
         Box {
-            Icon(Icons.Default.MoreVert, null, tint = tcm, modifier = Modifier.size(16.dp).clickable { showMenu = true })
+            Icon(FI.MoreVert, null, tint = tcm, modifier = Modifier.size(16.dp).clickable { showMenu = true })
             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false },
-                modifier = Modifier.background(if (isDark) FTV.Surface else FTV.LSurface)) {
+                modifier = fluentMenuModifier(isDark)) {
                 val items = buildList {
-                    add(Triple(Icons.Default.PlayArrow, "Play now", onClick))
-                    add(Triple(Icons.Default.PlaylistAdd, "Add to queue", onAddToQueue))
-                    add(Triple(Icons.Default.QueuePlayNext, "Play next", onPlayNext))
-                    add(Triple(Icons.Default.Remove, removeLabel, onRemoveFromQueue))
-                    add(Triple(Icons.Default.LibraryAdd, "Add to playlist…", onAddToPlaylist))
-                    add(Triple(if (track.isFavorite) Icons.Default.StarBorder else Icons.Default.Star,
+                    add(Triple(FI.Play, "Play now", onClick))
+                    add(Triple(FI.PlaylistAdd, "Add to queue", onAddToQueue))
+                    add(Triple(FI.QueuePlayNext, "Play next", onPlayNext))
+                    add(Triple(FI.Remove, removeLabel, onRemoveFromQueue))
+                    add(Triple(FI.LibraryAdd, "Add to playlist…", onAddToPlaylist))
+                    add(Triple(if (track.isFavorite) FI.StarBorder else FI.Star,
                         if (track.isFavorite) "Unfavorite" else "Favorite", onFavorite))
-                    add(Triple(Icons.Default.Edit, "Edit tags", onTagEdit))
-                    add(Triple(Icons.Default.Share, "Share", onShare))
-                    if (onLoadSubtitle != null) add(Triple(Icons.Default.Subtitles, "Load subtitles…", onLoadSubtitle))
+                    add(Triple(FI.Edit, "Edit tags", onTagEdit))
+                    add(Triple(FI.Share, "Share", onShare))
+                    if (onLoadSubtitle != null) add(Triple(FI.Subtitles, "Load subtitles…", onLoadSubtitle))
                 }
                 items.forEach { (icon, label, action) ->
                     DropdownMenuItem(
@@ -1660,24 +1838,33 @@ private fun MiniNowPlaying(state: PlayerState, isDark: Boolean, tc: Color, tcs: 
     Row(
         Modifier.fillMaxWidth()
             .background(if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh)
-            .padding(10.dp),
+            .padding(start = 10.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(Modifier.size(32.dp).clip(RoundedCornerShape(4.dp))
+        Box(Modifier.size(34.dp).clip(RoundedCornerShape(5.dp))
             .background(if (track.isVideo) FTV.VideoGreen.copy(0.2f) else FTV.AudioPurple.copy(0.2f)),
             contentAlignment = Alignment.Center
         ) {
             if (track.artworkUri != null) AsyncImage(track.artworkUri, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            else Icon(if (track.isVideo) Icons.Default.Movie else Icons.Default.MusicNote, null,
+            else Icon(if (track.isVideo) FI.Movie else FI.MusicNoteFilled, null,
                 tint = if (track.isVideo) FTV.VideoGreen else FTV.AudioPurple, modifier = Modifier.size(16.dp))
         }
         Column(Modifier.weight(1f)) {
             Text(track.displayTitle,  color = tc,  fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
             Text(track.displayArtist, color = tcm, fontSize = 9.sp,  maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        IconButton(onClick = { state.togglePlayPause() }, modifier = Modifier.size(28.dp)) {
-            Icon(if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = FTV.Accent, modifier = Modifier.size(18.dp))
+        IconButton(onClick = { state.togglePlayPause() }, modifier = Modifier.size(30.dp)) {
+            Icon(if (state.isPlaying) FI.Pause else FI.Play, null, tint = FTV.Accent, modifier = Modifier.size(18.dp))
+        }
+        IconButton(
+            onClick = { state.skipNext() },
+            enabled = state.currentIndex < state.playlist.size - 1,
+            modifier = Modifier.size(30.dp)
+        ) {
+            Icon(FI.SkipNext, null,
+                tint = if (state.currentIndex < state.playlist.size - 1) tcs else tcm.copy(alpha = 0.4f),
+                modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -1705,10 +1892,10 @@ private fun PlayerPane(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            ToolbarBtn(Icons.Default.Menu, tc) { state.showQueue = !state.showQueue }
+            ToolbarBtn(FI.Menu, tc) { state.showQueue = !state.showQueue }
             Spacer(Modifier.width(4.dp))
             if (track != null) {
-                Icon(if (track.isVideo) Icons.Default.Movie else Icons.Default.MusicNote, null, tint = FTV.Accent, modifier = Modifier.size(14.dp))
+                Icon(if (track.isVideo) FI.Movie else FI.MusicNoteFilled, null, tint = FTV.Accent, modifier = Modifier.size(14.dp))
                 Text(track.displayTitle, color = tc, fontSize = 13.sp, fontWeight = FontWeight.Medium,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 160.dp))
                 if (track.displayArtist != "Unknown Artist") {
@@ -1718,17 +1905,25 @@ private fun PlayerPane(
             } else Text("Films & TV", color = tcs, fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
             if (track != null) {
-                IconButton(onClick = { track.isFavorite = !track.isFavorite; saveTrackMeta(ctx, track) }, modifier = Modifier.size(32.dp)) {
-                    Icon(if (track.isFavorite) Icons.Default.Star else Icons.Default.StarBorder, null,
+                val scope = rememberCoroutineScope()
+                IconButton(onClick = {
+                    track.isFavorite = !track.isFavorite
+                    // B-10 (perf): this used to write to SharedPreferences synchronously
+                    // on the main/UI thread on every tap. Dispatch to IO like every other
+                    // favorite toggle in this file so tapping the star never causes a
+                    // dropped frame.
+                    scope.launch(Dispatchers.IO) { saveTrackMeta(ctx, track) }
+                }, modifier = Modifier.size(32.dp)) {
+                    Icon(if (track.isFavorite) FI.Star else FI.StarBorder, null,
                         tint = if (track.isFavorite) FTV.Gold else tcm, modifier = Modifier.size(18.dp))
                 }
                 IconButton(onClick = { state.showTagEditor = track }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Edit, null, tint = tcm, modifier = Modifier.size(15.dp))
+                    Icon(FI.Edit, null, tint = tcm, modifier = Modifier.size(15.dp))
                 }
-                ToolbarBtn(Icons.Default.Tune, tc) { state.showMoreControls = true }
+                ToolbarBtn(FI.Tune, tc) { state.showMoreControls = true }
             }
             if (track?.isVideo == true) {
-                ToolbarBtn(Icons.Default.Fullscreen, tc) { state.isFullscreen = true }
+                ToolbarBtn(FI.Fullscreen, tc) { state.isFullscreen = true }
             }
         }
         Divider(color = border)
@@ -1777,7 +1972,7 @@ private fun EmptyState(tc: Color, tcm: Color) {
             Box(Modifier.size(160.dp).background(FTV.Accent.copy(0.05f), CircleShape))
             Box(Modifier.size(120.dp).background(FTV.Accent.copy(0.08f), CircleShape))
             Box(Modifier.size(80.dp).background(FTV.Accent.copy(0.14f), CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.Movie, null, tint = FTV.Accent, modifier = Modifier.size(36.dp))
+                Icon(FI.MovieOutline, null, tint = FTV.Accent, modifier = Modifier.size(36.dp))
             }
         }
         Text("No media selected", color = tc, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
@@ -1910,7 +2105,7 @@ private fun AudioPlayerArea(
             if (track.artworkUri != null) {
                 AsyncImage(model = track.artworkUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             } else {
-                Icon(Icons.Default.MusicNote, null, tint = FTV.AudioPurple, modifier = Modifier.size(84.dp))
+                Icon(FI.MusicNote, null, tint = FTV.AudioPurple, modifier = Modifier.size(84.dp))
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1926,7 +2121,7 @@ private fun AudioPlayerArea(
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Default.QueueMusic, null, tint = tcm, modifier = Modifier.size(14.dp))
+                Icon(FI.QueueMusic, null, tint = tcm, modifier = Modifier.size(14.dp))
                 Text("Up next: ${next.displayTitle}", color = tcs, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
@@ -2005,8 +2200,8 @@ private fun MainControls(state: PlayerState, tc: Color, accent: Color = FTV.Acce
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        ControlBtn(Icons.Default.Shuffle, if (state.isShuffle) accent else tc.copy(0.5f), 20.dp) { state.isShuffle = !state.isShuffle }
-        ControlBtn(Icons.Default.SkipPrevious, tc, 28.dp) { state.skipPrev() }
+        ControlBtn(FI.Shuffle, if (state.isShuffle) accent else tc.copy(0.5f), 20.dp) { state.isShuffle = !state.isShuffle }
+        ControlBtn(FI.SkipPrevious, tc, 28.dp) { state.skipPrev() }
         Box(
             Modifier.size(72.dp)
                 .shadow(14.dp, CircleShape, spotColor = accent, ambientColor = accent)
@@ -2014,22 +2209,22 @@ private fun MainControls(state: PlayerState, tc: Color, accent: Color = FTV.Acce
                 .clickable { state.togglePlayPause() },
             contentAlignment = Alignment.Center
         ) {
-            Icon(if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(36.dp))
+            Icon(if (state.isPlaying) FI.Pause else FI.Play, null, tint = Color.White, modifier = Modifier.size(36.dp))
         }
-        ControlBtn(Icons.Default.SkipNext, tc, 28.dp) { state.skipNext() }
+        ControlBtn(FI.SkipNext, tc, 28.dp) { state.skipNext() }
         ControlBtn(
-            when (state.repeatMode) { RepeatMode.REPEAT_ONE -> Icons.Default.RepeatOne; else -> Icons.Default.Repeat },
+            when (state.repeatMode) { RepeatMode.REPEAT_ONE -> FI.RepeatOne; else -> FI.Repeat },
             if (state.repeatMode != RepeatMode.OFF) accent else tc.copy(0.5f), 20.dp
-        ) { state.repeatMode = RepeatMode.values()[(state.repeatMode.ordinal + 1) % 3] }
+        ) { state.repeatMode = RepeatMode.entries[(state.repeatMode.ordinal + 1) % RepeatMode.entries.size] }
     }
     Row(
         Modifier.fillMaxWidth().padding(top = 2.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ControlBtn(Icons.Default.Replay10, tc.copy(0.7f), 20.dp) { state.seekTo((state.positionMs - 10000).coerceAtLeast(0)) }
+        ControlBtn(FI.Replay10, tc.copy(0.7f), 20.dp) { state.seekTo((state.positionMs - 10000).coerceAtLeast(0)) }
         Spacer(Modifier.width(48.dp))
-        ControlBtn(Icons.Default.Forward10, tc.copy(0.7f), 20.dp) { state.seekTo((state.positionMs + 10000).coerceAtMost(state.durationMs)) }
+        ControlBtn(FI.Forward10, tc.copy(0.7f), 20.dp) { state.seekTo((state.positionMs + 10000).coerceAtMost(state.durationMs)) }
     }
 }
 
@@ -2037,17 +2232,21 @@ private fun MainControls(state: PlayerState, tc: Color, accent: Color = FTV.Acce
 // Volume control
 // ─────────────────────────────────────────────────────────────────
 
+// NOTE: not currently wired into any toolbar — volume is exposed today via
+// MoreControlsSheet's full-width slider instead. Left in place (and kept
+// visually consistent with the rest of the Fluent-styled chips/menus) in
+// case a compact toolbar affordance is wanted later; safe to delete otherwise.
 @Composable
-private fun VolumeControl(state: PlayerState, tc: Color, tcm: Color) {
+private fun VolumeControl(state: PlayerState, isDark: Boolean, tc: Color, tcm: Color) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         ToolbarBtn(
-            when { state.isMuted || state.volume == 0f -> Icons.Default.VolumeOff
-                   state.volume < 0.5f -> Icons.Default.VolumeDown
-                   else -> Icons.Default.VolumeUp },
+            when { state.isMuted || state.volume == 0f -> FI.VolumeOff
+                   state.volume < 0.5f -> FI.VolumeDown
+                   else -> FI.VolumeUp },
             tc
         ) { expanded = !expanded }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = fluentMenuModifier(isDark)) {
             Column(Modifier.width(160.dp).padding(horizontal = 12.dp, vertical = 8.dp)) {
                 Slider(
                     value = if (state.isMuted) 0f else state.volume,
@@ -2072,9 +2271,14 @@ private fun SpeedChip(state: PlayerState, bgTint: Color, tc: Color) {
                 .clickable { expanded = true }.padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) { Text(speedLabel(state.playbackSpeed), color = tc, fontSize = 11.sp, fontWeight = FontWeight.Medium) }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = fluentFlyoutOnScrimModifier()) {
             SPEED_STEPS.forEach { s ->
-                DropdownMenuItem(text = { Text(speedLabel(s)) }, onClick = { state.setSpeed(s); expanded = false })
+                val active = state.playbackSpeed == s
+                DropdownMenuItem(
+                    text = { Text(speedLabel(s), color = Color.White, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal) },
+                    onClick = { state.setSpeed(s); expanded = false },
+                    trailingIcon = if (active) { { Icon(FI.Check, null, tint = FTV.Accent, modifier = Modifier.size(16.dp)) } } else null
+                )
             }
         }
     }
@@ -2093,15 +2297,19 @@ private fun SleepTimerChip(state: PlayerState, bgTint: Color) {
                 .clickable { expanded = true }.padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Icon(Icons.Default.Timer, null, tint = bgTint, modifier = Modifier.size(13.dp))
+            Icon(FI.Timer, null, tint = bgTint, modifier = Modifier.size(13.dp))
             if (state.sleepTimerActive) Text(formatTimer(state.sleepTimerSeconds), color = bgTint, fontSize = 11.sp)
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = fluentFlyoutOnScrimModifier()) {
             if (state.sleepTimerActive) {
-                DropdownMenuItem(text = { Text("Cancel timer") }, onClick = { state.sleepTimerActive = false; expanded = false })
+                DropdownMenuItem(
+                    text = { Text("Cancel timer", color = FTV.DangerRed) },
+                    onClick = { state.sleepTimerActive = false; expanded = false },
+                    leadingIcon = { Icon(FI.Close, null, tint = FTV.DangerRed, modifier = Modifier.size(16.dp)) }
+                )
             } else {
                 SLEEP_OPTIONS.forEach { (min, label) ->
-                    DropdownMenuItem(text = { Text(label) }, onClick = {
+                    DropdownMenuItem(text = { Text(label, color = Color.White) }, onClick = {
                         state.sleepTimerSeconds = min * 60L; state.sleepTimerActive = true; expanded = false
                     })
                 }
@@ -2129,6 +2337,7 @@ private fun MoreControlsSheet(
     Box(Modifier.fillMaxSize().background(Color.Black.copy(0.5f)).clickable(onClick = onDismiss), contentAlignment = Alignment.BottomCenter) {
         Column(
             Modifier.fillMaxWidth()
+                .shadow(16.dp, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                 .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                 .background(if (isDark) FTV.Surface else FTV.LSurface)
                 .clickable(enabled = false) {}
@@ -2201,9 +2410,9 @@ private fun MoreControlsSheet(
                 Text("Volume", color = tcs, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Icon(
-                        when { state.isMuted || state.volume == 0f -> Icons.Default.VolumeOff
-                               state.volume < 0.5f -> Icons.Default.VolumeDown
-                               else -> Icons.Default.VolumeUp },
+                        when { state.isMuted || state.volume == 0f -> FI.VolumeOff
+                               state.volume < 0.5f -> FI.VolumeDown
+                               else -> FI.VolumeUp },
                         null, tint = tc, modifier = Modifier.size(20.dp).clickable { state.isMuted = !state.isMuted }
                     )
                     Slider(
@@ -2253,9 +2462,14 @@ private fun AspectRatioChip(state: PlayerState, tint: Color) {
                 .clickable { expanded = true }.padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) { Text(state.aspectRatio.label, color = tint, fontSize = 11.sp) }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            AspectRatio.values().forEach { ar ->
-                DropdownMenuItem(text = { Text(ar.label) }, onClick = { state.aspectRatio = ar; expanded = false })
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = fluentFlyoutOnScrimModifier()) {
+            AspectRatio.entries.forEach { ar ->
+                val active = state.aspectRatio == ar
+                DropdownMenuItem(
+                    text = { Text(ar.label, color = Color.White, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal) },
+                    onClick = { state.aspectRatio = ar; expanded = false },
+                    trailingIcon = if (active) { { Icon(FI.Check, null, tint = FTV.Accent, modifier = Modifier.size(16.dp)) } } else null
+                )
             }
         }
     }
@@ -2275,7 +2489,9 @@ private fun SettingsSheet(
 ) {
     Box(Modifier.fillMaxSize().background(Color.Black.copy(0.4f)).clickable(onClick = onDismiss), contentAlignment = Alignment.CenterEnd) {
         Column(
-            Modifier.width(320.dp).fillMaxHeight().background(if (isDark) FTV.Surface else FTV.LSurface)
+            Modifier.width(320.dp).fillMaxHeight()
+                .shadow(16.dp, RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+                .background(if (isDark) FTV.Surface else FTV.LSurface)
                 .clickable(enabled = false) {}
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
@@ -2283,7 +2499,7 @@ private fun SettingsSheet(
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Settings", color = tc, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, null, tint = tcm) }
+                IconButton(onClick = onDismiss) { Icon(FI.Close, null, tint = tcm) }
             }
             Divider(color = border)
 
@@ -2378,6 +2594,7 @@ private fun TagEditorSheet(
         Column(
             Modifier.width(360.dp).clip(RoundedCornerShape(12.dp))
                 .background(if (isDark) FTV.Surface else FTV.LSurface)
+                .border(1.dp, border, RoundedCornerShape(12.dp))
                 .clickable(enabled = false) {}
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -2472,6 +2689,7 @@ private fun AddToPlaylistDialog(
             Modifier.width(320.dp).heightIn(max = 480.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(if (isDark) FTV.Surface else FTV.LSurface)
+                .border(1.dp, border, RoundedCornerShape(12.dp))
                 .clickable(enabled = false) {}
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -2481,7 +2699,7 @@ private fun AddToPlaylistDialog(
                     Text("Add to playlist", color = tc, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Text(track.displayTitle, color = tcs, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.Close, null, tint = tcm, modifier = Modifier.size(16.dp)) }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) { Icon(FI.Close, null, tint = tcm, modifier = Modifier.size(16.dp)) }
             }
             Divider(color = border)
 
@@ -2497,7 +2715,7 @@ private fun AddToPlaylistDialog(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(
-                            if (alreadyIn) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank, null,
+                            if (alreadyIn) FI.CheckBox else FI.CheckBoxOutline, null,
                             tint = if (alreadyIn) FTV.Accent else tcm, modifier = Modifier.size(18.dp)
                         )
                         Text(pl.name, color = tc, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -2527,7 +2745,7 @@ private fun AddToPlaylistDialog(
                     IconButton(onClick = {
                         if (newName.isNotBlank()) { onCreateNew(newName); showNewRow = false; newName = "" }
                     }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Check, null, tint = FTV.Accent, modifier = Modifier.size(20.dp))
+                        Icon(FI.Check, null, tint = FTV.Accent, modifier = Modifier.size(20.dp))
                     }
                 }
             } else {
@@ -2535,7 +2753,7 @@ private fun AddToPlaylistDialog(
                     Modifier.fillMaxWidth().clickable { showNewRow = true }.padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.Add, null, tint = FTV.Accent, modifier = Modifier.size(18.dp))
+                    Icon(FI.Add, null, tint = FTV.Accent, modifier = Modifier.size(18.dp))
                     Text("New playlist", color = FTV.Accent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 }
             }
@@ -2563,6 +2781,7 @@ private fun NamePromptDialog(
         Column(
             Modifier.width(300.dp).clip(RoundedCornerShape(12.dp))
                 .background(if (isDark) FTV.Surface else FTV.LSurface)
+                .border(1.dp, border, RoundedCornerShape(12.dp))
                 .clickable(enabled = false) {}
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)

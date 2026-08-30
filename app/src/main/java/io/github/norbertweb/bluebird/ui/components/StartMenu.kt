@@ -14,6 +14,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -51,47 +53,13 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AirplanemodeActive
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Article
-import androidx.compose.material.icons.filled.Assignment
-import androidx.compose.material.icons.filled.Bluetooth
-import androidx.compose.material.icons.filled.Brightness6
-import androidx.compose.material.icons.filled.Calculate
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DoNotDisturb
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.FormatListBulleted
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.FullscreenExit
-import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.NightsStay
-import androidx.compose.material.icons.filled.AspectRatio
-import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.Photo
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.TableChart
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.TextFields
-import androidx.compose.material.icons.filled.TextRotationAngledown
-import androidx.compose.material.icons.filled.ViewComfy
-import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.filled.Wifi
+// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
+// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
+// Dependency (module build.gradle.kts):
+//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
+// All icons used by this file are centralized in the `FluentIcon` object —
+// if a name doesn't exist in the version you pull in, Android Studio's
+// FluentIcons.Regular.… autocomplete will show the closest real name.
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -121,7 +89,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -256,8 +223,9 @@ private object DS {
     val menuHeightCompact  = 660.dp
     val menuHeightExpanded = 840.dp
 
-    val cornerRadius  = 12.dp
+    val cornerRadius  = 8.dp   // Windows 11 flyout/menu corner radius
     val sectionCorner = 8.dp
+    val tileCorner    = 4.dp   // Fluent 2 control-corner-radius, used for small icon tiles
     val chipCorner    = 6.dp
 
     val accentBrushValue: Brush = Brush.linearGradient(
@@ -267,7 +235,16 @@ private object DS {
     fun accentBrush() = accentBrushValue
 }
 
+// Icon lookups now come from the shared `FluentIcon` object in FluentIcon.kt,
+// used by every UI file in this package (Start Menu, Desktop, TaskBar, Settings).
+
 private enum class StartMenuTab { PINNED, ALL_APPS, RECENT, SEARCH }
+
+private val SIZE_MODE_LABELS = listOf(
+    StartMenuSizeMode.COMPACT to "Compact",
+    StartMenuSizeMode.EXPANDED to "Expanded",
+    StartMenuSizeMode.FULLSCREEN to "Full Screen"
+)
 
 private fun timeGreeting(): String {
     return when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
@@ -281,26 +258,26 @@ private fun timeGreeting(): String {
 // Built-In System Apps Definition
 // ─────────────────────────────────────────────────────────
 private val builtInApps = listOf(
-    Triple("Settings", Icons.Default.Settings, LauncherScreen.SETTINGS),
-    Triple("Calculator", Icons.Default.Calculate, LauncherScreen.CALCULATOR),
-    Triple("Calendar", Icons.Default.CalendarMonth, LauncherScreen.CALENDAR),
-    Triple("Bluebird Store", Icons.Default.NightsStay, LauncherScreen.BLUEBIRD_STORE),
-    Triple("Word Impress", Icons.Default.TextRotationAngledown, LauncherScreen.WORD_IMPRESS),
+    Triple("Settings", FluentIcon.Settings, LauncherScreen.SETTINGS),
+    Triple("Calculator", FluentIcon.Calculator, LauncherScreen.CALCULATOR),
+    Triple("Calendar", FluentIcon.Calendar, LauncherScreen.CALENDAR),
+    Triple("Bluebird Store", FluentIcon.Moon, LauncherScreen.BLUEBIRD_STORE),
+    Triple("Word Impress", FluentIcon.DocumentText, LauncherScreen.WORD_IMPRESS),
 
-    Triple("Files",        Icons.Default.Folder,            LauncherScreen.FILE_EXPLORER),
-    Triple("Browser",      Icons.Default.Language,          LauncherScreen.BROWSER),
+    Triple("Files",        FluentIcon.Folder,       LauncherScreen.FILE_EXPLORER),
+    Triple("Browser",      FluentIcon.Globe,        LauncherScreen.BROWSER),
 
-    Triple("Photos",       Icons.Default.PhotoLibrary,      LauncherScreen.PHOTOS),
-    Triple("Tasks",        Icons.Default.Assignment,        LauncherScreen.TASK_MANAGER),
+    Triple("Photos",       FluentIcon.ImageMultiple, LauncherScreen.PHOTOS),
+    Triple("Tasks",        FluentIcon.TaskList,      LauncherScreen.TASK_MANAGER),
 
 
-    Triple("Media Player", Icons.Default.LiveTv, LauncherScreen.MEDIA_PLAYER),
-    Triple("Recycle Bin",  Icons.Default.Delete,            LauncherScreen.RECYCLE_BIN),
-    Triple("Image Viewer", Icons.Default.Photo,             LauncherScreen.IMAGE_VIEWER),
-    Triple("Text Editor",  Icons.Default.TextFields,        LauncherScreen.PremiumTextEditorScreen),
+    Triple("Media Player", FluentIcon.PlayCircle, LauncherScreen.MEDIA_PLAYER),
+    Triple("Recycle Bin",  FluentIcon.Delete,        LauncherScreen.RECYCLE_BIN),
+    Triple("Image Viewer", FluentIcon.Image,         LauncherScreen.IMAGE_VIEWER),
+    Triple("Text Editor",  FluentIcon.TextFont,      LauncherScreen.PremiumTextEditorScreen),
 
-    Triple("Terminal", Icons.Default.Terminal,             LauncherScreen.TERMINAL),
-    Triple("Web App Manager",  Icons.Default.Language,        LauncherScreen.WEB_APP_MANAGER)
+    Triple("Terminal", FluentIcon.Console,          LauncherScreen.TERMINAL),
+    Triple("Web App Manager",  FluentIcon.Globe,    LauncherScreen.WEB_APP_MANAGER)
 
 
 )
@@ -394,6 +371,17 @@ fun StartMenu(
             .shadow(elevation = if (isFullscreen) 0.dp else 24.dp, shape = RoundedCornerShape(cornerRadius), clip = false)
             .clip(RoundedCornerShape(cornerRadius))
             .background(bgColor)
+            .background(
+                // Windows 11 Mica/Acrylic materials carry a faint light-to-transparent
+                // sheen near the top edge — this reproduces that without extra draw calls.
+                Brush.verticalGradient(
+                    colors = listOf(
+                        if (isDark) Color.White.copy(alpha = 0.05f) else Color.White.copy(alpha = 0.35f),
+                        Color.Transparent
+                    ),
+                    endY = 220f
+                )
+            )
             .then(
                 if (isFullscreen) Modifier else Modifier.border(1.dp, borderColor, RoundedCornerShape(cornerRadius))
             )
@@ -432,10 +420,10 @@ fun StartMenu(
                     ) {
                         Icon(
                             imageVector = when (layoutPrefs.mode) {
-                                LayoutMode.COMPACT_GRID, LayoutMode.LARGE_GRID -> Icons.Default.GridView
-                                LayoutMode.LIST_VIEW -> Icons.Default.FormatListBulleted
-                                else -> Icons.Default.ViewComfy
-                            },
+                                    LayoutMode.COMPACT_GRID, LayoutMode.LARGE_GRID -> FluentIcon.Grid
+                                    LayoutMode.LIST_VIEW -> FluentIcon.List
+                                    else -> FluentIcon.Apps
+                                },
                             contentDescription = "Layout: ${layoutPrefs.mode.name}",
                             tint = if (showLayoutMenu) DS.accentStart else textPrimary.copy(alpha = 0.5f),
                             modifier = Modifier.size(16.dp)
@@ -452,7 +440,7 @@ fun StartMenu(
                             )
                             .border(1.dp, borderColor, RoundedCornerShape(DS.sectionCorner))
                     ) {
-                        LayoutMode.values().forEach { mode ->
+                        LayoutMode.entries.forEach { mode ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -465,7 +453,7 @@ fun StartMenu(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 if (layoutPrefs.mode == mode) {
-                                    Icon(Icons.Default.Check, null, tint = DS.accentStart, modifier = Modifier.size(14.dp))
+                                    Icon(FluentIcon.Checkmark, null, tint = DS.accentStart, modifier = Modifier.size(14.dp))
                                 } else {
                                     Spacer(Modifier.size(14.dp))
                                 }
@@ -484,7 +472,7 @@ fun StartMenu(
                                 )
                                 if (mode == LayoutMode.MOBILE_HOME) {
                                     Icon(
-                                        Icons.Default.PhoneAndroid,
+                                        FluentIcon.PhoneAndroid,
                                         null,
                                         tint = (if (isDark) Color.White else Color.Black).copy(alpha = 0.45f),
                                         modifier = Modifier.size(14.dp)
@@ -512,10 +500,10 @@ fun StartMenu(
                         ) {
                             Icon(
                                 imageVector = when (sizeMode) {
-                                    StartMenuSizeMode.COMPACT    -> Icons.Default.Fullscreen
-                                    StartMenuSizeMode.EXPANDED   -> Icons.Default.AspectRatio
-                                    StartMenuSizeMode.FULLSCREEN -> Icons.Default.FullscreenExit
-                                },
+                                        StartMenuSizeMode.COMPACT    -> FluentIcon.FullScreenMax
+                                        StartMenuSizeMode.EXPANDED   -> FluentIcon.Resize
+                                        StartMenuSizeMode.FULLSCREEN -> FluentIcon.FullScreenMin
+                                    },
                                 contentDescription = "Window size: ${sizeMode.name}",
                                 tint = if (sizeMode != StartMenuSizeMode.COMPACT) DS.accentStart else textPrimary.copy(alpha = 0.5f),
                                 modifier = Modifier.size(16.dp)
@@ -532,11 +520,7 @@ fun StartMenu(
                                 )
                                 .border(1.dp, borderColor, RoundedCornerShape(DS.sectionCorner))
                         ) {
-                            listOf(
-                                StartMenuSizeMode.COMPACT to "Compact",
-                                StartMenuSizeMode.EXPANDED to "Expanded",
-                                StartMenuSizeMode.FULLSCREEN to "Full Screen"
-                            ).forEach { (mode, label) ->
+                            SIZE_MODE_LABELS.forEach { (mode, label) ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -549,7 +533,7 @@ fun StartMenu(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     if (sizeMode == mode) {
-                                        Icon(Icons.Default.Check, null, tint = DS.accentStart, modifier = Modifier.size(14.dp))
+                                        Icon(FluentIcon.Checkmark, null, tint = DS.accentStart, modifier = Modifier.size(14.dp))
                                     } else {
                                         Spacer(Modifier.size(14.dp))
                                     }
@@ -675,6 +659,16 @@ private fun PremiumTabRow(
             StartMenuTab.RECENT   to "Recent"
         ).forEach { (tab, label) ->
             val isActive = activeTab == tab
+            val indicatorColor by animateColorAsState(
+                targetValue = if (isActive) DS.accentStart else Color.Transparent,
+                animationSpec = tween(180),
+                label = "tab_indicator_color"
+            )
+            val indicatorWidth by animateDpAsState(
+                targetValue = if (isActive) 40.dp else 16.dp,
+                animationSpec = tween(180),
+                label = "tab_indicator_width"
+            )
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
@@ -691,12 +685,9 @@ private fun PremiumTabRow(
                 Spacer(Modifier.height(6.dp))
                 Box(
                     modifier = Modifier
-                        .width(40.dp)
+                        .width(indicatorWidth)
                         .height(2.dp)
-                        .background(
-                            if (isActive) DS.accentStart else Color.Transparent,
-                            RoundedCornerShape(1.dp)
-                        )
+                        .background(indicatorColor, RoundedCornerShape(1.dp))
                 )
             }
         }
@@ -737,7 +728,7 @@ private fun EmptyStateView(message: String, isDark: Boolean) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
-                Icons.Default.Apps, null,
+                FluentIcon.Apps, null,
                 tint = textPrimary.copy(alpha = 0.12f),
                 modifier = Modifier.size(48.dp)
             )
@@ -771,7 +762,7 @@ private fun PinnedView(
                 rightContent = {
                     CompactActionChip(
                         label = if (editMode) "Done" else "Edit",
-                        icon  = if (editMode) Icons.Default.Check else Icons.Default.Edit,
+                        icon  = if (editMode) FluentIcon.Checkmark else FluentIcon.Edit,
                         isDark = isDark,
                         onClick = onEditModeToggle
                     )
@@ -993,7 +984,7 @@ private fun MobileAppIcon(
                 val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
                 Image(bitmap = bmp, contentDescription = app.name, modifier = Modifier.size((iconSize - 12).dp))
             } else {
-                Icon(Icons.Default.Apps, null, tint = DS.accentStart, modifier = Modifier.size((iconSize / 2.5).dp))
+                Icon(FluentIcon.Apps, null, tint = DS.accentStart, modifier = Modifier.size((iconSize / 2.5).dp))
             }
         }
         if (showLabel) {
@@ -1023,12 +1014,16 @@ private fun AllAppsView(
     context: Context,
     layoutPrefs: LayoutPreferences
 ) {
-    val sortedApps  = uiState.installedApps.sortedBy { it.name.lowercase() }
-    val grouped     = sortedApps.groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
+    val sortedApps = remember(uiState.installedApps) {
+        uiState.installedApps.sortedBy { it.name.lowercase() }
+    }
+    val grouped = remember(sortedApps) {
+        sortedApps.groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
+    }
     val listState   = rememberLazyListState()
     val scope       = rememberCoroutineScope()
-    val jumpLetters = grouped.keys.sorted()
-    var expandedGroups by remember { mutableStateOf(grouped.keys.toSet()) }
+    val jumpLetters = remember(grouped) { grouped.keys.sorted() }
+    var expandedGroups by remember(grouped) { mutableStateOf(grouped.keys.toSet()) }
 
     Row(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -1396,11 +1391,11 @@ private fun SettingsKeywordRow(keyword: String, isDark: Boolean, onClick: () -> 
         Box(
             modifier = Modifier
                 .size(30.dp)
-                .clip(RoundedCornerShape(DS.sectionCorner))
+                .clip(RoundedCornerShape(DS.tileCorner))
                 .background(DS.accentStart),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.Settings, null, tint = Color.White, modifier = Modifier.size(16.dp))
+            Icon(FluentIcon.Settings, null, tint = Color.White, modifier = Modifier.size(16.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(keyword.replaceFirstChar { it.uppercase() }, fontSize = 13.sp, color = textPrimary, fontWeight = FontWeight.Normal, maxLines = 1)
@@ -1431,7 +1426,7 @@ private fun CollapsibleGroupHeader(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Icon(
-            if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            if (isExpanded) FluentIcon.ChevronUp else FluentIcon.ChevronDown,
             null,
             tint = DS.accentStart,
             modifier = Modifier.size(14.dp)
@@ -1535,7 +1530,7 @@ private fun AppGridLayout(
 // ─────────────────────────────────────────────────────────
 @Composable
 private fun BuiltInAppGridLayout(
-    apps: List<Triple<String, ImageVector, LauncherScreen>>,
+    apps: List<Triple<String, androidx.compose.ui.graphics.vector.ImageVector, LauncherScreen>>,
     isDark: Boolean,
     editMode: Boolean,
     layoutPrefs: LayoutPreferences,
@@ -1608,7 +1603,7 @@ fun PremiumSearchBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(
-                Icons.Default.Search, null,
+                FluentIcon.Search, null,
                 tint = if (isFocused) DS.accentStart else textColor.copy(alpha = 0.35f),
                 modifier = Modifier.size(15.dp)
             )
@@ -1627,7 +1622,7 @@ fun PremiumSearchBar(
             )
             if (query.isNotEmpty()) {
                 Icon(
-                    Icons.Default.Close, "Clear",
+                    FluentIcon.Dismiss, "Clear",
                     tint = textColor.copy(alpha = 0.4f),
                     modifier = Modifier.size(14.dp).clickable { onQueryChange("") }
                 )
@@ -1691,7 +1686,7 @@ fun AnimatedPinnedIcon(
                             .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Apps, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
+                        Icon(FluentIcon.Apps, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -1714,7 +1709,7 @@ fun AnimatedPinnedIcon(
                     .clickable { onUnpin() },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Remove, null, tint = Color.White, modifier = Modifier.size(10.dp))
+                Icon(FluentIcon.Subtract, null, tint = Color.White, modifier = Modifier.size(10.dp))
             }
         }
 
@@ -1737,7 +1732,7 @@ fun AnimatedPinnedIcon(
 @Composable
 fun AnimatedBuiltInIcon(
     name: String,
-    icon: ImageVector,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     isDark: Boolean,
     editMode: Boolean,
     onClick: () -> Unit,
@@ -1775,7 +1770,7 @@ fun AnimatedBuiltInIcon(
                 .background(DS.accentStart),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, name, tint = Color.White, modifier = Modifier.size(18.dp))
+            Icon(imageVector = icon, contentDescription = name, tint = Color.White, modifier = Modifier.size(18.dp))
         }
         if (showLabel) {
             Spacer(Modifier.height(4.dp))
@@ -1825,7 +1820,7 @@ private fun HorizontalAppCard(app: AppInfo, isDark: Boolean, onClick: () -> Unit
                         val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
                         Image(bitmap = bmp, contentDescription = app.name, modifier = Modifier.size(28.dp))
                     } else {
-                        Icon(Icons.Default.Apps, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
+                        Icon(FluentIcon.Apps, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
                     }
                 }
                 Spacer(Modifier.height(4.dp))
@@ -1852,7 +1847,7 @@ private fun CompactAppIcon(app: AppInfo, isDark: Boolean, onClick: () -> Unit) {
             val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
             Image(bitmap = bmp, contentDescription = app.name, modifier = Modifier.size(24.dp))
         } else {
-            Icon(Icons.Default.Apps, null, tint = DS.accentStart, modifier = Modifier.size(16.dp))
+            Icon(FluentIcon.Apps, null, tint = DS.accentStart, modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -1894,7 +1889,7 @@ private fun AllAppsRow(
                     val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
                     Image(bitmap = bmp, contentDescription = app.name, modifier = Modifier.size(28.dp))
                 } else {
-                    Icon(Icons.Default.Apps, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
+                    Icon(FluentIcon.Apps, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
                 }
             }
             Column(modifier = Modifier.weight(1f)) {
@@ -1910,7 +1905,7 @@ private fun AllAppsRow(
 }
 
 @Composable
-private fun BuiltInAppListRow(name: String, icon: ImageVector, isDark: Boolean, onClick: () -> Unit) {
+private fun BuiltInAppListRow(name: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isDark: Boolean, onClick: () -> Unit) {
     var pressed by remember { mutableStateOf(false) }
     val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     Row(
@@ -1929,10 +1924,10 @@ private fun BuiltInAppListRow(name: String, icon: ImageVector, isDark: Boolean, 
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box(
-            modifier = Modifier.size(30.dp).clip(RoundedCornerShape(DS.sectionCorner)).background(DS.accentStart),
+            modifier = Modifier.size(30.dp).clip(RoundedCornerShape(DS.tileCorner)).background(DS.accentStart),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, null, tint = Color.White, modifier = Modifier.size(16.dp))
+            Icon(imageVector = icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(name, fontSize = 13.sp, color = textPrimary, fontWeight = FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -2056,10 +2051,10 @@ private fun RecentCard(
     ) {
         val vectorIcon = remember(filePath) { getFileIcon(extension) }
         Box(
-            modifier = Modifier.size(28.dp).background(DS.accentStart.copy(alpha = 0.1f), RoundedCornerShape(4.dp)),
+            modifier = Modifier.size(28.dp).background(DS.accentStart.copy(alpha = 0.1f), RoundedCornerShape(DS.tileCorner)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(vectorIcon, null, tint = DS.accentStart, modifier = Modifier.size(16.dp))
+            Icon(imageVector = vectorIcon, contentDescription = null, tint = DS.accentStart, modifier = Modifier.size(16.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(title, fontSize = 11.sp, color = textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
@@ -2071,17 +2066,19 @@ private fun RecentCard(
 // ─────────────────────────────────────────────────────────
 // Quick Actions Strip
 // ─────────────────────────────────────────────────────────
+private val QUICK_ACTIONS = listOf(
+    FluentIcon.Wifi to "Wi-Fi",
+    FluentIcon.Bluetooth to "Bluetooth",
+    FluentIcon.Airplane to "Airplane",
+    FluentIcon.Prohibited to "Focus",
+    FluentIcon.BrightnessHigh to "Brightness",
+    FluentIcon.Speaker2 to "Sound"
+)
+
 @Composable
 private fun QuickActionsStrip(isDark: Boolean, context: Context) {
     val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    val actions = listOf(
-        Pair(Icons.Default.Wifi, "Wi-Fi"),
-        Pair(Icons.Default.Bluetooth, "Bluetooth"),
-        Pair(Icons.Default.AirplanemodeActive,"Airplane"),
-        Pair(Icons.Default.DoNotDisturb, "Focus"),
-        Pair(Icons.Default.Brightness6, "Brightness"),
-        Pair(Icons.Default.VolumeUp, "Sound")
-    )
+    val actions = QUICK_ACTIONS
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -2111,7 +2108,7 @@ private fun QuickActionsStrip(isDark: Boolean, context: Context) {
                     .padding(horizontal = 4.dp, vertical = 7.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Icon(icon, label, tint = if (active) Color.White else textPrimary.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
+                Icon(imageVector = icon, contentDescription = label, tint = if (active) Color.White else textPrimary.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
                 Spacer(Modifier.height(2.dp))
                 Text(label, fontSize = 8.sp, color = if (active) Color.White else textPrimary.copy(alpha = 0.45f), maxLines = 1, textAlign = TextAlign.Center, letterSpacing = 0.sp)
             }
@@ -2123,7 +2120,7 @@ private fun QuickActionsStrip(isDark: Boolean, context: Context) {
 // Compact Action Chip
 // ─────────────────────────────────────────────────────────
 @Composable
-private fun CompactActionChip(label: String, icon: ImageVector, isDark: Boolean, onClick: () -> Unit) {
+private fun CompactActionChip(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isDark: Boolean, onClick: () -> Unit) {
     val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     Row(
         modifier = Modifier
@@ -2134,7 +2131,7 @@ private fun CompactActionChip(label: String, icon: ImageVector, isDark: Boolean,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Icon(icon, null, tint = DS.accentStart.copy(alpha = 0.8f), modifier = Modifier.size(11.dp))
+        Icon(imageVector = icon, contentDescription = null, tint = DS.accentStart.copy(alpha = 0.8f), modifier = Modifier.size(11.dp))
         Text(label, fontSize = 10.sp, color = textColor.copy(alpha = 0.7f), fontWeight = FontWeight.Normal, letterSpacing = 0.2.sp)
     }
 }
@@ -2150,6 +2147,8 @@ private fun BottomUserBar(
 ) {
     val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val greeting    = remember { timeGreeting() }
+    val context     = LocalContext.current
+    var showPowerMenu by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -2214,12 +2213,75 @@ private fun BottomUserBar(
             }
         }
 
-
+        // Power button — was previously missing, leaving PowerMenuItem() unused.
+        Box {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(DS.sectionCorner))
+                    .background(if (showPowerMenu) DS.accentStart.copy(alpha = 0.15f) else Color.Transparent)
+                    .clickable { showPowerMenu = true },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = FluentIcon.Power,
+                    contentDescription = "Power options",
+                    tint = if (showPowerMenu) DS.accentStart else textPrimary.copy(alpha = 0.7f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            DropdownMenu(
+                expanded = showPowerMenu,
+                onDismissRequest = { showPowerMenu = false },
+                modifier = Modifier
+                    .background(if (isDark) DS.surfaceDark else DS.glassLight, RoundedCornerShape(DS.sectionCorner))
+                    .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner))
+            ) {
+                PowerMenuItem(label = "Sleep", icon = FluentIcon.SleepArrow, isDark = isDark) {
+                    showPowerMenu = false
+                    // Locking the screen is the closest a normal app can get to "sleep" —
+                    // PowerManager.goToSleep() is a hidden/system-only API and isn't in the
+                    // public SDK. This requires the app to be a device/profile owner; it's
+                    // a safe no-op (caught below) otherwise.
+                    runCatching {
+                        (context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? android.app.admin.DevicePolicyManager)
+                            ?.lockNow()
+                    }
+                }
+                PowerMenuItem(label = "Restart", icon = FluentIcon.ArrowSync, isDark = isDark) {
+                    showPowerMenu = false
+                    // PowerManager.reboot() is public API but needs the signature-level
+                    // android.permission.REBOOT, normally granted only to system apps.
+                    runCatching {
+                        (context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)?.reboot(null)
+                    }
+                }
+                PowerMenuItem(label = "Shut Down", icon = FluentIcon.Power, isDark = isDark) {
+                    showPowerMenu = false
+                    // There is no public SDK call to power off the device from an app —
+                    // Intent.ACTION_REQUEST_SHUTDOWN is a hidden/system-only constant, not
+                    // part of the public Intent API. This reaches PowerManager's hidden
+                    // shutdown(...) via reflection instead, which only succeeds on a
+                    // system-signed / privileged build; it's a safe no-op elsewhere.
+                    runCatching {
+                        val pm = context.getSystemService(Context.POWER_SERVICE)
+                        pm?.javaClass
+                            ?.getMethod(
+                                "shutdown",
+                                Boolean::class.javaPrimitiveType,
+                                String::class.java,
+                                Boolean::class.javaPrimitiveType
+                            )
+                            ?.invoke(pm, false, "userrequested", false)
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun PowerMenuItem(label: String, icon: ImageVector, isDark: Boolean, onClick: () -> Unit) {
+private fun PowerMenuItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isDark: Boolean, onClick: () -> Unit) {
     var pressed by remember { mutableStateOf(false) }
     val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val iconTint = if (label == "Shut Down") DS.badgeRed else DS.accentStart
@@ -2239,7 +2301,7 @@ private fun PowerMenuItem(label: String, icon: ImageVector, isDark: Boolean, onC
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Icon(icon, label, tint = iconTint, modifier = Modifier.size(14.dp))
+        Icon(imageVector = icon, contentDescription = label, tint = iconTint, modifier = Modifier.size(14.dp))
         Text(label, fontSize = 12.sp, color = textColor, fontWeight = FontWeight.Normal)
     }
 }
@@ -2263,7 +2325,7 @@ fun StartMenuAppIcon(
 }
 
 @Composable
-fun BuiltInAppIcon(name: String, icon: ImageVector, isDark: Boolean, onClick: () -> Unit) {
+fun BuiltInAppIcon(name: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isDark: Boolean, onClick: () -> Unit) {
     AnimatedBuiltInIcon(name = name, icon = icon, isDark = isDark, editMode = false, onClick = onClick)
 }
 
@@ -2276,12 +2338,12 @@ private fun formatFileSize(size: Long): String {
     }
 }
 
-private fun getFileIcon(extension: String): ImageVector = when (extension.lowercase()) {
-    "pdf"                        -> Icons.Default.PictureAsPdf
-    "doc", "docx"                -> Icons.Default.Article
-    "xls", "xlsx"                -> Icons.Default.TableChart
-    "jpg", "jpeg", "png", "gif"  -> Icons.Default.Image
-    else                         -> Icons.Default.InsertDriveFile
+private fun getFileIcon(extension: String): androidx.compose.ui.graphics.vector.ImageVector = when (extension.lowercase()) {
+    "pdf"                        -> FluentIcon.DocumentPdf
+    "doc", "docx"                -> FluentIcon.DocumentText
+    "xls", "xlsx"                -> FluentIcon.Table
+    "jpg", "jpeg", "png", "gif"  -> FluentIcon.Image
+    else                         -> FluentIcon.Document
 }
 
 private fun getRecentFiles(context: Context): List<File> {

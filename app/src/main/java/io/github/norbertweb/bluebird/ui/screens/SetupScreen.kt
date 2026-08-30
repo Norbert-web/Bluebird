@@ -39,29 +39,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AddAPhoto
-import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Dashboard
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Storage
+// Microsoft Fluent System UI icons (https://github.com/niyajali/fluentui-system-icons) —
+// same icon set used across Bluebird OS (see MediaPlayerScreen.kt). FluentIcons.Filled.*
+// is used for emphasis/active states, FluentIcons.Regular.* everywhere else.
+
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
@@ -70,6 +51,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
@@ -81,6 +64,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -101,8 +85,77 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import fluent.ui.system.icons.FluentIcons
+import fluent.ui.system.icons.filled.Checkmark
+import fluent.ui.system.icons.filled.CheckmarkCircle
+import fluent.ui.system.icons.filled.Home
+import fluent.ui.system.icons.regular.Alert
+import fluent.ui.system.icons.regular.Apps
+import fluent.ui.system.icons.regular.AppsList
+import fluent.ui.system.icons.regular.ArrowRight
+import fluent.ui.system.icons.regular.Camera
+import fluent.ui.system.icons.regular.CameraAdd
+import fluent.ui.system.icons.regular.ChevronRight
+import fluent.ui.system.icons.regular.CloudArrowUp
+import fluent.ui.system.icons.regular.DocumentText
+import fluent.ui.system.icons.regular.FolderOpen
+import fluent.ui.system.icons.regular.Grid
+import fluent.ui.system.icons.regular.HandLeft
+import fluent.ui.system.icons.regular.HardDrive
+import fluent.ui.system.icons.regular.Image
+import fluent.ui.system.icons.regular.ImageMultiple
+import fluent.ui.system.icons.regular.Info
+import fluent.ui.system.icons.regular.LockClosedKey
+import fluent.ui.system.icons.regular.Open
+import fluent.ui.system.icons.regular.PaintBrush
+import fluent.ui.system.icons.regular.Person
+import fluent.ui.system.icons.regular.Settings
+import fluent.ui.system.icons.regular.Shapes
+import fluent.ui.system.icons.regular.ShieldCheckmark
+import fluent.ui.system.icons.regular.TopSpeed
+import fluent.ui.system.icons.regular.WeatherMoon
 import io.github.norbertweb.bluebird.LauncherViewModel
 import java.io.File
+
+// ─────────────────────────────────────────────────────────
+// Fluent icon set — every icon this screen uses, centralized in one place
+// (mirrors the same pattern used in MediaPlayerScreen.kt) so a name that
+// doesn't resolve in your installed library version is a one-line fix here
+// rather than a hunt through the whole file.
+// ─────────────────────────────────────────────────────────
+private object SetupFI {
+    val Home         = FluentIcons.Filled.Home
+    val Lock         = FluentIcons.Regular.LockClosedKey
+    val Person       = FluentIcons.Regular.Person
+    val Image        = FluentIcons.Regular.Image
+    val Description  = FluentIcons.Regular.DocumentText
+    val FolderOpen   = FluentIcons.Regular.FolderOpen
+    val Storage      = FluentIcons.Regular.HardDrive
+    val PhotoCamera  = FluentIcons.Regular.Camera
+    val Notifications = FluentIcons.Regular.Alert
+    val ArrowForward = FluentIcons.Regular.ArrowRight
+    val Check        = FluentIcons.Filled.Checkmark
+    val CheckCircle  = FluentIcons.Filled.CheckmarkCircle
+    val ChevronRight = FluentIcons.Regular.ChevronRight
+    val Dashboard    = FluentIcons.Regular.AppsList
+    val Security     = FluentIcons.Regular.ShieldCheckmark
+    val Settings     = FluentIcons.Regular.Settings
+    val Speed        = FluentIcons.Regular.TopSpeed
+    val AddAPhoto    = FluentIcons.Regular.CameraAdd
+    val PhotoLibrary = FluentIcons.Regular.ImageMultiple
+    val SkipNext     = FluentIcons.Regular.ArrowRight
+    val Info         = FluentIcons.Regular.Info
+    val OpenInNew    = FluentIcons.Regular.Open
+    // Feature-tile icons for the new "Customize your setup" step
+    val Palette      = FluentIcons.Regular.PaintBrush
+
+    val DarkMode     = FluentIcons.Regular.WeatherMoon
+    val Widgets      = FluentIcons.Regular.Grid
+    val AppSuggest   = FluentIcons.Regular.Apps
+    val Backup       = FluentIcons.Regular.CloudArrowUp
+    val Gestures     = FluentIcons.Regular.HandLeft
+    val IconPack     = FluentIcons.Regular.Shapes
+}
 
 // ─────────────────────────────────────────────────────────
 // Data Models
@@ -122,14 +175,79 @@ private data class PermissionItem(
 private data class StepMeta(val icon: ImageVector, val label: String, val subtitle: String)
 
 private val stepMeta = listOf(
-    StepMeta(Icons.Default.Home,        "Welcome",     "Get started"),
-    StepMeta(Icons.Default.Lock,        "Permissions", "Access & privacy"),
-    StepMeta(Icons.Default.Person,      "Profile",     "Name & identity"),
-    StepMeta(Icons.Default.Image,       "Photo",       "Profile picture"),
-    StepMeta(Icons.Default.Description, "Legal",       "Terms & privacy"),
+    StepMeta(SetupFI.Home,        "Welcome",     "Get started"),
+    StepMeta(SetupFI.Lock,        "Permissions", "Access & privacy"),
+    StepMeta(SetupFI.Person,      "Profile",     "Name & identity"),
+    StepMeta(SetupFI.Image,       "Photo",       "Profile picture"),
+    StepMeta(SetupFI.Palette,     "Customize",   "Make it yours"),
+    StepMeta(SetupFI.Description, "Legal",       "Terms & privacy"),
 )
 
 private enum class StepState { DONE, ACTIVE, UPCOMING }
+
+/**
+ * A single "Customize your setup" tile — modelled on Windows 11's post-install
+ * OOBE customization page: a short list of feature toggles that ship with a
+ * sensible recommended default, can be switched off individually, and can be
+ * skipped as a group without blocking setup completion.
+ *
+ * `settingKey` is a stable identifier meant to be wired to wherever your app
+ * persists preferences (DataStore/SharedPreferences/ViewModel) — this screen
+ * only tracks the in-memory toggle state during setup; wiring each key to an
+ * actual feature flag is left for you to fill in at the `onApply` callsite.
+ */
+private data class CustomizeTile(
+    val settingKey: String,
+    val icon: ImageVector,
+    val title: String,
+    val description: String,
+    val recommendedDefault: Boolean
+)
+
+private val customizeTiles = listOf(
+    CustomizeTile(
+        settingKey = "dark_mode_follow_system",
+        icon = SetupFI.DarkMode,
+        title = "Match system theme",
+        description = "Automatically switch between light and dark based on your device setting.",
+        recommendedDefault = true
+    ),
+    CustomizeTile(
+        settingKey = "home_screen_widgets",
+        icon = SetupFI.Widgets,
+        title = "Add starter widgets",
+        description = "Place a clock and a favorites widget on your home screen to begin with.",
+        recommendedDefault = true
+    ),
+    CustomizeTile(
+        settingKey = "app_suggestions",
+        icon = SetupFI.AppSuggest,
+        title = "Smart app suggestions",
+        description = "Surface a row of apps you're likely to open next, based on time and habit.",
+        recommendedDefault = true
+    ),
+    CustomizeTile(
+        settingKey = "icon_pack_rounded",
+        icon = SetupFI.IconPack,
+        title = "Rounded icon style",
+        description = "Use a softer, rounded icon shape across the launcher instead of square.",
+        recommendedDefault = false
+    ),
+    CustomizeTile(
+        settingKey = "gesture_navigation",
+        icon = SetupFI.Gestures,
+        title = "Swipe gestures",
+        description = "Swipe up from the home screen for search, and swipe down for notifications.",
+        recommendedDefault = true
+    ),
+    CustomizeTile(
+        settingKey = "backup_settings",
+        icon = SetupFI.Backup,
+        title = "Back up settings",
+        description = "Keep a local backup of your layout and preferences so you can restore them later.",
+        recommendedDefault = false
+    ),
+)
 
 private fun areAllPermissionsGranted(
     context: android.content.Context,
@@ -158,6 +276,16 @@ fun SetupScreen(
     var showPermissionRationale by remember { mutableStateOf<PermissionItem?>(null) }
     var showManageStorageDialog by remember { mutableStateOf(false) }
 
+    // Hoisted here (not inside CustomizeStep) so toggle choices survive the
+    // user tapping Back into this step from Legal and returning — the same
+    // reason UsernameStep's text is threaded through uiState rather than
+    // living in a `remember` local to that one step.
+    val customizeSelections = remember {
+        mutableStateMapOf<String, Boolean>().apply {
+            customizeTiles.forEach { put(it.settingKey, it.recommendedDefault) }
+        }
+    }
+
     // Build permission list based on API level
     val permissionItems = remember {
         val storagePerms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -175,7 +303,7 @@ fun SetupScreen(
                 PermissionItem(
                     "Media & Files",
                     "Read photos, videos, and audio from your device",
-                    Icons.Default.FolderOpen,
+                    SetupFI.FolderOpen,
                     storagePerms,
                     optional = false
                 )
@@ -186,7 +314,7 @@ fun SetupScreen(
                     PermissionItem(
                         "Manage All Files",
                         "Required for file manager features and full storage access",
-                        Icons.Default.Storage,
+                        SetupFI.Storage,
                         emptyList(),
                         optional = true,
                         requiresSettingsIntent = true,
@@ -199,7 +327,7 @@ fun SetupScreen(
                 PermissionItem(
                     "Camera",
                     "Take photos for your profile picture",
-                    Icons.Default.PhotoCamera,
+                    SetupFI.PhotoCamera,
                     listOf(Manifest.permission.CAMERA),
                     optional = false
                 )
@@ -208,7 +336,7 @@ fun SetupScreen(
                 PermissionItem(
                     "Notifications",
                     "Show app notifications on your home screen",
-                    Icons.Default.Notifications,
+                    SetupFI.Notifications,
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
                         listOf(Manifest.permission.POST_NOTIFICATIONS)
                     else emptyList(),
@@ -297,6 +425,7 @@ fun SetupScreen(
                             uiState = uiState,
                             permissionItems = permissionItems,
                             grantedStates = grantedStates,
+                            customizeSelections = customizeSelections,
                             onRequestPermission = { item ->
                                 if (item.isManageAllFiles && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                                     showManageStorageDialog = true
@@ -331,6 +460,7 @@ fun SetupScreen(
                             uiState = uiState,
                             permissionItems = permissionItems,
                             grantedStates = grantedStates,
+                            customizeSelections = customizeSelections,
                             onRequestPermission = { item ->
                                 if (item.isManageAllFiles && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                                     showManageStorageDialog = true
@@ -385,7 +515,7 @@ fun SetupScreen(
         if (showManageStorageDialog && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             AlertDialog(
                 onDismissRequest = { showManageStorageDialog = false },
-                icon = { Icon(Icons.Default.Storage, contentDescription = null, tint = primary) },
+                icon = { Icon(SetupFI.Storage, contentDescription = null, tint = primary) },
                 title = { Text("Manage all files access") },
                 text = {
                     Text(
@@ -426,6 +556,7 @@ private fun StepContent(
     uiState: io.github.norbertweb.bluebird.LauncherUiState,
     permissionItems: List<PermissionItem>,
     grantedStates: Map<String, Boolean>,
+    customizeSelections: SnapshotStateMap<String, Boolean>,
     onRequestPermission: (PermissionItem) -> Unit,
     onRequestNotificationAccess: () -> Unit,
     onBack: () -> Unit,
@@ -472,7 +603,19 @@ private fun StepContent(
                 onNext = { viewModel.advanceSetupStep() },
                 onBack = onBack
             )
-            4 -> LegalStep(
+            4 -> CustomizeStep(
+                selections = customizeSelections,
+                onApply = { selections ->
+                    // TODO: persist `selections` (settingKey -> Boolean) via your
+                    // ViewModel/DataStore of choice, e.g.:
+                    //   selections.forEach { (key, enabled) -> viewModel.setFeatureFlag(key, enabled) }
+                    // Left as a no-op here since Bluebird OS's preference storage
+                    // for these specific flags isn't defined in this file.
+                },
+                onNext = { viewModel.advanceSetupStep() },
+                onBack = onBack
+            )
+            5 -> LegalStep(
                 onNext = { onSetupCompleted() },
                 onBack = onBack
             )
@@ -561,7 +704,7 @@ private fun LeftSidebar(currentStep: Int, modifier: Modifier = Modifier) {
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.Home,
+                    SetupFI.Home,
                     contentDescription = null,
                     tint = colorScheme.onPrimary,
                     modifier = Modifier.size(22.dp)
@@ -613,6 +756,11 @@ private fun LeftSidebar(currentStep: Int, modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.labelSmall,
                 color = colorScheme.onSurfaceVariant
             )
+            Text(
+                "Icons: Fluent UI System Icons © Microsoft",
+                style = MaterialTheme.typography.labelSmall,
+                color = colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
         }
     }
 }
@@ -662,7 +810,7 @@ private fun SidebarStepItem(index: Int, meta: StepMeta, state: StepState) {
             contentAlignment = Alignment.Center
         ) {
             if (state == StepState.DONE) {
-                Icon(Icons.Default.Check, null, tint = colorScheme.primary, modifier = Modifier.size(13.dp))
+                Icon(SetupFI.Check, null, tint = colorScheme.primary, modifier = Modifier.size(13.dp))
             } else {
                 Text(
                     "${index + 1}",
@@ -679,7 +827,7 @@ private fun SidebarStepItem(index: Int, meta: StepMeta, state: StepState) {
         }
 
         if (state == StepState.ACTIVE) {
-            Icon(Icons.Default.ChevronRight, null, tint = colorScheme.primary, modifier = Modifier.size(16.dp))
+            Icon(SetupFI.ChevronRight, null, tint = colorScheme.primary, modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -747,14 +895,14 @@ private fun WelcomeStep(onNext: () -> Unit) {
     StepContainer(
         title = "Welcome to Bluebird OS",
         subtitle = "A clean, modern home screen launcher. Let's take a moment to set everything up.",
-        icon = Icons.Default.Home
+        icon = SetupFI.Home
     ) {
         val colorScheme = MaterialTheme.colorScheme
         val features = listOf(
-            Triple(Icons.Default.Dashboard, "Clean interface", "A minimal design that keeps your most-used apps front and centre."),
-            Triple(Icons.Default.Settings,  "Fully customisable", "Organise apps, widgets, and layouts exactly how you want them."),
-            Triple(Icons.Default.Security,  "Privacy-focused", "Your data stays on your device. No telemetry, no tracking."),
-            Triple(Icons.Default.Speed,     "Lightweight", "Fast and smooth — built to stay out of your way."),
+            Triple(SetupFI.Dashboard, "Clean interface", "A minimal design that keeps your most-used apps front and centre."),
+            Triple(SetupFI.Settings,  "Fully customisable", "Organise apps, widgets, and layouts exactly how you want them."),
+            Triple(SetupFI.Security,  "Privacy-focused", "Your data stays on your device. No telemetry, no tracking."),
+            Triple(SetupFI.Speed,     "Lightweight", "Fast and smooth — built to stay out of your way."),
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -787,7 +935,7 @@ private fun WelcomeStep(onNext: () -> Unit) {
         }
 
         Spacer(Modifier.height(4.dp))
-        PrimaryButton(text = "Get started", icon = Icons.Default.ArrowForward, onClick = onNext)
+        PrimaryButton(text = "Get started", icon = SetupFI.ArrowForward, onClick = onNext)
     }
 }
 
@@ -808,7 +956,7 @@ private fun PermissionsStep(
     StepContainer(
         title = "Permissions",
         subtitle = "Grant access so Bluebird OS can work fully. Optional permissions can be skipped and changed any time in Android Settings.",
-        icon = Icons.Default.Lock
+        icon = SetupFI.Lock
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             permissionItems.forEach { item ->
@@ -838,7 +986,7 @@ private fun PermissionsStep(
         Spacer(Modifier.height(4.dp))
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton("Continue", Icons.Default.ArrowForward, onClick = onNext)
+            PrimaryButton("Continue", SetupFI.ArrowForward, onClick = onNext)
             SecondaryButton("Back", onClick = onBack, modifier = Modifier.fillMaxWidth())
         }
     }
@@ -908,7 +1056,7 @@ private fun PermissionCard(
         }
         if (isGranted) {
             Icon(
-                Icons.Default.CheckCircle,
+                SetupFI.CheckCircle,
                 contentDescription = "$title granted",
                 tint = colorScheme.primary,
                 modifier = Modifier.size(20.dp)
@@ -953,7 +1101,7 @@ private fun UsernameStep(
     StepContainer(
         title = "What's your name?",
         subtitle = "This appears on your lock screen and home screen greeting. You can change it later in Settings.",
-        icon = Icons.Default.Person
+        icon = SetupFI.Person
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
@@ -993,11 +1141,11 @@ private fun UsernameStep(
                     },
                     singleLine = true,
                     leadingIcon = {
-                        Icon(Icons.Default.Person, null, tint = colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                        Icon(SetupFI.Person, null, tint = colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                     },
                     trailingIcon = {
                         if (name.isNotEmpty()) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = "Name entered", tint = colorScheme.primary, modifier = Modifier.size(18.dp))
+                            Icon(SetupFI.CheckCircle, contentDescription = "Name entered", tint = colorScheme.primary, modifier = Modifier.size(18.dp))
                         }
                     }
                 )
@@ -1014,7 +1162,7 @@ private fun UsernameStep(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PrimaryButton(
                 text = "Continue",
-                icon = Icons.Default.ArrowForward,
+                icon = SetupFI.ArrowForward,
                 enabled = name.isNotBlank(),
                 onClick = {
                     onNameChange(name.trim().ifBlank { "User" })
@@ -1077,7 +1225,7 @@ private fun AvatarStep(
     StepContainer(
         title = "Add a profile photo",
         subtitle = "This will appear on your home screen and lock screen. You can skip this and add one later.",
-        icon = Icons.Default.Image
+        icon = SetupFI.Image
     ) {
         // Avatar preview
         Box(
@@ -1117,7 +1265,7 @@ private fun AvatarStep(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
-                            Icons.Default.AddAPhoto,
+                            SetupFI.AddAPhoto,
                             null,
                             tint = colorScheme.onPrimaryContainer,
                             modifier = Modifier.size(28.dp)
@@ -1163,7 +1311,7 @@ private fun AvatarStep(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(Icons.Default.PhotoLibrary, null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Icon(SetupFI.PhotoLibrary, null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
                     Text("Gallery", style = MaterialTheme.typography.labelMedium, color = colorScheme.onSurface)
                 }
             }
@@ -1190,7 +1338,7 @@ private fun AvatarStep(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(Icons.Default.PhotoCamera, null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Icon(SetupFI.PhotoCamera, null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
                     Text("Camera", style = MaterialTheme.typography.labelMedium, color = colorScheme.onSurface)
                 }
             }
@@ -1200,7 +1348,7 @@ private fun AvatarStep(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PrimaryButton(
                 text = if (selectedUri != null) "Continue" else "Skip for now",
-                icon = if (selectedUri != null) Icons.Default.Check else Icons.Default.SkipNext,
+                icon = if (selectedUri != null) SetupFI.Check else SetupFI.SkipNext,
                 onClick = onNext
             )
             SecondaryButton("Back", onClick = onBack, modifier = Modifier.fillMaxWidth())
@@ -1212,7 +1360,7 @@ private fun AvatarStep(
         val ctx = LocalContext.current
         AlertDialog(
             onDismissRequest = { showCameraPermissionDialog = false },
-            icon = { Icon(Icons.Default.PhotoCamera, null, tint = MaterialTheme.colorScheme.primary) },
+            icon = { Icon(SetupFI.PhotoCamera, null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text("Camera access needed") },
             text = { Text("Camera permission was not granted during setup. Please enable it in Android Settings to take a photo.", style = MaterialTheme.typography.bodyMedium) },
             confirmButton = {
@@ -1231,7 +1379,156 @@ private fun AvatarStep(
 }
 
 // ─────────────────────────────────────────────────────────
-// Step 4 — Legal & Privacy
+// Step 4 — Customize (Windows-11-OOBE-style feature toggles)
+// ─────────────────────────────────────────────────────────
+
+@Composable
+private fun CustomizeStep(
+    selections: SnapshotStateMap<String, Boolean>,
+    onApply: (Map<String, Boolean>) -> Unit,
+    onNext: () -> Unit,
+    onBack: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+
+    val enabledCount = customizeTiles.count { selections[it.settingKey] == true }
+    val allRecommendedOn = customizeTiles.all { selections[it.settingKey] == it.recommendedDefault }
+
+    StepContainer(
+        title = "Customize your setup",
+        subtitle = "We've picked sensible defaults below. Turn anything off now, or leave it — every one of these can be changed later in Settings.",
+        icon = SetupFI.Palette
+    ) {
+        // Quick "reset to recommended" affordance — mirrors the OOBE pattern
+        // where the whole page has one clear default state to fall back to.
+        if (!allRecommendedOn) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colorScheme.primaryContainer.copy(alpha = 0.35f))
+                    .clickable { customizeTiles.forEach { selections[it.settingKey] = it.recommendedDefault } }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(SetupFI.CheckCircle, null, tint = colorScheme.primary, modifier = Modifier.size(15.dp))
+                Text(
+                    "Reset to recommended",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colorScheme.primary
+                )
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            customizeTiles.forEach { tile ->
+                val isOn = selections[tile.settingKey] ?: tile.recommendedDefault
+                CustomizeTileRow(
+                    tile = tile,
+                    isOn = isOn,
+                    onToggle = { selections[tile.settingKey] = it }
+                )
+            }
+        }
+
+        Text(
+            "$enabledCount of ${customizeTiles.size} enabled",
+            style = MaterialTheme.typography.labelSmall,
+            color = colorScheme.onSurfaceVariant
+        )
+
+        Spacer(Modifier.height(4.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrimaryButton(
+                text = "Continue",
+                icon = SetupFI.ArrowForward,
+                onClick = { onApply(selections.toMap()); onNext() }
+            )
+            SecondaryButton(
+                text = "Skip for now",
+                onClick = {
+                    // Skipping applies nothing — every tile stays at whatever the
+                    // app's normal first-run default is, untouched by this screen.
+                    onNext()
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+            SecondaryButton("Back", onClick = onBack, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@Composable
+private fun CustomizeTileRow(
+    tile: CustomizeTile,
+    isOn: Boolean,
+    onToggle: (Boolean) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            .border(
+                0.5.dp,
+                if (isOn) colorScheme.primary.copy(alpha = 0.3f) else colorScheme.outlineVariant,
+                RoundedCornerShape(10.dp)
+            )
+            .semantics { role = Role.Switch; contentDescription = "${tile.title}, ${if (isOn) "on" else "off"}" }
+            .clickable { onToggle(!isOn) }
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (isOn) colorScheme.primary.copy(alpha = 0.12f) else colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                tile.icon,
+                null,
+                tint = if (isOn) colorScheme.primary else colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(19.dp)
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(tile.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = colorScheme.onSurface)
+                if (tile.recommendedDefault) {
+                    Text(
+                        "Recommended",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colorScheme.primary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(colorScheme.primary.copy(alpha = 0.12f))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
+            }
+            Text(tile.description, style = MaterialTheme.typography.bodySmall, color = colorScheme.onSurfaceVariant, lineHeight = 17.sp)
+        }
+        Switch(
+            checked = isOn,
+            onCheckedChange = onToggle,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = colorScheme.onPrimary,
+                checkedTrackColor = colorScheme.primary,
+                uncheckedThumbColor = colorScheme.outline,
+                uncheckedTrackColor = colorScheme.surfaceVariant
+            )
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// Step 5 — Legal & Privacy
 // ─────────────────────────────────────────────────────────
 
 @Composable
@@ -1243,7 +1540,7 @@ private fun LegalStep(onNext: () -> Unit, onBack: () -> Unit) {
     StepContainer(
         title = "Legal information",
         subtitle = "Please review our policies before completing setup.",
-        icon = Icons.Default.Description
+        icon = SetupFI.Description
     ) {
         // Tab selector
         Row(
@@ -1338,7 +1635,7 @@ private fun LegalStep(onNext: () -> Unit, onBack: () -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PrimaryButton(
                 text = "Complete setup",
-                icon = Icons.Default.Check,
+                icon = SetupFI.Check,
                 enabled = agreedToPrivacy,
                 onClick = onNext
             )
@@ -1373,6 +1670,7 @@ private fun OpenSourceContent() {
         LegalSection("Open source licence", "Bluebird OS is released under the Apache License 2.0. You are free to use, modify, and distribute this software under its terms.")
         LegalSection("Source code", "The complete source code is available on GitHub. Contributions, bug reports, and pull requests are welcome.")
         LegalSection("Key dependencies", "Bluebird OS uses Jetpack Compose, Material 3, and Coil. We are grateful to those projects and their maintainers.")
+        LegalSection("Iconography", "Icons throughout Bluebird OS are from Fluent UI System Icons, © Microsoft Corporation, made available under the MIT License.")
         LegalSection("Licence text", "Licensed under the Apache License, Version 2.0. A copy is available at http://www.apache.org/licenses/LICENSE-2.0")
     }
 }
@@ -1422,7 +1720,7 @@ private fun DefaultLauncherDialog(
                         .background(colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Home, null, tint = colorScheme.onPrimaryContainer, modifier = Modifier.size(28.dp))
+                    Icon(SetupFI.Home, null, tint = colorScheme.onPrimaryContainer, modifier = Modifier.size(28.dp))
                 }
 
                 Column(
@@ -1455,7 +1753,7 @@ private fun DefaultLauncherDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    Icon(Icons.Default.Info, null, tint = colorScheme.primary, modifier = Modifier.size(15.dp).padding(top = 1.dp))
+                    Icon(SetupFI.Info, null, tint = colorScheme.primary, modifier = Modifier.size(15.dp).padding(top = 1.dp))
                     Text(
                         "You will be redirected to Android Settings to select Bluebird OS as your home app.",
                         style = MaterialTheme.typography.labelSmall,
@@ -1470,7 +1768,7 @@ private fun DefaultLauncherDialog(
                 ) {
                     PrimaryButton(
                         text = "Set as default",
-                        icon = Icons.Default.OpenInNew,
+                        icon = SetupFI.OpenInNew,
                         onClick = onSetDefault,
                         modifier = Modifier.fillMaxWidth()
                     )

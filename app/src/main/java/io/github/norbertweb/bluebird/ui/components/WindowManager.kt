@@ -22,23 +22,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Calculate
-import androidx.compose.material.icons.filled.CalendarToday
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Monitor
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.NightsStay
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.TextFields
-import androidx.compose.material.icons.filled.TextRotationAngledown
-import androidx.compose.material.icons.filled.Window
+// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
+// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
+// Dependency (module build.gradle.kts):
+//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -63,7 +50,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.changedToDown
@@ -139,24 +125,10 @@ enum class SnapLayout {
 // ─────────────────────────────────────────────────────────────────────────────
 // Icon helper
 // ─────────────────────────────────────────────────────────────────────────────
-private fun iconForKey(key: String): ImageVector = when (key) {
-    WindowIconKey.PremiumTextEditorScreen -> Icons.Default.TextFields
-    WindowIconKey.SETTINGS         -> Icons.Default.Settings
-    WindowIconKey.FILE_EXPLORER    -> Icons.Default.Folder
-    WindowIconKey.BROWSER          -> Icons.Default.Public
-    WindowIconKey.CALCULATOR       -> Icons.Default.Calculate
-    WindowIconKey.CALENDAR         -> Icons.Default.CalendarToday
-    WindowIconKey.PHOTOS           -> Icons.Default.PhotoLibrary
-    WindowIconKey.TASK_MANAGER     -> Icons.Default.Monitor
-    WindowIconKey.MEDIA_PLAYER     -> Icons.Default.MusicNote
-    WindowIconKey.IMAGE_VIEWER     -> Icons.Default.Image
-    WindowIconKey.WORD_IMPRESS            -> Icons.Default.TextRotationAngledown
-    WindowIconKey.BLUEBIRD_STORE         -> Icons.Default.NightsStay
-    WindowIconKey.RECYCLE_BIN      -> Icons.Default.Delete
-    WindowIconKey.WEB_APP_MANAGER -> Icons.Default.Public
-    WindowIconKey.WEB_APP -> Icons.Default.Public
-    else                           -> Icons.Default.Window
-}
+// Icon lookups (including `iconForKey`) now come from the shared FluentIcon.kt,
+// used by every UI file in this package. This also fixes a real inconsistency:
+// this file used to map MEDIA_PLAYER to a music-note icon while Taskbar.kt used
+// a play icon for the same window — they now agree (FluentIcon.PlayCircle).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Default window sizes per screen type
@@ -845,7 +817,7 @@ private fun PipThumbnail(
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, null,
+            Icon(imageVector = icon, contentDescription = null,
                 tint = if (isDark) Color.White.copy(0.7f) else Color(0xFF444444),
                 modifier = Modifier.size(28.dp))
             Spacer(Modifier.height(4.dp))
@@ -1141,7 +1113,7 @@ fun WindowTitleBar(
             )
         } else {
             Icon(
-                imageVector        = icon,
+                imageVector            = icon,
                 contentDescription = null,
                 tint               = if (isDark) Color.White.copy(0.75f) else Color(0xFF444444),
                 modifier           = Modifier.size(14.dp)
@@ -1307,7 +1279,7 @@ fun CopyProgressScreen(isDark: Boolean, viewModel: LauncherViewModel) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Default.ContentCopy,
+                            imageVector = FluentIcon.Copy,
                             contentDescription = null,
                             tint = Color(0xFF0078D4),
                             modifier = Modifier.size(22.dp)
@@ -1334,11 +1306,11 @@ fun CopyProgressScreen(isDark: Boolean, viewModel: LauncherViewModel) {
                         }
                         if (job.status == CopyJobStatus.RUNNING || job.status == CopyJobStatus.SCANNING) {
                             IconButton(onClick = { viewModel.cancelCopyJob(job.id) }, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = "Cancel", tint = tcDim, modifier = Modifier.size(16.dp))
+                                Icon(imageVector = FluentIcon.Dismiss, contentDescription = "Cancel", tint = tcDim, modifier = Modifier.size(16.dp))
                             }
                         } else {
                             IconButton(onClick = { viewModel.dismissCopyJob(job.id) }, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = tcDim, modifier = Modifier.size(16.dp))
+                                Icon(imageVector = FluentIcon.Dismiss, contentDescription = "Dismiss", tint = tcDim, modifier = Modifier.size(16.dp))
                             }
                         }
                     }

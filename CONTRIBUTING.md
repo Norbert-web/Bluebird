@@ -1,14 +1,14 @@
 Security Policy
 
-📦 Supported Versions
+ Supported Versions
 
 Version| Supported
-1.0.x| ✅ Active support
-< 1.0| ❌ No longer supported
+1.0.x|  Active support
+< 1.0|  No longer supported
 
 ---
 
-🔐 Reporting a Vulnerability
+ Reporting a Vulnerability
 
 If you discover a security vulnerability in Bluebird, please do not open a public GitHub issue.
 
@@ -41,7 +41,7 @@ Response times may vary depending on issue complexity and maintainer availabilit
 
 ---
 
-🎯 Security Scope
+ Security Scope
 
 The following are considered in scope for responsible disclosure:
 
@@ -66,7 +66,7 @@ The following are generally out of scope:
 
 ---
 
-🗄️ Data Storage & Privacy
+️ Data Storage & Privacy
 
 Bluebird stores limited application data locally on-device using Android app-private storage.
 
@@ -93,7 +93,7 @@ The built-in browser uses Android's system WebView and standard network stack fo
 
 ---
 
-🔒 Android Sandbox & Permissions
+ Android Sandbox & Permissions
 
 Bluebird operates within Android's normal application sandbox and permission model.
 
@@ -118,7 +118,7 @@ Users remain in control of runtime permission grants and may revoke permissions 
 
 ---
 
-⚠️ Security Disclaimer
+ Security Disclaimer
 
 Bluebird is an open-source project provided on an "as is" basis without guarantees of security, privacy, or fitness for any particular purpose.
 
@@ -126,7 +126,7 @@ While reasonable efforts are made to improve application security, users should 
 
 ---
 
-🙏 Responsible Disclosure
+ Responsible Disclosure
 
 Please allow reasonable time for vulnerabilities to be investigated and addressed before publicly disclosing security issues.
 

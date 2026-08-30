@@ -16,7 +16,6 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Environment
-import androidx.annotation.DrawableRes
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -29,10 +28,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
+// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
+// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
+// Dependency (module build.gradle.kts):
+//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
 import androidx.compose.material3.*
+import androidx.compose.ui.res.painterResource
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,7 +47,6 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
@@ -58,9 +58,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.painterResource
-//import androidx.compose.ui.text.LocalTextStyle
-// I need to review something here,LAMN NOBERT
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -516,20 +513,20 @@ fun drawableToBitmap(drawable: Drawable): Bitmap {
 // ─────────────────────────────────────────────────────────────────
 // Icon Helpers
 // ─────────────────────────────────────────────────────────────────
-fun getFileIcon(file: File): ImageVector = when {
-    file.isDirectory -> Icons.Default.Folder
-    file.extension.lowercase() in MUSIC_EXTS  -> Icons.Default.AudioFile
-    file.extension.lowercase() in VIDEO_EXTS  -> Icons.Default.PlayCircle
-    file.extension.lowercase() in IMAGE_EXTS  -> Icons.Default.Image
-    file.extension.lowercase() in TEXT_EXTS   -> Icons.Default.Description
-    file.extension.lowercase() == "pdf"       -> Icons.Default.PictureAsPdf
-    file.extension.lowercase() == "apk"       -> Icons.Default.Android
-    file.extension.lowercase() in setOf("zip","rar","7z","tar","gz") -> Icons.Default.Archive
-    file.extension.lowercase() in setOf("doc","docx") -> Icons.Default.Article
-    file.extension.lowercase() in setOf("xls","xlsx") -> Icons.Default.TableChart
-    file.extension.lowercase() == "webapp" -> Icons.Default.Public
-    file.extension.lowercase() == "desktop" -> Icons.Default.Apps
-    else -> Icons.Default.InsertDriveFile
+fun getFileIcon(file: File): androidx.compose.ui.graphics.vector.ImageVector = when {
+    file.isDirectory -> FluentIcon.Folder
+    file.extension.lowercase() in MUSIC_EXTS  -> FluentIcon.MusicNote2
+    file.extension.lowercase() in VIDEO_EXTS  -> FluentIcon.PlayCircle
+    file.extension.lowercase() in IMAGE_EXTS  -> FluentIcon.Image
+    file.extension.lowercase() in TEXT_EXTS   -> FluentIcon.DocumentText
+    file.extension.lowercase() == "pdf"       -> FluentIcon.DocumentPdf
+    file.extension.lowercase() == "apk"       -> FluentIcon.Android
+    file.extension.lowercase() in setOf("zip","rar","7z","tar","gz") -> FluentIcon.FolderZip
+    file.extension.lowercase() in setOf("doc","docx") -> FluentIcon.DocumentText
+    file.extension.lowercase() in setOf("xls","xlsx") -> FluentIcon.Table
+    file.extension.lowercase() == "webapp" -> FluentIcon.Globe
+    file.extension.lowercase() == "desktop" -> FluentIcon.Apps
+    else -> FluentIcon.Document
 }
 
 fun getFileIconColor(file: File): Color = when {
@@ -1666,7 +1663,7 @@ fun Desktop(
                         val resId = DEFAULT_WALLPAPERS.getOrNull(dIdx % DEFAULT_WALLPAPERS.size) ?: 0
                         if (resId != 0) {
                             Image(
-                                painter = painterResource(resId),
+                                painter = painterResource(id = resId),
                                 contentDescription = null,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
@@ -2281,7 +2278,7 @@ fun Desktop(
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Icon(
-                                Icons.Default.FolderOff, null,
+                                imageVector = FluentIcon.FolderProhibited, contentDescription = null,
                                 tint     = Color(0xFF0078D4),
                                 modifier = Modifier.size(18.dp)
                             )
@@ -2657,21 +2654,21 @@ private fun DesktopIcon(
     val imageBitmap = remember(item.iconBitmap) { item.iconBitmap?.asImageBitmap() }
     val fallbackIcon = remember(item.file.absolutePath, item.type, item.builtInScreen) {
         when (item.builtInScreen) {
-            LauncherScreen.FILE_EXPLORER -> Icons.Default.Folder
-            LauncherScreen.SETTINGS -> Icons.Default.Settings
-            LauncherScreen.BROWSER -> Icons.Default.Language
-            LauncherScreen.CALCULATOR -> Icons.Default.Calculate
-            LauncherScreen.CALENDAR -> Icons.Default.CalendarMonth
-            LauncherScreen.PHOTOS -> Icons.Default.PhotoLibrary
-            LauncherScreen.MEDIA_PLAYER -> Icons.Default.LiveTv
-            LauncherScreen.IMAGE_VIEWER -> Icons.Default.Photo
-            LauncherScreen.WORD_IMPRESS -> Icons.Default.TextRotationAngledown
-            LauncherScreen.PremiumTextEditorScreen -> Icons.Default.TextFields
-            LauncherScreen.TERMINAL -> Icons.Default.Terminal
-            LauncherScreen.TASK_MANAGER -> Icons.Default.Assignment
-            LauncherScreen.RECYCLE_BIN -> Icons.Default.Delete
-            LauncherScreen.BLUEBIRD_STORE -> Icons.Default.NightsStay
-            LauncherScreen.WEB_APP_MANAGER -> Icons.Default.Language
+            LauncherScreen.FILE_EXPLORER -> FluentIcon.Folder
+            LauncherScreen.SETTINGS -> FluentIcon.Settings
+            LauncherScreen.BROWSER -> FluentIcon.Globe
+            LauncherScreen.CALCULATOR -> FluentIcon.Calculator
+            LauncherScreen.CALENDAR -> FluentIcon.Calendar
+            LauncherScreen.PHOTOS -> FluentIcon.ImageMultiple
+            LauncherScreen.MEDIA_PLAYER -> FluentIcon.PlayCircle
+            LauncherScreen.IMAGE_VIEWER -> FluentIcon.Image
+            LauncherScreen.WORD_IMPRESS -> FluentIcon.DocumentText
+            LauncherScreen.PremiumTextEditorScreen -> FluentIcon.TextFont
+            LauncherScreen.TERMINAL -> FluentIcon.Console
+            LauncherScreen.TASK_MANAGER -> FluentIcon.TaskList
+            LauncherScreen.RECYCLE_BIN -> FluentIcon.Delete
+            LauncherScreen.BLUEBIRD_STORE -> FluentIcon.Moon
+            LauncherScreen.WEB_APP_MANAGER -> FluentIcon.Globe
             else -> getFileIcon(item.file)
         }
     }
@@ -2753,7 +2750,7 @@ private fun DesktopIcon(
                     }
                     else -> {
                         Icon(
-                            imageVector        = fallbackIcon,
+                            imageVector            = fallbackIcon,
                             contentDescription = null,
                             tint               = fallbackTint,
                             modifier           = Modifier.fillMaxSize()
@@ -2771,7 +2768,7 @@ private fun DesktopIcon(
                             .border(0.5.dp, Color.Gray.copy(alpha = 0.4f), RoundedCornerShape(2.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Reply, null,
+                        Icon(imageVector = FluentIcon.ArrowReply, contentDescription = null,
                             tint     = Color.Black,
                             modifier = Modifier.size(10.dp).graphicsLayer(scaleX = -1f))
                     }
@@ -2780,12 +2777,12 @@ private fun DesktopIcon(
                 // Audio/Video badge
                 if (item.type == DesktopItemType.MUSIC_FILE || item.type == DesktopItemType.VIDEO_FILE) {
                     val badgeColor = if (item.type == DesktopItemType.MUSIC_FILE) Color(0xFFFF8C00) else Color(0xFF8764B8)
-                    val badgeIcon  = if (item.type == DesktopItemType.MUSIC_FILE) Icons.Default.MusicNote else Icons.Default.PlayArrow
+                    val badgeIcon  = if (item.type == DesktopItemType.MUSIC_FILE) FluentIcon.MusicNote2 else FluentIcon.Play
                     Box(
                         Modifier.size(13.dp).align(Alignment.BottomEnd).background(Color(0xFF1C1C1C), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(badgeIcon, null, tint = badgeColor, modifier = Modifier.size(9.dp))
+                        Icon(imageVector = badgeIcon, contentDescription = null, tint = badgeColor, modifier = Modifier.size(9.dp))
                     }
                 }
             }
@@ -2907,7 +2904,7 @@ fun WallpaperPersonalisePanel(
         title = {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Palette, null, tint = acc, modifier = Modifier.size(20.dp))
+                    Icon(imageVector = FluentIcon.Color, contentDescription = null, tint = acc, modifier = Modifier.size(20.dp))
                     Text("Personalise Desktop", color = tc, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 }
                 Spacer(Modifier.height(10.dp))
@@ -3014,7 +3011,7 @@ fun WallpaperPersonalisePanel(
                                         modifier = Modifier.weight(1f)
                                     )
                                     if (isActive) {
-                                        Icon(Icons.Default.Check, null, tint = acc, modifier = Modifier.size(14.dp))
+                                        Icon(imageVector = FluentIcon.Checkmark, contentDescription = null, tint = acc, modifier = Modifier.size(14.dp))
                                     }
                                 }
                             }
@@ -3062,7 +3059,7 @@ fun WallpaperPersonalisePanel(
                                     ) {
                                         if (resId != 0) {
                                             Image(
-                                                painter      = painterResource(resId),
+                                                painter      = painterResource(id = resId),
                                                 contentDescription = null,
                                                 modifier     = Modifier.fillMaxSize(),
                                                 contentScale = ContentScale.Crop
@@ -3075,7 +3072,7 @@ fun WallpaperPersonalisePanel(
                                                 Modifier.fillMaxSize().background(acc.copy(alpha = 0.25f)),
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                                Icon(imageVector = FluentIcon.Checkmark, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                                             }
                                         }
                                     }
@@ -3095,7 +3092,7 @@ fun WallpaperPersonalisePanel(
                             shape    = RoundedCornerShape(6.dp),
                             colors   = ButtonDefaults.buttonColors(containerColor = acc)
                         ) {
-                            Icon(Icons.Default.Image, null, modifier = Modifier.size(16.dp))
+                            Icon(imageVector = FluentIcon.Image, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
                             Text("Browse Gallery…", fontWeight = FontWeight.Medium)
                         }
@@ -3194,7 +3191,7 @@ fun WallpaperPersonalisePanel(
                                     .clickable { viewModel.setLiveWallpaper(LiveWallpaperType.NONE) },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.Close, null, tint = tcm, modifier = Modifier.size(16.dp))
+                                Icon(imageVector = FluentIcon.Dismiss, contentDescription = null, tint = tcm, modifier = Modifier.size(16.dp))
                             }
                             Text("Off", fontSize = 10.sp, color = if (offActive) acc else tcm)
                         }
@@ -3226,7 +3223,7 @@ fun WallpaperPersonalisePanel(
                                             Modifier.fillMaxSize().background(acc.copy(alpha = 0.2f)),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                            Icon(imageVector = FluentIcon.Checkmark, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                                         }
                                     }
                                 }
@@ -3354,7 +3351,7 @@ private fun bluebirdMenuPopup(
  *  positioned beside the row's own real on-screen bounds instead of expanding inline. */
 @Composable
 private fun bluebirdFlyoutRow(
-    icon: ImageVector,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     tc: Color,
     tcDim: Color,
@@ -3434,7 +3431,7 @@ fun bluebirdDesktopContextMenu(
         ) {
             Column(Modifier.padding(vertical = 5.dp)) {
                 bluebirdFlyoutRow(
-                    icon = Icons.Default.ViewModule, label = "View", tc = tc, tcDim = tcDim,
+                    icon = FluentIcon.Grid, label = "View", tc = tc, tcDim = tcDim,
                     isOpen = openSub == "view",
                     onToggle = { openSub = if (openSub == "view") null else "view" },
                     onCloseFlyout = { openSub = null }
@@ -3457,7 +3454,7 @@ fun bluebirdDesktopContextMenu(
                 }
 
                 bluebirdFlyoutRow(
-                    icon = Icons.Default.Sort, label = "Sort by", tc = tc, tcDim = tcDim,
+                    icon = FluentIcon.ArrowSort, label = "Sort by", tc = tc, tcDim = tcDim,
                     isOpen = openSub == "sort",
                     onToggle = { openSub = if (openSub == "sort") null else "sort" },
                     onCloseFlyout = { openSub = null }
@@ -3482,14 +3479,14 @@ fun bluebirdDesktopContextMenu(
                     }
                 }
 
-                W11CtxRow(Icons.Default.Refresh,      "Refresh",          tc, tcDim) { onRefresh(); onDismiss() }
+                W11CtxRow(FluentIcon.ArrowSync,      "Refresh",          tc, tcDim) { onRefresh(); onDismiss() }
                 W11CtxDivider(divColor)
-                W11CtxRow(Icons.Default.ContentPaste, "Paste",
+                W11CtxRow(FluentIcon.ClipboardPaste, "Paste",
                     if (hasPaste) tc else tcDim, tcDim, enabled = hasPaste) { onPaste(); onDismiss() }
                 W11CtxDivider(divColor)
 
                 bluebirdFlyoutRow(
-                    icon = Icons.Default.Add, label = "New", tc = tc, tcDim = tcDim,
+                    icon = FluentIcon.Add, label = "New", tc = tc, tcDim = tcDim,
                     isOpen = openSub == "new",
                     onToggle = { openSub = if (openSub == "new") null else "new" },
                     onCloseFlyout = { openSub = null }
@@ -3499,18 +3496,18 @@ fun bluebirdDesktopContextMenu(
                         shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
                     ) {
                         Column(Modifier.padding(vertical = 5.dp)) {
-                            W11SubRowIcon(Icons.Default.Folder,      "Folder",                     Color(0xFFFFC107), tc) { onNewFolder();       onDismiss() }
-                            W11SubRowIcon(Icons.Default.Link,        "Shortcut link",              Color(0xFF0078D4), tc) { onNewShortcut();      onDismiss() }
-                            W11SubRowIcon(Icons.Default.Apps,        "Add Installed App Shortcut", Color(0xFF107C10), tc) { onAddAppShortcut();   onDismiss() }
+                            W11SubRowIcon(FluentIcon.Folder,      "Folder",                     Color(0xFFFFC107), tc) { onNewFolder();       onDismiss() }
+                            W11SubRowIcon(FluentIcon.Link,        "Shortcut link",              Color(0xFF0078D4), tc) { onNewShortcut();      onDismiss() }
+                            W11SubRowIcon(FluentIcon.Apps,        "Add Installed App Shortcut", Color(0xFF107C10), tc) { onAddAppShortcut();   onDismiss() }
                             W11CtxDivider(divColor)
-                            W11SubRowIcon(Icons.Default.Description, "Text Document",              Color(0xFF0078D4), tc) { onNewTextFile();      onDismiss() }
+                            W11SubRowIcon(FluentIcon.DocumentText, "Text Document",              Color(0xFF0078D4), tc) { onNewTextFile();      onDismiss() }
                         }
                     }
                 }
 
                 W11CtxDivider(divColor)
-                W11CtxRow(Icons.Default.Monitor, "Display settings", tc, tcDim) { onDisplaySettings(); onDismiss() }
-                W11CtxRow(Icons.Default.Palette, "Personalise",      tc, tcDim) { onPersonalize(); onDismiss() }
+                W11CtxRow(FluentIcon.Desktop, "Display settings", tc, tcDim) { onDisplaySettings(); onDismiss() }
+                W11CtxRow(FluentIcon.Color, "Personalise",      tc, tcDim) { onPersonalize(); onDismiss() }
             }
         }
     }
@@ -3565,22 +3562,22 @@ fun bluebirdIconContextMenu(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment     = Alignment.CenterVertically
                 ) {
-                    W11QuickAction(Icons.Default.ContentCut,             "Cut",    tc)     { onCut();    onDismiss() }
-                    W11QuickAction(Icons.Default.ContentCopy,            "Copy",   tc)     { onCopy();   onDismiss() }
-                    W11QuickAction(Icons.Default.DriveFileRenameOutline, "Rename", tc)     { onRename(); onDismiss() }
-                    W11QuickAction(Icons.Default.Share,                  "Share",  tc)     { onShare();  onDismiss() }
-                    W11QuickAction(Icons.Default.Delete,                 "Delete", danger) { onDelete(); onDismiss() }
+                    W11QuickAction(FluentIcon.Cut,             "Cut",    tc)     { onCut();    onDismiss() }
+                    W11QuickAction(FluentIcon.Copy,            "Copy",   tc)     { onCopy();   onDismiss() }
+                    W11QuickAction(FluentIcon.Rename, "Rename", tc)     { onRename(); onDismiss() }
+                    W11QuickAction(FluentIcon.Share,                  "Share",  tc)     { onShare();  onDismiss() }
+                    W11QuickAction(FluentIcon.Delete,                 "Delete", danger) { onDelete(); onDismiss() }
                 }
 
                 W11CtxDivider(divColor)
-                W11CtxRow(Icons.Default.OpenInNew, "Open", tc, tcDim, isBold = true) { onOpen(); onDismiss() }
+                W11CtxRow(FluentIcon.Open, "Open", tc, tcDim, isBold = true) { onOpen(); onDismiss() }
 
                 if (item.type == DesktopItemType.FOLDER && onPaste != null) {
-                    W11CtxRow(Icons.Default.ContentPaste, "Paste", tc, tcDim) { onPaste(); onDismiss() }
+                    W11CtxRow(FluentIcon.ClipboardPaste, "Paste", tc, tcDim) { onPaste(); onDismiss() }
                 }
 
                 bluebirdFlyoutRow(
-                    icon = Icons.Default.OpenWith, label = "Open with", tc = tc, tcDim = tcDim,
+                    icon = FluentIcon.Apps, label = "Open with", tc = tc, tcDim = tcDim,
                     isOpen = openSub == "openwith",
                     onToggle = { openSub = if (openSub == "openwith") null else "openwith" },
                     onCloseFlyout = { openSub = null }
@@ -3590,26 +3587,26 @@ fun bluebirdIconContextMenu(
                         shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
                     ) {
                         Column(Modifier.padding(vertical = 5.dp)) {
-                            W11SubRowIcon(Icons.Default.OpenInNew, "Choose app", tc.copy(0.8f), tc) { onOpenWith(); onDismiss() }
+                            W11SubRowIcon(FluentIcon.Open, "Choose app", tc.copy(0.8f), tc) { onOpenWith(); onDismiss() }
                         }
                     }
                 }
 
                 if (item.type == DesktopItemType.APP_SHORTCUT) {
-                    W11CtxRow(Icons.Outlined.FolderOpen, "Open file location", tc, tcDim) { onOpenFileLocation(); onDismiss() }
+                    W11CtxRow(FluentIcon.FolderOpen, "Open file location", tc, tcDim) { onOpenFileLocation(); onDismiss() }
                 }
 
                 // "Set as wallpaper" — only for image files
                 if (onSetAsWallpaper != null) {
                     W11CtxDivider(divColor)
-                    W11CtxRow(Icons.Default.Wallpaper, "Set as wallpaper", tc, tcDim) { onSetAsWallpaper(); onDismiss() }
+                    W11CtxRow(FluentIcon.ImageMultiple, "Set as wallpaper", tc, tcDim) { onSetAsWallpaper(); onDismiss() }
                 }
 
                 W11CtxDivider(divColor)
-                W11CtxRow(Icons.Default.Link,   "Create shortcut", tc,     tcDim) { onCreateShortcut(); onDismiss() }
-                W11CtxRow(Icons.Default.Delete, "Delete",          danger, tcDim) { onDelete();         onDismiss() }
+                W11CtxRow(FluentIcon.Link,   "Create shortcut", tc,     tcDim) { onCreateShortcut(); onDismiss() }
+                W11CtxRow(FluentIcon.Delete, "Delete",          danger, tcDim) { onDelete();         onDismiss() }
                 W11CtxDivider(divColor)
-                W11CtxRow(Icons.Default.Info,   "Properties",      tc,     tcDim) { onProperties();     onDismiss() }
+                W11CtxRow(FluentIcon.Info,   "Properties",      tc,     tcDim) { onProperties();     onDismiss() }
             }
         }
     }
@@ -3620,7 +3617,7 @@ fun bluebirdIconContextMenu(
 // ─────────────────────────────────────────────────────────────────
 @Composable
 private fun W11CtxRow(
-    icon: ImageVector,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     tc: Color,
     tcDim: Color,
@@ -3646,11 +3643,11 @@ private fun W11CtxRow(
         verticalAlignment     = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Icon(icon, null, tint = tc.copy(0.8f), modifier = Modifier.size(15.dp))
+        Icon(imageVector = icon, contentDescription = null, tint = tc.copy(0.8f), modifier = Modifier.size(15.dp))
         Text(label, color = tc, fontSize = 12.5.sp,
             fontWeight = if (isBold) FontWeight.SemiBold else FontWeight.Normal,
             modifier = Modifier.weight(1f), maxLines = 1)
-        if (hasArrow) Icon(Icons.Default.ChevronRight, null, tint = tcDim, modifier = Modifier.size(14.dp))
+        if (hasArrow) Icon(imageVector = FluentIcon.ChevronRight, contentDescription = null, tint = tcDim, modifier = Modifier.size(14.dp))
     }
 }
 
@@ -3678,7 +3675,7 @@ private fun W11SubRow(
         verticalAlignment     = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (isActive) Icon(Icons.Default.Check, null, tint = accent, modifier = Modifier.size(13.dp))
+        if (isActive) Icon(imageVector = FluentIcon.Checkmark, contentDescription = null, tint = accent, modifier = Modifier.size(13.dp))
         else          Spacer(Modifier.size(13.dp))
         Text(label, color = tc, fontSize = 12.5.sp, maxLines = 1)
     }
@@ -3686,7 +3683,7 @@ private fun W11SubRow(
 
 @Composable
 private fun W11SubRowIcon(
-    icon: ImageVector,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     iconTint: Color,
     tc: Color,
@@ -3708,7 +3705,7 @@ private fun W11SubRowIcon(
         verticalAlignment     = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Icon(icon, null, tint = iconTint, modifier = Modifier.size(14.dp))
+        Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(14.dp))
         Text(label, color = tc, fontSize = 12.5.sp, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
     }
@@ -3716,7 +3713,7 @@ private fun W11SubRowIcon(
 
 @Composable
 private fun W11QuickAction(
-    icon: ImageVector,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     tooltip: String,
     tint: Color,
     enabled: Boolean = true,
@@ -3737,7 +3734,7 @@ private fun W11QuickAction(
             .padding(6.dp),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = tooltip, tint = tint, modifier = Modifier.size(16.dp))
+        Icon(imageVector = icon, contentDescription = tooltip, tint = tint, modifier = Modifier.size(16.dp))
     }
 }
 
@@ -3813,7 +3810,7 @@ fun ShortcutDialog(onConfirm: (String, String) -> Unit, onDismiss: () -> Unit) {
                     label = { Text("Package Name (e.g. com.example.app)") },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
                 TextButton(onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Apps, null, modifier = Modifier.size(16.dp))
+                    Icon(imageVector = FluentIcon.Apps, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Browse installed apps…")
                 }
@@ -3873,7 +3870,7 @@ fun AppPickerDialog(
                 OutlinedTextField(
                     value = searchQuery, onValueChange = { searchQuery = it },
                     placeholder = { Text("Search apps…") }, singleLine = true,
-                    leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp)) },
+                    leadingIcon = { Icon(imageVector = FluentIcon.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     shape = RoundedCornerShape(6.dp)
                 )
@@ -3910,7 +3907,7 @@ fun AppPickerDialog(
                                 }.padding(horizontal = 8.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.Apps, null, tint = Color(0xFF0078D4), modifier = Modifier.size(22.dp))
+                                Icon(imageVector = FluentIcon.Apps, contentDescription = null, tint = Color(0xFF0078D4), modifier = Modifier.size(22.dp))
                                 Spacer(Modifier.width(10.dp))
                                 Text(label, color = tc, fontSize = 12.sp)
                             }
@@ -4011,7 +4008,7 @@ fun PropertiesDialog(item: DesktopFileInfo, isDark: Boolean, onDismiss: () -> Un
         shape            = RoundedCornerShape(8.dp),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(getFileIcon(item.file), null, tint = getFileIconColor(item.file), modifier = Modifier.size(22.dp))
+                Icon(imageVector = getFileIcon(item.file), contentDescription = null, tint = getFileIconColor(item.file), modifier = Modifier.size(22.dp))
                 Text("Properties", color = tc, fontWeight = FontWeight.Medium, fontSize = 14.sp)
             }
         },
