@@ -3,6 +3,7 @@ package com.io.github.norbertweb.bluebird.browser.utils
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import java.util.Locale
 import com.io.github.norbertweb.bluebird.browser.model.NEWTAB_URL
 import com.io.github.norbertweb.bluebird.browser.model.SearchEngine
 
@@ -28,18 +29,40 @@ object UrlUtils {
      */
     fun resolveUrl(raw: String, searchEngine: SearchEngine): String {
         val trimmed = raw.trim()
-        return when {
-            trimmed.isBlank()                                             -> NEWTAB_URL
-            trimmed == NEWTAB_URL                                         -> NEWTAB_URL
-            trimmed == "about:blank"                                      -> "about:blank"
-            trimmed.startsWith("http://")
-                    || trimmed.startsWith("https://")
-                    || trimmed.startsWith("file://")                      -> trimmed
-            // Looks like a domain  (contains dot, no spaces)
-            trimmed.contains(".") && !trimmed.contains(" ")
-                    && !trimmed.startsWith("?")                           -> "https://$trimmed"
-            else -> "${searchEngine.queryUrl}${Uri.encode(trimmed)}"
+        if (trimmed.isBlank()) return NEWTAB_URL
+        if (trimmed == NEWTAB_URL) return NEWTAB_URL
+        if (trimmed.equals("about:blank", ignoreCase = true)) return "about:blank"
+
+        // Preserve explicit schemes. WebView understands more than HTTP(S),
+        // so do not accidentally turn mailto:, tel:, file:, intent:, etc. into
+        // search queries. Only schemes followed by `//` or a well-known scheme
+        // delimiter are accepted here to avoid treating normal prose such as
+        // "hello: world" as a URL.
+        val scheme = Regex("^[A-Za-z][A-Za-z0-9+.-]*:").find(trimmed)?.value
+        if (scheme != null) {
+            val normalized = scheme.dropLast(1).lowercase(Locale.ROOT) + ":" + trimmed.drop(scheme.length)
+            return normalized
         }
+
+        return if (looksLikeUrl(trimmed)) {
+            "https://$trimmed"
+        } else {
+            "${searchEngine.queryUrl}${Uri.encode(trimmed)}"
+        }
+    }
+
+    /**
+     * Desktop-omnibox style URL detection. Prefer URL navigation for hostnames,
+     * localhost and IP literals; otherwise treat the input as a search query.
+     */
+    fun looksLikeUrl(raw: String): Boolean {
+        val value = raw.trim()
+        if (value.isBlank() || value.contains(Regex("\\s"))) return false
+        if (value.startsWith("?") || value.startsWith("/")) return false
+        if (value.equals("localhost", ignoreCase = true)) return true
+        if (value.matches(Regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}(:[0-9]{1,5})?$"))) return true
+        if (value.contains(":")) return value.substringBefore(":").contains(".")
+        return value.contains(".") && !value.endsWith(".")
     }
 
     /**

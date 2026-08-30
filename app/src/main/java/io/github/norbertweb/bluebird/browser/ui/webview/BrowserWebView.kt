@@ -2,6 +2,7 @@ package com.io.github.norbertweb.bluebird.browser.ui.webview
 
 import android.graphics.Bitmap
 import android.net.http.SslError
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
@@ -29,6 +30,8 @@ import com.io.github.norbertweb.bluebird.browser.model.BrowserTab
 import com.io.github.norbertweb.bluebird.browser.model.JsDialogState
 import com.io.github.norbertweb.bluebird.browser.model.JsDialogType
 import com.io.github.norbertweb.bluebird.browser.model.SslDialogState
+import com.io.github.norbertweb.bluebird.browser.model.StoredPermissionDecision
+import com.io.github.norbertweb.bluebird.browser.model.SitePermission
 import com.io.github.norbertweb.bluebird.browser.utils.AdBlocker
 import com.io.github.norbertweb.bluebird.browser.utils.UserAgents
 import com.io.github.norbertweb.bluebird.browser.utils.onMain
@@ -54,9 +57,12 @@ fun BrowserWebView(
     isFindActive: Boolean,
     modifier: Modifier = Modifier,
     onWebViewReady: (WebView) -> Unit,
+    onWebViewDisposed: (WebView, Int) -> Unit,
+    restoreScrollY: Int = 0,
     onPageStarted: (String) -> Unit,
     onProgressChanged: (Int) -> Unit,
     onPageFinished: (String, String?) -> Unit,   // url, title
+    onPageError: (String, String) -> Unit,       // url, human-readable error
     onTitleChanged: (String) -> Unit,
     onUrlChanged: (String) -> Unit,
     onFaviconChanged: (Bitmap?) -> Unit,
@@ -65,12 +71,33 @@ fun BrowserWebView(
     onJsDialog: (JsDialogState) -> Unit,
     onSslError: (SslDialogState) -> Unit,
     onPermissionRequest: (BrowserPermissionRequest) -> Unit,
+    onRememberPermission: (String, String, StoredPermissionDecision) -> Unit,
+    getStoredPermission: (String, String) -> StoredPermissionDecision?,
     onGeolocationRequest: (String, GeolocationPermissions.Callback) -> Unit,
     onNewTabRequested: (String) -> Unit,
-    isDark: Boolean
+    isDark: Boolean,
+    isActive: Boolean = true
 ) {
-    // Re-apply find query whenever it changes
+    // Re-apply find query whenever it changes. WebViews are intentionally
+    // scoped to the active tab so inactive tabs do not keep renderer memory.
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    val restoreScrollPending = remember(restoreScrollY) {
+        java.util.concurrent.atomic.AtomicBoolean(restoreScrollY > 0)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewRef?.let { wv ->
+                val savedScroll = wv.scrollY.coerceAtLeast(0)
+                onWebViewDisposed(wv, savedScroll)
+                wv.stopLoading()
+                wv.onPause()
+                wv.removeAllViews()
+                wv.destroy()
+            }
+            webViewRef = null
+        }
+    }
 
     LaunchedEffect(findQuery, isFindActive) {
         val wv = webViewRef ?: return@LaunchedEffect
@@ -91,11 +118,30 @@ fun BrowserWebView(
 
                 // ── Settings ──────────────────────────────────────────
                 applyBrowserSettings(settings, isDark)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_BOUND, !isActive)
+                }
+                visibility = if (isActive) View.VISIBLE else View.INVISIBLE
+
+                // ── Android Autofill integration ───────────────────────
+                // WebView exposes HTML form structure to the Android Autofill Framework.
+                // Normal tabs participate in the device's configured autofill service;
+                // private tabs explicitly opt out so private sessions do not surface
+                // saved credentials to the system autofill UI.
+                importantForAutofill = if (tab.isPrivate) {
+                    View.IMPORTANT_FOR_AUTOFILL_NO
+                } else {
+                    View.IMPORTANT_FOR_AUTOFILL_YES
+                }
 
                 // ── Private mode ──────────────────────────────────────
+                // WebView's CookieManager is process-global, so never toggle it here:
+                // doing so would silently disable cookies for normal tabs too. Private
+                // tabs instead avoid browser persistence and are never restored.
                 if (tab.isPrivate) {
-                    CookieManager.getInstance().setAcceptCookie(false)
-                    settings.javaScriptEnabled.let {  /* already set above */ }
+                    this.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                    this.settings.saveFormData = false
+                    this.settings.domStorageEnabled = true
                 } else {
                     CookieManager.getInstance().setAcceptCookie(settings.saveCookies)
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, settings.saveCookies)
@@ -108,6 +154,12 @@ fun BrowserWebView(
                     isDark     = isDark,
                     onPageStarted    = onPageStarted,
                     onPageFinished   = onPageFinished,
+                    onPageError      = onPageError,
+                    onRestoreScroll   = { view ->
+                        if (restoreScrollPending.compareAndSet(true, false)) {
+                            view.post { view.scrollTo(0, restoreScrollY.coerceAtLeast(0)) }
+                        }
+                    },
                     onUrlChanged     = onUrlChanged,
                     onSslError       = onSslError
                 )
@@ -121,6 +173,8 @@ fun BrowserWebView(
                     onFindResultsChanged  = onFindResultsChanged,
                     onJsDialog            = onJsDialog,
                     onPermissionRequest   = onPermissionRequest,
+                    onRememberPermission  = onRememberPermission,
+                    getStoredPermission   = getStoredPermission,
                     onGeolocationRequest  = onGeolocationRequest,
                     onNewTabRequested     = onNewTabRequested
                 )
@@ -148,13 +202,74 @@ fun BrowserWebView(
             wv.settings.javaScriptEnabled       = settings.javaScriptEnabled
             wv.settings.loadsImagesAutomatically = settings.showImages
             wv.settings.userAgentString          = UserAgents.get(settings.desktopMode)
-            CookieManager.getInstance().setAcceptCookie(
-                if (tab.isPrivate) false else settings.saveCookies
-            )
+            // CookieManager is process-global; do not flip it for private tabs.
+            // The private session uses no-cache/no-form-data and is not persisted.
+            if (!tab.isPrivate) {
+                CookieManager.getInstance().setAcceptCookie(settings.saveCookies)
+                CookieManager.getInstance().setAcceptThirdPartyCookies(wv, settings.saveCookies)
+            } else {
+                wv.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                wv.settings.saveFormData = false
+            }
+            if (isActive) {
+                wv.onResume()
+                wv.visibility = View.VISIBLE
+            } else {
+                wv.onPause()
+                wv.visibility = View.INVISIBLE
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                wv.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_BOUND, !isActive)
+            }
             webViewRef = wv
         },
         modifier = modifier
     )
+}
+
+// Extract credentials only after an explicit user action from the Save password UI.
+fun WebView.captureCredentialFromCurrentForm(onResult: (String?, String?) -> Unit) {
+    val script = """
+        (function(){
+          try {
+            var p=document.querySelector('input[type=password]');
+            if(!p) return JSON.stringify({username:'',password:''});
+            var f=p.form || document;
+            var u=f.querySelector('input:not([type=password])[name*=user i],input:not([type=password])[name*=email i],input:not([type=password])[autocomplete=username],input[type=email]');
+            return JSON.stringify({username:u ? (u.value || '') : '', password:p.value || ''});
+          } catch(e) { return JSON.stringify({username:'',password:''}); }
+        })()
+    """.trimIndent()
+    evaluateJavascript(script) { raw ->
+        runCatching {
+            val jsonString = org.json.JSONTokener(raw ?: "\"\"").nextValue() as? String ?: return@runCatching
+            val obj = org.json.JSONObject(jsonString)
+            onResult(obj.optString("username").takeIf { it.isNotBlank() }, obj.optString("password").takeIf { it.isNotBlank() })
+        }.onFailure { onResult(null, null) }
+    }
+}
+
+
+/** Fills the current login form from a credential chosen by the user. */
+fun WebView.fillCredentialIntoCurrentForm(username: String, password: String, onResult: (Boolean) -> Unit = {}) {
+    val u = org.json.JSONObject.quote(username)
+    val pw = org.json.JSONObject.quote(password)
+    val script = """
+        (function(){
+          try {
+            var p=document.querySelector('input[type=password]');
+            if(!p) return false;
+            var f=p.form || document;
+            var u=f.querySelector('input:not([type=password])[autocomplete=username],input:not([type=password])[name*=user i],input:not([type=password])[name*=email i],input[type=email]');
+            if(u){ u.focus(); u.value=$u; u.dispatchEvent(new Event('input',{bubbles:true})); u.dispatchEvent(new Event('change',{bubbles:true})); }
+            p.focus(); p.value=$pw; p.dispatchEvent(new Event('input',{bubbles:true})); p.dispatchEvent(new Event('change',{bubbles:true}));
+            return true;
+          } catch(e) { return false; }
+        })()
+    """.trimIndent()
+    evaluateJavascript(script) { raw ->
+        onMain { onResult(raw?.trim() == "true") }
+    }
 }
 
 // ─── Extension: apply all WebSettings ────────────────────────────────
@@ -166,6 +281,8 @@ private fun WebView.applyBrowserSettings(s: BrowserSettings, isDark: Boolean) {
         databaseEnabled                       = true
         loadWithOverviewMode                  = true
         useWideViewPort                       = true
+        offscreenPreRaster                    = false
+        cacheMode                             = WebSettings.LOAD_DEFAULT
         builtInZoomControls                   = true
         displayZoomControls                   = false
         allowFileAccess                       = true
@@ -217,6 +334,8 @@ private fun buildWebViewClient(
     isDark: Boolean,
     onPageStarted: (String) -> Unit,
     onPageFinished: (String, String?) -> Unit,
+    onPageError: (String, String) -> Unit,
+    onRestoreScroll: (WebView) -> Unit,
     onUrlChanged: (String) -> Unit,
     onSslError: (SslDialogState) -> Unit
 ): WebViewClient = object : WebViewClient() {
@@ -229,11 +348,36 @@ private fun buildWebViewClient(
         }
     }
 
+    // Detect a password form without reading the password. The actual credential
+    // values are extracted only after the user explicitly chooses Save password.
+    private fun detectCredentialForm(view: WebView) {
+        if (tab.isPrivate || !settings.offerToSavePasswords) return
+        val origin = runCatching { android.net.Uri.parse(view.url ?: "").scheme }.getOrNull()
+        if (origin != "https") return
+        val script = """
+            (function(){
+              try {
+                var p=document.querySelector('input[type=password]');
+                if(!p) return '';
+                var f=p.form || document;
+                var u=f.querySelector('input:not([type=password])[name*=user i],input:not([type=password])[name*=email i],input:not([type=password])[autocomplete=username],input[type=email]');
+                return u ? (u.value || '') : '';
+              } catch(e) { return ''; }
+            })()
+        """.trimIndent()
+        view.evaluateJavascript(script) { result ->
+            val username = runCatching { org.json.JSONTokener(result ?: "\"\"").nextValue() as? String }.getOrNull()
+            onMain { onCredentialFormDetected(username?.takeIf { it.isNotBlank() }) }
+        }
+    }
+
     override fun onPageFinished(view: WebView, url: String?) {
         url ?: return
         onMain {
             onPageFinished(url, view.title)
+            onRestoreScroll(view)
             onUrlChanged(url)
+            detectCredentialForm(view)
         }
     }
 
@@ -269,8 +413,13 @@ private fun buildWebViewClient(
         val desc = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M)
             error.description?.toString() ?: "Unknown error"
         else "Page error"
-        val html = buildErrorPage(desc, request.url?.toString() ?: "", isDark)
-        onMain { view.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null) }
+        val failedUrl = request.url?.toString() ?: ""
+        onMain {
+            // Keep the failed document intact; the Compose error surface sits above
+            // it and can retry the original URL. Loading an HTML error document here
+            // would replace the failed URL and make retry/back navigation ambiguous.
+            onPageError(failedUrl, desc)
+        }
     }
 
     override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
@@ -303,6 +452,8 @@ private fun buildWebChromeClient(
     onFindResultsChanged: (Int, Int) -> Unit,
     onJsDialog: (JsDialogState) -> Unit,
     onPermissionRequest: (BrowserPermissionRequest) -> Unit,
+    onRememberPermission: (String, String, StoredPermissionDecision) -> Unit,
+    getStoredPermission: (String, String) -> StoredPermissionDecision?,
     onGeolocationRequest: (String, GeolocationPermissions.Callback) -> Unit,
     onNewTabRequested: (String) -> Unit
 ): WebChromeClient = object : WebChromeClient() {
@@ -369,25 +520,41 @@ private fun buildWebChromeClient(
     // ── WebRTC / Camera / Mic permissions ─────────────────────────────
 
     override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
-        val allowedResources = request.resources.filter { resource ->
+        val origin = request.origin.toString()
+        val remembered = request.resources.mapNotNull { resource ->
+            getStoredPermission(origin, resource)?.let { resource to it }
+        }.toMap()
+
+        if (remembered.isNotEmpty() && remembered.size == request.resources.size) {
+            if (remembered.values.all { it == StoredPermissionDecision.ALLOW }) request.grant(request.resources)
+            else request.deny()
+            return
+        }
+
+        val allowedBySettings = request.resources.filter { resource ->
             when (resource) {
                 android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE -> settings.cameraAccess
                 android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE -> settings.microphoneAccess
-                else                                                      -> false
+                else -> false
             }
         }.toTypedArray()
 
-        if (allowedResources.isEmpty()) {
+        if (allowedBySettings.size == request.resources.size) {
+            request.grant(allowedBySettings)
+        } else {
             onMain {
                 onPermissionRequest(BrowserPermissionRequest(
-                    origin    = request.origin.toString(),
+                    origin = origin,
                     resources = request.resources,
-                    grant     = { request.grant(request.resources) },
-                    deny      = { request.deny() }
+                    grant = { request.grant(request.resources) },
+                    deny = {
+                        request.deny()
+                    },
+                    remember = { decision ->
+                        request.resources.forEach { onRememberPermission(origin, it, decision) }
+                    }
                 ))
             }
-        } else {
-            request.grant(allowedResources)
         }
     }
 
@@ -396,10 +563,11 @@ private fun buildWebChromeClient(
     override fun onGeolocationPermissionsShowPrompt(
         origin: String, callback: GeolocationPermissions.Callback
     ) {
-        if (settings.locationAccess) {
-            callback.invoke(origin, true, false)
-        } else {
-            onMain { onGeolocationRequest(origin, callback) }
+        when (getStoredPermission(origin, "geolocation")) {
+            StoredPermissionDecision.ALLOW -> callback.invoke(origin, true, true)
+            StoredPermissionDecision.DENY -> callback.invoke(origin, false, true)
+            null -> if (settings.locationAccess) callback.invoke(origin, true, false)
+            else onMain { onGeolocationRequest(origin, callback) }
         }
     }
 

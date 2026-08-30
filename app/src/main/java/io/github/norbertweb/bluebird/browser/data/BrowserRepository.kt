@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import com.io.github.norbertweb.bluebird.browser.model.*
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
 
 // ═══════════════════════════════════════════════════════════════════════
 // BrowserRepository — single source of truth for all persisted state
@@ -21,7 +22,6 @@ class BrowserRepository(context: Context) {
 
     fun saveSettings(s: BrowserSettings) {
         prefs.edit().apply {
-            putBoolean("s_builtInKb",       s.useBuiltInKeyboard)
             putString ("s_searchEngine",    s.searchEngine.name)
             putBoolean("s_darkMode",        s.darkMode)
             putBoolean("s_adBlock",         s.adBlockEnabled)
@@ -40,11 +40,18 @@ class BrowserRepository(context: Context) {
             putBoolean("s_mixedContent",    s.mixedContentAllowed)
             putBoolean("s_formData",        s.saveFormData)
             putBoolean("s_desktopMode",     s.desktopMode)
+            putBoolean("s_offerSavePasswords", s.offerToSavePasswords)
+            putBoolean("s_autofillPasswords", s.autofillPasswords)
+            putBoolean("s_requireDeviceAuthPasswords", s.requireDeviceAuthForPasswords)
+            putBoolean("s_homeQuickLinks", s.homeShowQuickLinks)
+            putBoolean("s_homeRecentSites", s.homeShowRecentSites)
+            putBoolean("s_homeBookmarks", s.homeShowBookmarks)
+            putBoolean("s_homeNews", s.homeShowNews)
+            putBoolean("s_homeWallpaper", s.homeShowWallpaper)
         }.apply()
     }
 
     fun loadSettings(): BrowserSettings = BrowserSettings(
-        useBuiltInKeyboard  = prefs.getBoolean("s_builtInKb",    false),
         searchEngine        = runCatching {
             SearchEngine.valueOf(prefs.getString("s_searchEngine", "GOOGLE")!!)
         }.getOrDefault(SearchEngine.GOOGLE),
@@ -66,7 +73,15 @@ class BrowserRepository(context: Context) {
         microphoneAccess    = prefs.getBoolean("s_mic",          false),
         mixedContentAllowed = prefs.getBoolean("s_mixedContent", false),
         saveFormData        = prefs.getBoolean("s_formData",     true),
-        desktopMode         = prefs.getBoolean("s_desktopMode",  false)
+        desktopMode         = prefs.getBoolean("s_desktopMode",  false),
+        offerToSavePasswords = prefs.getBoolean("s_offerSavePasswords", true),
+        autofillPasswords   = prefs.getBoolean("s_autofillPasswords", true),
+        requireDeviceAuthForPasswords = prefs.getBoolean("s_requireDeviceAuthPasswords", true),
+        homeShowQuickLinks  = prefs.getBoolean("s_homeQuickLinks", true),
+        homeShowRecentSites = prefs.getBoolean("s_homeRecentSites", true),
+        homeShowBookmarks   = prefs.getBoolean("s_homeBookmarks", true),
+        homeShowNews        = prefs.getBoolean("s_homeNews", true),
+        homeShowWallpaper   = prefs.getBoolean("s_homeWallpaper", true)
     )
 
     // ─── TABS ────────────────────────────────────────────────────────
@@ -85,6 +100,9 @@ class BrowserRepository(context: Context) {
                 put("isPinned",     tab.isPinned)
                 put("lastVisited",  tab.lastVisited)
                 put("scrollY",      tab.scrollY)
+                put("rendererDiscarded", tab.rendererDiscarded)
+                put("checkpointAt", tab.checkpointAt)
+                put("groupId", tab.groupId)
                 val back = JSONArray(); tab.backStack.forEach { back.put(it) }; put("backStack", back)
                 val fwd  = JSONArray(); tab.forwardStack.forEach { fwd.put(it) }; put("forwardStack", fwd)
             }
@@ -94,6 +112,28 @@ class BrowserRepository(context: Context) {
             .putString("tabs_json",    arr.toString())
             .putString("active_tab",   activeTabId)
             .apply()
+    }
+
+    /** Crash-oriented checkpoint: commits tab/session state synchronously.
+     * Kept separate from the normal debounced save so lifecycle transitions
+     * can force the latest browser state to disk before the process is killed.
+     */
+    fun checkpointTabs(tabs: List<BrowserTab>, activeTabId: String) {
+        val arr = JSONArray()
+        tabs.forEach { tab ->
+            if (tab.isPrivate) return@forEach
+            arr.put(JSONObject().apply {
+                put("id", tab.id); put("title", tab.title); put("url", tab.url)
+                put("displayUrl", tab.displayUrl); put("faviconColor", tab.faviconColor)
+                put("isPinned", tab.isPinned); put("lastVisited", tab.lastVisited)
+                put("scrollY", tab.scrollY); put("rendererDiscarded", tab.rendererDiscarded)
+                put("checkpointAt", tab.checkpointAt)
+                put("groupId", tab.groupId)
+                val back = JSONArray(); tab.backStack.forEach { back.put(it) }; put("backStack", back)
+                val fwd = JSONArray(); tab.forwardStack.forEach { fwd.put(it) }; put("forwardStack", fwd)
+            })
+        }
+        prefs.edit().putString("tabs_json", arr.toString()).putString("active_tab", activeTabId).commit()
     }
 
     fun loadTabs(): Pair<List<BrowserTab>, String> {
@@ -114,6 +154,9 @@ class BrowserRepository(context: Context) {
                     isPinned     = obj.optBoolean("isPinned", false),
                     lastVisited  = obj.optLong("lastVisited", System.currentTimeMillis()),
                     scrollY      = obj.optInt("scrollY", 0),
+                    rendererDiscarded = obj.optBoolean("rendererDiscarded", false),
+                    checkpointAt = obj.optLong("checkpointAt", 0L),
+                    groupId      = obj.optString("groupId", "").takeIf { it.isNotBlank() },
                     backStack    = (0 until backArr.length()).map { backArr.getString(it) }.toMutableList(),
                     forwardStack = (0 until fwdArr.length()).map { fwdArr.getString(it) }.toMutableList()
                 )
@@ -122,6 +165,37 @@ class BrowserRepository(context: Context) {
         } catch (e: Exception) {
             Pair(emptyList(), "")
         }
+    }
+
+    // ─── TAB GROUPS ──────────────────────────────────────────────────
+
+    fun saveTabGroups(groups: List<TabGroup>) {
+        val arr = JSONArray()
+        groups.forEach { group ->
+            arr.put(JSONObject().apply {
+                put("id", group.id)
+                put("name", group.name)
+                put("color", group.color)
+                put("createdAt", group.createdAt)
+            })
+        }
+        prefs.edit().putString("tab_groups_json", arr.toString()).apply()
+    }
+
+    fun loadTabGroups(): List<TabGroup> {
+        val raw = prefs.getString("tab_groups_json", null) ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                TabGroup(
+                    id = obj.optString("id"),
+                    name = obj.optString("name", "Tab group"),
+                    color = obj.optLong("color", 0xFF1A73E8),
+                    createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                )
+            }
+        }.getOrElse { emptyList() }
     }
 
     // ─── BOOKMARKS ───────────────────────────────────────────────────
@@ -159,6 +233,29 @@ class BrowserRepository(context: Context) {
         } catch (e: Exception) { emptyList() }
     }
 
+    // ─── BOOKMARK FOLDERS ─────────────────────────────────────────────
+
+    fun saveBookmarkFolders(folders: List<BookmarkFolder>) {
+        val arr = JSONArray()
+        folders.filter { it.name.isNotBlank() && it.name != "Bookmarks Bar" }.take(100).forEach { folder ->
+            arr.put(JSONObject().apply {
+                put("id", folder.id); put("name", folder.name.trim()); put("parent", folder.parent); put("createdAt", folder.createdAt)
+            })
+        }
+        prefs.edit().putString("bookmark_folders_json", arr.toString()).apply()
+    }
+
+    fun loadBookmarkFolders(): List<BookmarkFolder> {
+        val raw = prefs.getString("bookmark_folders_json", null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                BookmarkFolder(o.optString("id", UUID.randomUUID().toString()), o.optString("name", ""), o.optString("parent", "Bookmarks Bar"), o.optLong("createdAt", System.currentTimeMillis()))
+            }.filter { it.name.isNotBlank() && it.name != "Bookmarks Bar" }
+        } catch (_: Exception) { emptyList() }
+    }
+
     // ─── HISTORY ─────────────────────────────────────────────────────
 
     fun saveHistory(history: List<HistoryEntry>) {
@@ -193,16 +290,125 @@ class BrowserRepository(context: Context) {
         } catch (e: Exception) { emptyList() }
     }
 
+
+    // ─── DOWNLOADS ───────────────────────────────────────────────────
+
+    fun saveDownloads(downloads: List<DownloadItem>) {
+        val arr = JSONArray()
+        downloads.take(MAX_DOWNLOAD_ENTRIES).forEach { item ->
+            arr.put(JSONObject().apply {
+                put("id", item.id)
+                put("downloadManagerId", item.downloadManagerId)
+                put("fileName", item.fileName)
+                put("url", item.url)
+                put("mimeType", item.mimeType)
+                put("fileSize", item.fileSize)
+                put("status", item.status.name)
+                put("startedAt", item.startedAt)
+                put("progress", item.progress.toDouble())
+                put("bytesDownloaded", item.bytesDownloaded)
+            })
+        }
+        prefs.edit().putString("downloads_json", arr.toString()).apply()
+    }
+
+    fun loadDownloads(): List<DownloadItem> {
+        val raw = prefs.getString("downloads_json", null) ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                DownloadItem(
+                    id = obj.optString("id"),
+                    downloadManagerId = obj.optLong("downloadManagerId", -1L),
+                    fileName = obj.optString("fileName", "Download"),
+                    url = obj.optString("url", ""),
+                    mimeType = obj.optString("mimeType", "*/*"),
+                    fileSize = obj.optLong("fileSize", 0L),
+                    status = runCatching { DownloadStatus.valueOf(obj.optString("status", DownloadStatus.FAILED.name)) }.getOrDefault(DownloadStatus.FAILED),
+                    startedAt = obj.optLong("startedAt", System.currentTimeMillis()),
+                    progress = obj.optDouble("progress", 0.0).toFloat(),
+                    bytesDownloaded = obj.optLong("bytesDownloaded", 0L)
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun clearDownloads() = prefs.edit().remove("downloads_json").apply()
+
+    // ─── SITE PERMISSIONS ───────────────────────────────────────────
+
+    fun saveSitePermission(permission: SitePermission) {
+        val all = loadSitePermissions().filterNot { it.origin == permission.origin && it.resource == permission.resource }.toMutableList()
+        all.add(0, permission)
+        val arr = JSONArray()
+        all.take(200).forEach { p ->
+            arr.put(JSONObject().apply {
+                put("origin", p.origin)
+                put("resource", p.resource)
+                put("decision", p.decision.name)
+                put("updatedAt", p.updatedAt)
+            })
+        }
+        prefs.edit().putString("site_permissions_json", arr.toString()).apply()
+    }
+
+    fun getSitePermission(origin: String, resource: String): StoredPermissionDecision? =
+        loadSitePermissions().firstOrNull { it.origin == origin && it.resource == resource }?.decision
+
+    fun loadSitePermissions(): List<SitePermission> {
+        val raw = prefs.getString("site_permissions_json", null) ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                SitePermission(
+                    origin = obj.optString("origin", ""),
+                    resource = obj.optString("resource", ""),
+                    decision = runCatching { StoredPermissionDecision.valueOf(obj.optString("decision", StoredPermissionDecision.DENY.name)) }.getOrDefault(StoredPermissionDecision.DENY),
+                    updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun removeSitePermission(origin: String, resource: String) {
+        val remaining = loadSitePermissions().filterNot { it.origin == origin && it.resource == resource }
+        val arr = JSONArray()
+        remaining.forEach { p -> arr.put(JSONObject().apply { put("origin", p.origin); put("resource", p.resource); put("decision", p.decision.name); put("updatedAt", p.updatedAt) }) }
+        prefs.edit().putString("site_permissions_json", arr.toString()).apply()
+    }
+
+    fun clearSitePermissions() = prefs.edit().remove("site_permissions_json").apply()
+
     // ─── CLEAR ───────────────────────────────────────────────────────
 
     fun clearHistory() = prefs.edit().remove("history_json").apply()
 
-    fun clearCookiesAndCache(context: Context) {
+    fun clearCookies(context: Context) {
         android.webkit.CookieManager.getInstance().removeAllCookies(null)
         android.webkit.CookieManager.getInstance().flush()
+    }
+
+    fun clearCache(context: Context) {
         val wv = android.webkit.WebView(context)
         wv.clearCache(true)
         wv.destroy()
+    }
+
+    fun clearSiteStorage() {
+        android.webkit.WebStorage.getInstance().deleteAllData()
+    }
+
+    fun clearFormData(context: Context) {
+        val wv = android.webkit.WebView(context)
+        wv.clearFormData()
+        wv.destroy()
+    }
+
+    fun clearCookiesAndCache(context: Context) {
+        clearCookies(context)
+        clearCache(context)
     }
 
     fun clearAll() = prefs.edit().clear().apply()
