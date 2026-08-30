@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🐦 Bluebird
+# Bluebird
 
 ### A full Windows 11 desktop experience — on Android.
 
@@ -9,44 +9,47 @@
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2024.08-4285F4?style=flat-square&logo=jetpackcompose)](https://developer.android.com/jetpack/compose)
 [![API](https://img.shields.io/badge/Min%20API-26%20(Android%208.0)-orange?style=flat-square)](https://developer.android.com/studio/releases/platforms)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v1.6.0-success?style=flat-square)](https://github.com/norbert-web/bluebird/releases)
+[![Release](https://img.shields.io/badge/Release-v2.0-success?style=flat-square)](https://github.com/norbert-web/bluebird/releases)
 [![Build](https://img.shields.io/badge/Build-Passing-brightgreen?style=flat-square)](https://github.com/norbert-web/bluebird/actions)
 
 <br/>
 
-> **Bluebird** is an open-source Android home screen replacement that recreates the Windows 11 desktop environment pixel-perfectly — complete with a floating windowed app system, real file explorer, and live notifications.
+> **Bluebird** is an open-source Android home screen replacement that recreates the Windows 11 desktop environment pixel-perfectly — complete with a floating windowed app system, a real file explorer, a built-in app store, live wallpapers, a word processor, a terminal, and now full Fluent UI System Icons.
 
 <br/>
 
-**[📦 Download APK](#-download--releases) · [📸 Screenshots](#-screenshots) · [✨ Features](#-features) · [🏗️ Architecture](#-architecture) · [🚀 Getting Started](#-getting-started)**
+**[Download APK](#download--releases) · [Screenshots](#screenshots) · [Features](#features) · [Architecture](#architecture) · [Getting Started](#getting-started)**
 
 </div>
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [Overview](#-overview)
-- [Screenshots](#-screenshots)
-- [Features](#-features)
-- [Built-in Apps](#-built-in-apps)
-- [Architecture](#-architecture)
-- [Tech Stack](#-tech-stack)
-- [Project Structure](#-project-structure)
-- [Permissions](#-permissions)
-- [Getting Started](#-getting-started)
-- [Building from Source](#-building-from-source)
-- [Download & Releases](#-download--releases)
-- [Configuration](#-configuration)
-- [Known Limitations](#-known-limitations)
-- [Roadmap](#-roadmap)
-- [Contributing](#-contributing)
-- [License](#-license)
-- [Credits](#-credits)
+- [Overview](#overview)
+- [What's New](#whats-new)
+- [Release History](#release-history)
+- [Screenshots](#screenshots)
+- [Features](#features)
+- [Built-in Apps](#built-in-apps)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Permissions](#permissions)
+- [Getting Started](#getting-started)
+- [Building from Source](#building-from-source)
+- [Download & Releases](#download--releases)
+- [Configuration](#configuration)
+- [Known Limitations](#known-limitations)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+- [Credits](#credits)
+- [Contact](#contact)
 
 ---
 
-## 🔭 Overview
+## Overview
 
 **Bluebird** transforms your Android device into a Windows 11 desktop. It is a fully functional **home screen launcher** — set it as your default launcher and your phone becomes a PC-style productivity device.
 
@@ -54,20 +57,67 @@
 - A **real Windows 11 taskbar** with clock, pinned apps, system tray, and Action Center
 - A **Start Menu** with app grid, search, user profile, and power options
 - A **real file explorer** powered by Android's `File` API — not simulated
-- **Live system notifications** via `NotificationListenerService`
-- **Real phone dialer** and **SMS messaging** using Android's native contact & telephony APIs
-- A **media player** with full playback controls powered by `MediaPlayer`
+- A **Bluebird App Store** for installing custom HTML/CSS/JS and web apps directly on the desktop
+- **Live wallpapers** and **desktop particle animations** (Aurora, Nebula, Snow, Rain, Sakura, and more)
+- **Word Impress**, a built-in rich-text word processor with pagination and PDF export
+- A full **Terminal** app for on-device shell access
+- **Live system notifications** via `NotificationListenerService`, plus native **toast notifications**
+- **Real phone dialer** and **SMS messaging** using Android's native contact and telephony APIs
+- A **media player** with full playback controls powered by Media3 (ExoPlayer)
 - An **image viewer** with pinch-to-zoom, swipe navigation, and wallpaper-set support
 - A **Recycle Bin** — deleted files go here, restorable or permanently removed
 - A first-launch **OOBE wizard** (Out-of-Box Experience) for permissions, username, and avatar
 - **Persistent wallpapers** (home + lock screen) that survive restarts
 - **Desktop shortcuts** — pin any file, folder, or app directly to the desktop
+- **Fluent UI System Icons** throughout the entire shell, matching Windows 11's real icon language
 
 Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (API 26+).
 
 ---
 
-## 📸 Screenshots
+## What's New
+
+### v2.0 — "The Beginning of Beauty"
+
+Bluebird v2.0 is the biggest visual milestone in the project's history. This release is dedicated entirely to closing the gap between Bluebird and real Windows 11 — starting with iconography.
+
+- **Fluent UI System Icons** have been introduced across the desktop, taskbar, Start Menu, Settings, File Explorer, and every built-in app, replacing the previous Material icon set with Microsoft's own Fluent icon language for a far more authentic Windows 11 look and feel
+- Refined icon weights and outlined/filled icon states that match Fluent UI's segoe-style rendering
+- Visual polish pass across Acrylic surfaces, spacing, and iconography consistency in preparation for deeper Fluent Design adoption in v2.1
+- This is the first release in the "v2.x — Fluent Design" arc; v2.1 is already in active development and will continue bringing Fluent Design System components (typography, motion, and depth) to the rest of the shell
+
+### v1.9 — "Peak Performance"
+
+The fastest and most highly optimized release of Bluebird to date.
+
+- Major rendering and recomposition performance improvements across the Desktop, Taskbar, and Window Manager
+- Reduced memory footprint for window switching and live wallpaper rendering
+- Faster cold-start time from boot to desktop
+- General stability hardening across the App Store, Word Impress, and Terminal introduced in v1.8
+
+---
+
+## Release History
+
+| Version | Date | Codename | Highlights |
+|---------|------|----------|------------|
+| **v2.0** | Aug 30, 2026 | The Beginning of Beauty | Fluent UI System Icons across the entire OS, Windows 11 visual parity milestone |
+| **v1.9** | Aug 28, 2026 | Peak Performance | Fastest, most optimized build to date; major performance and stability pass |
+| **v1.8** | Aug 24, 2026 | The Major Expansion Update | Bluebird App Store, custom HTML/CSS/JS app installation, web app installation, live wallpapers, desktop animations, toast notifications, Word Impress, enhanced media controls |
+| **v1.7** | May 29, 2026 | Widget & Desktop Stability | Fixed desktop icons, taskbar overlapping, added weather API |
+| **v1.6** | May 28, 2026 | — | Notification system, media player improvements |
+| **v1.5** | May 27, 2026 | Modern Window Management | Snap layout picker, scrollable desktop |
+| **v1.4** | May 26, 2026 | — | Desktop stability and layout fixes |
+| **v1.3** | May 24, 2026 | Smart Updates & Professional Start Menu | — |
+| **v1.2** | May 24, 2026 | Editor & Start Menu Upgrade | New start menu, syntax highlighting |
+| **v1.1** | May 24, 2026 | Wallpaper & Stability | 5 built-in wallpapers |
+| **v1.0** | May 23, 2026 | Initial Release | — |
+
+See [CHANGELOG.md](CHANGELOG.md) for the full, detailed changelog.
+
+---
+
+## Screenshots
 
 <p align="center">
   <img src="screenshots/desktop.png" width="32%">
@@ -81,9 +131,9 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 
 ---
 
-## ✨ Features
+## Features
 
-### 🖥️ Desktop Environment
+### Desktop Environment
 
 | Feature | Description |
 |---------|-------------|
@@ -91,17 +141,20 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Acrylic Glassmorphism UI** | Frosted-glass panels with blur, transparency, and layered depth |
 | **Multi-window management** | Stack and switch between multiple open windows |
 | **Snap layout picker** | Windows 11–style snap layout overlay for quick window positioning |
-| **Desktop icons** | System icons (This PC, Recycle Bin, Settings, Network), file shortcuts, and app shortcuts |
+| **Desktop icons** | System icons (This PC, Recycle Bin, Settings, Network), file shortcuts, and app shortcuts, now rendered with Fluent UI System Icons |
 | **Right-click context menu** | Long-press desktop → New Folder, New Text File, Personalize, Refresh, Display Settings |
 | **Desktop shortcuts** | Drag any file from File Explorer → Create Shortcut; long-press app in Start Menu → Add to Desktop |
 | **Scrollable desktop** | Desktop scrolls when icons exceed the screen area |
-| **5 built-in wallpapers** | Blue Bloom, Sunset Purple, Forest Green, Deep Space, Aurora — gradient themes |
+| **Live wallpapers** | Aurora, Nebula, Waves, and Bokeh animated wallpapers |
+| **Desktop particle animations** | Snow, Bubbles, Stars, Rain, Hearts, Confetti, Fireflies, Leaves, Matrix, and Sakura |
+| **5 built-in static wallpapers** | Blue Bloom, Sunset Purple, Forest Green, Deep Space, Aurora — gradient themes |
 | **Custom wallpaper** | Pick any image from Gallery for home screen and lock screen separately |
 | **Wallpaper persistence** | Custom images copied to internal storage — survive app restarts and reboots |
+| **Wallpaper slideshow mode** | Automatically rotate through a selected set of wallpapers |
 | **Double-tap taskbar toggle** | Double-tap the desktop to hide/show the taskbar (full immersive mode) |
-| **Dark / Light theme** | Full dark and light mode switching, live and persistent |
+| **Dark / Light / For You / Special themes** | Full theme switching, live and persistent, with an 8-color accent picker |
 
-### 📌 Taskbar
+### Taskbar
 
 | Feature | Description |
 |---------|-------------|
@@ -110,25 +163,26 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Unpin from taskbar** | Long-press any pinned taskbar icon → Unpin |
 | **Running window badges** | Dot indicator below any app with an open window |
 | **Window switcher** | Tap a running window's taskbar icon to focus or restore it |
-| **System tray** | Battery level, Wi-Fi indicator, Bluetooth, clock, date |
+| **System tray** | Battery level, Wi-Fi indicator, Bluetooth, clock, date — now with Fluent-style tray glyphs |
 | **Notification badge** | Badge count on Action Center button when there are unread notifications |
+| **Toast notifications** | Transient, Windows-style toast popups for incoming notifications and system events |
 
-### 🪟 Start Menu
+### Start Menu
 
 | Feature | Description |
 |---------|-------------|
-| **App grid** | Pinned apps + all built-in apps in a 6-column icon grid |
+| **App grid** | Pinned apps + all built-in apps in a 6-column icon grid, using Fluent UI System Icons |
 | **All Apps view** | Scroll through every installed app on the device |
 | **Real-time search** | Type to filter installed apps instantly |
 | **User profile** | Real username + avatar (from OOBE setup) shown in bottom bar |
 | **App context menu** | Long-press any app → Open / Add to Desktop / Pin to Taskbar |
 | **Power menu** | Sleep, Lock, Restart, Shut Down options |
 
-### 🗂️ File Explorer (Real Filesystem)
+### File Explorer (Real Filesystem)
 
 | Feature | Description |
 |---------|-------------|
-| **True filesystem browsing** | Uses Android `File` API — real files, real sizes, real dates |
+| **True filesystem browsing** | Uses `BluebirdFileSystem`, backed by the Android `File` API — real files, real sizes, real dates |
 | **Breadcrumb navigation** | Clickable path segments — tap any segment to jump there |
 | **List & Grid views** | Toggle between detail list and thumbnail grid |
 | **Sort options** | Sort by Name, Date, Size, or Type — ascending or descending |
@@ -141,46 +195,83 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Open with intent** | Tapping a file opens it with the correct system app |
 | **Quick Access panel** | Desktop, Downloads, Documents, Pictures, Music, Movies, DCIM, Storage |
 | **Storage progress bar** | Shows used/free internal storage in left panel |
-| **File type icons** | Distinct color-coded icons for images, video, audio, PDF, text, archives, APKs |
+| **File type icons** | Distinct, Fluent-styled icons for images, video, audio, PDF, text, archives, APKs |
+| **Advanced copy/move engine** | Unified copy engine shared between Desktop and File Explorer, with live progress, speed and time estimates, and cancel support |
 
-### 🖼️ Image Viewer
+### Bluebird App Store & Web Apps (New in v1.8)
+
+| Feature | Description |
+|---------|-------------|
+| **Bluebird App Store** | Browse and install apps directly inside the launcher |
+| **Custom HTML/CSS/JS app installation** | Package and install your own lightweight web-based apps as first-class desktop apps |
+| **Install from URL** | Install any web app directly from a URL |
+| **Web App Manager** | Manage all installed web apps in one place — update, remove, relaunch |
+| **Web App Viewer** | Dedicated runtime window for installed web apps, separate from the main browser |
+| **Custom icon / favicon support** | Installed web apps display their own icon on the desktop and Start Menu |
+
+### Word Impress — Word Processor (New in v1.8)
+
+| Feature | Description |
+|---------|-------------|
+| **Rich text editing** | Full rich-text engine (`RichTextEngine`) with block-based document model |
+| **Pagination** | Real page-based layout with automatic pagination as you type |
+| **PDF export** | Export any document directly to PDF |
+| **Native `.wdoc` format** | Documents are saved and loaded through a dedicated `WdocIO` / `WdocModel` pipeline |
+| **Block-based content** | Text, headings, lists, and media handled as composable blocks (`BlockViews`) |
+
+### Terminal (New in v1.8+)
+
+| Feature | Description |
+|---------|-------------|
+| **On-device shell access** | Run shell commands directly from the desktop |
+| **Dedicated Terminal window** | Opens as a standard floating Bluebird window like any other app |
+
+### Text Editor
+
+| Feature | Description |
+|---------|-------------|
+| **Syntax highlighting** | Powered by a custom `SyntaxEngine` for common languages |
+| **Premium editor state** | Multi-tab, persistent editor preferences |
+| **Line numbers & find/replace** | Standard code-editing conveniences |
+
+### Image Viewer
 
 | Feature | Description |
 |---------|-------------|
 | **Full-screen viewer** | Opens any image in immersive full-screen mode |
-| **Pinch-to-zoom** | Multi-touch pinch zoom, pan, double-tap to zoom 2.5× |
+| **Pinch-to-zoom** | Multi-touch pinch zoom, pan, double-tap to zoom 2.5x |
 | **Swipe navigation** | Swipe left/right to move between images in the same folder |
 | **Thumbnail strip** | Scrollable thumbnail row at the bottom for quick jump |
-| **Rotate** | Rotate image 90° CW or CCW |
+| **Rotate** | Rotate image 90 degrees clockwise or counterclockwise |
 | **Share** | Share image via system share sheet |
 | **Set as wallpaper** | Set current image as home screen wallpaper instantly |
 | **Delete to bin** | Delete to Recycle Bin from inside the viewer |
 | **Image info panel** | File name, size, date modified, path |
 
-### 🎵 Media Player
+### Media Player
 
 | Feature | Description |
 |---------|-------------|
-| **Audio playback** | Plays MP3, WAV, OGG, FLAC, AAC, M4A via Android `MediaPlayer` |
-| **Video support** | MP4, MKV, AVI, MOV, WebM |
-| **Auto-playlist** | Loads all media files from the same folder into a playlist |
+| **Media3 (ExoPlayer) playback** | Plays MP3, WAV, OGG, FLAC, AAC, M4A, MP4, MKV, AVI, MOV, WebM |
+| **Background playback service** | Dedicated `PlaybackService` for uninterrupted media playback |
+| **Auto-playlist** | Loads all media files from the same folder into a playlist via `MediaLibraryRepository` |
 | **Seek bar** | Real-time playback position with tap-to-seek |
-| **Track metadata** | Title, artist, album from file tags via `MediaMetadataRetriever` |
+| **Track metadata** | Title, artist, album from file tags |
 | **Playback controls** | Play/Pause, Previous, Next, Shuffle, Repeat (Off / All / One) |
+| **Enhanced media controls** | Expanded system-level media notification controls (New in v1.8) |
 | **Playlist panel** | Left sidebar with all tracks, now-playing indicator, equalizer animation |
-| **Duration display** | Track duration and current position always visible |
 
-### 📱 Phone
+### Phone
 
 | Feature | Description |
 |---------|-------------|
 | **Real contacts** | Reads contacts from `ContactsContract` — real names and numbers |
-| **Call log** | Reads last 100 calls from `CallLog` with incoming/outgoing/missed indicators |
+| **Call log** | Reads recent calls from `CallLog` with incoming/outgoing/missed indicators |
 | **Numeric keypad** | Full dial pad that triggers `ACTION_CALL` intent |
 | **Contact search** | Search by name or number |
 | **One-tap call** | Tap any contact or call log entry to dial |
 
-### 💬 Messages (SMS)
+### Messages (SMS)
 
 | Feature | Description |
 |---------|-------------|
@@ -191,7 +282,7 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **New message** | Start a new conversation with any number |
 | **Conversation search** | Filter threads by name or message content |
 
-### 🗑️ Recycle Bin
+### Recycle Bin
 
 | Feature | Description |
 |---------|-------------|
@@ -203,30 +294,33 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Multi-select** | Checkbox multi-select for bulk operations |
 | **Item details** | Original path, deletion date, file size for every item |
 
-### ⚙️ Settings
+### Settings
 
-| Section | Features |
-|---------|---------|
-| **Personalization** | Wallpaper picker (home + lock screen), gradient presets, accent color (8 colors), dark/light mode |
-| **Display** | Brightness slider → real `Settings.System.SCREEN_BRIGHTNESS` |
-| **Sound** | Volume slider → real `AudioManager.STREAM_MUSIC` |
-| **Network** | Wi-Fi toggle → opens system Wi-Fi settings; Bluetooth → opens system Bluetooth settings |
-| **Battery** | Real battery level + charging status with progress bar |
-| **Storage** | Real used/free storage with progress bar |
-| **Apps** | List of all installed apps; tap to open App Info |
-| **Accounts** | User profile with avatar and name from OOBE |
-| **About** | Device model, manufacturer, Android version, API level, RAM, app version |
+Over 50 individual settings across the following categories, all exposed through `LauncherUiState`:
 
-### 🔔 Notifications
+| Section | Highlights |
+|---------|-----------|
+| **Appearance** | App theme (System, For You, Dark, Light, Special), text scale, icon size, taskbar position, start menu layout, transparency, animation speed, corner radius, grid size, app labels, dark mode schedule, wallpaper slideshow |
+| **System** | Launch on boot, snap layouts, clipboard history, Do Not Disturb with scheduling, Focus Assist, screen timeout, game mode, battery saver, thermal protection |
+| **Sound** | Media, ringtone, notification, and alarm volume; system sounds; haptic feedback; notification sound; volume-key media control |
+| **Network** | Wi-Fi and Bluetooth toggles, data saver, hotspot, VPN, custom DNS |
+| **Accessibility** | High contrast, larger text, bold text, reduce motion, mono audio, button shapes, color correction, touch-hold delay, magnification, captions |
+| **Privacy & Security** | Screen lock, location access, camera access, microphone access, usage diagnostics, unknown sources, biometric unlock |
+| **Time & Language** | 24-hour clock, auto set time, timezone, date format, first day of week |
+| **Other** | Search bar, search engine, search suggestions, auto backup, auto update, update channel |
+
+### Notifications
 
 | Feature | Description |
 |---------|-------------|
 | **Live notifications** | `NotificationListenerService` reads real system notifications |
+| **Toast notifications** | Windows-style transient toast popups (New in v1.8) |
 | **Action Center** | Grouped notifications with app name, title, body, and timestamp |
+| **Bluebird announcements** | Remote team announcements delivered via `notify.json` |
 | **Dismiss** | Dismiss individual notifications or clear all |
 | **Auto-reconnect** | Service callbacks re-registered on every `onResume()` |
 
-### 🔐 First-Launch Setup (OOBE)
+### First-Launch Setup (OOBE)
 
 | Step | Description |
 |------|-------------|
@@ -236,108 +330,122 @@ Built entirely with **Jetpack Compose** and **Kotlin**, targeting Android 8.0+ (
 | **Profile picture** | Pick from Gallery — stored persistently in internal storage |
 | **Skip support** | Every step can be skipped and revisited in Settings later |
 
-### 🔒 Lock Screen
+### Lock Screen
 
 | Feature | Description |
 |---------|-------------|
 | **Custom wallpaper** | Shows lock screen wallpaper (separate from home wallpaper) |
-| **Live clock** | Large 12-hour clock with date |
+| **Live clock** | Large clock with date |
 | **User avatar** | Profile picture or initial letter shown on lock screen |
 | **Tap to unlock** | Single tap unlocks back to the desktop |
 
----
+### Gestures
 
-## 📱 Built-in Apps
+Swipe up, swipe down, double tap, pinch, and standard navigation-bar gestures are supported across the desktop shell.
 
-| App | Icon | Description |
-|-----|------|-------------|
-| **File Explorer** | 📁 | Real filesystem browser |
-| **Settings** | ⚙️ | Full settings panel |
-| **Phone** | 📞 | Real dialer with contacts & call log |
-| **Messages** | 💬 | Real SMS reader and sender |
-| **Media Player** | 🎵 | Audio/video player with playlist |
-| **Image Viewer** | 🖼️ | Full-screen image viewer |
-| **Recycle Bin** | 🗑️ | Deleted files manager |
-| **Browser** | 🌐 | WebView-based browser |
-| **Calculator** | 🔢 | Standard calculator |
-| **Calendar** | 📅 | Month calendar view |
-| **Photos** | 🖼️ | Photo gallery |
-| **Task Manager** | 📊 | Running processes viewer |
-| **Text Editor** | 📝 | In-launcher editor with syntax highlighting |
+### Undo System
+
+Reversible actions across the shell surface an undo affordance with a clear, human-readable label for the action just performed.
 
 ---
 
-## 🏗️ Architecture
+## Built-in Apps
+
+| App | Description |
+|-----|-------------|
+| **File Explorer** | Real filesystem browser |
+| **Settings** | Full settings panel across 8+ categories |
+| **Phone** | Real dialer with contacts and call log |
+| **Messages** | Real SMS reader and sender |
+| **Media Player** | Audio/video player with playlist, built on Media3 |
+| **Image Viewer** | Full-screen image viewer |
+| **Photos** | Photo gallery |
+| **Recycle Bin** | Deleted files manager |
+| **Browser** | WebView-based browser with ad blocking |
+| **Calculator** | Standard calculator |
+| **Calendar** | Month calendar view |
+| **Task Manager** | Running processes viewer |
+| **Text Editor** | In-launcher editor with syntax highlighting |
+| **Word Impress** | Rich-text word processor with pagination and PDF export |
+| **Bluebird Store** | Built-in app store for custom HTML/CSS/JS and web apps |
+| **Terminal** | On-device shell access |
+| **Web App Manager** | Manage installed web apps |
+| **Web App Viewer** | Runtime window for installed web apps |
+
+---
+
+## Architecture
 
 Bluebird uses a single-ViewModel, unidirectional data flow architecture:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        MainActivity                         │
-│  ┌─────────────────────┐    ┌─────────────────────────────┐ │
-│  │   SetupScreen       │    │      DesktopScreen          │ │
-│  │   (OOBE Wizard)     │    │                             │ │
-│  └─────────────────────┘    │  ┌──────────┐ ┌─────────┐  │ │
-│                             │  │ Desktop  │ │ Windows │  │ │
-│                             │  │ (Icons,  │ │ Manager │  │ │
-│                             │  │ Wallpaper│ │         │  │ │
-│                             │  │ Context  │ │ Floating│  │ │
-│                             │  │ Menu)    │ │ Windows │  │ │
-│                             │  └──────────┘ └─────────┘  │ │
-│                             │  ┌──────────────────────┐   │ │
-│                             │  │      Taskbar          │   │ │
-│                             │  │  Start │ Apps │ Tray  │   │ │
-│                             │  └──────────────────────┘   │ │
-│                             │  ┌──────────────────────┐   │ │
-│                             │  │  Overlays (animated)  │   │ │
-│                             │  │  Start Menu │ Search  │   │ │
-│                             │  │  Action Center│ Power  │   │ │
-│                             │  └──────────────────────┘   │ │
-│                             └─────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-                               │
-                    ┌──────────▼──────────┐
-                    │  LauncherViewModel   │
-                    │                      │
-                    │  LauncherUiState     │
-                    │  ┌─────────────────┐ │
-                    │  │ wallpaper       │ │
-                    │  │ userProfile     │ │
-                    │  │ installedApps   │ │
-                    │  │ pinnedApps      │ │
-                    │  │ openWindows     │ │
-                    │  │ notifications   │ │
-                    │  │ desktopShortcuts│ │
-                    │  │ recycleBinItems │ │
-                    │  │ overlayStates   │ │
-                    │  └─────────────────┘ │
-                    └──────────┬──────────┘
-                               │
-               ┌───────────────┼───────────────┐
-               │               │               │
-     ┌─────────▼──────┐  ┌─────▼──────┐  ┌────▼────────┐
-     │  SharedPrefs   │  │ Android    │  │ System      │
-     │  (persistence) │  │ APIs       │  │ Services    │
-     │                │  │ File, SMS  │  │ Wallpaper   │
-     │  - wallpaper   │  │ Contacts   │  │ AudioManager│
-     │  - username    │  │ CallLog    │  │ Notification│
-     │  - pinned apps │  │ PackageMgr │  │ Listener    │
-     │  - shortcuts   │  │ MediaPlayer│  │ BatteryMgr  │
-     │  - recycle bin │  └────────────┘  └─────────────┘
-     └────────────────┘
++-----------------------------------------------------------------+
+|                          MainActivity                            |
+|  +----------------------+     +------------------------------+  |
+|  |   SetupScreen        |     |        DesktopScreen          |  |
+|  |   (OOBE Wizard)      |     |                                |  |
+|  +----------------------+     |  +----------+   +-----------+  |  |
+|                                |  | Desktop  |   |  Windows  |  |  |
+|                                |  | (Icons,  |   |  Manager  |  |  |
+|                                |  | Wallpaper|   |           |  |  |
+|                                |  | Context  |   |  Floating |  |  |
+|                                |  | Menu)    |   |  Windows  |  |  |
+|                                |  +----------+   +-----------+  |  |
+|                                |  +--------------------------+  |  |
+|                                |  |         Taskbar           |  |  |
+|                                |  |   Start | Apps | Tray     |  |  |
+|                                |  +--------------------------+  |  |
+|                                |  +--------------------------+  |  |
+|                                |  |    Overlays (animated)     |  |  |
+|                                |  |  Start Menu | Search       |  |  |
+|                                |  |  Action Center | Power     |  |  |
+|                                |  +--------------------------+  |  |
+|                                +--------------------------------+  |
++-----------------------------------------------------------------+
+                               |
+                    +----------v-----------+
+                    |   LauncherViewModel   |
+                    |                       |
+                    |   LauncherUiState     |
+                    |   +-----------------+ |
+                    |   | wallpaper       | |
+                    |   | userProfile     | |
+                    |   | installedApps   | |
+                    |   | pinnedApps      | |
+                    |   | openWindows     | |
+                    |   | notifications   | |
+                    |   | desktopShortcuts| |
+                    |   | recycleBinItems | |
+                    |   | webApps         | |
+                    |   | overlayStates   | |
+                    |   +-----------------+ |
+                    +----------+------------+
+                               |
+               +---------------+---------------+
+               |               |               |
+     +---------v------+  +-----v------+  +----v--------+
+     |  SharedPrefs   |  |  Android   |  |   System    |
+     |  (persistence) |  |   APIs     |  |  Services   |
+     |                |  |  File, SMS |  |  Wallpaper  |
+     |  - wallpaper   |  |  Contacts  |  |  AudioMgr   |
+     |  - username    |  |  CallLog   |  |  Notif.     |
+     |  - pinned apps |  |  PackageMgr|  |  Listener   |
+     |  - shortcuts   |  |  Media3    |  |  BatteryMgr |
+     |  - recycle bin |  +------------+  +-------------+
+     +----------------+
 ```
 
 ### Data Flow
 
 ```
-User Gesture → Composable → ViewModel.action() → UiState update → Recompose
+User Gesture -> Composable -> ViewModel.action() -> UiState update -> Recompose
 ```
 
-All state lives in a single `LauncherUiState` data class, collected as `StateFlow` by Compose. No Room database — all persistence is through `SharedPreferences` with Gson serialization for complex objects.
+All state lives in a single `LauncherUiState` data class, collected as `StateFlow` by Compose. No Room database — all persistence is through `SharedPreferences` and `DataStore`, with Gson serialization for complex objects.
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 | Category | Technology | Version |
 |----------|-----------|---------|
@@ -346,111 +454,112 @@ All state lives in a single `LauncherUiState` data class, collected as `StateFlo
 | **Architecture** | MVVM + StateFlow | — |
 | **Build System** | Gradle (KTS) | 8.5.2 |
 | **Navigation** | None (custom window manager) | — |
+| **Media** | Media3 (ExoPlayer) | 1.4.1 |
 | **Image Loading** | Coil | 2.7.0 |
 | **JSON** | Gson | 2.11.0 |
 | **Persistence** | SharedPreferences + DataStore | 1.1.1 |
-| **Icons** | Material Icons Extended | BOM |
-| **System UI** | Accompanist SystemUI | 0.34.0 |
-| **Permissions** | Accompanist Permissions | 0.34.0 |
-| **Drawable Rendering** | Accompanist DrawablePainter | 0.34.0 |
+| **Icons** | Fluent UI System Icons + Material Icons Extended | BOM |
 | **Splash Screen** | AndroidX Core SplashScreen | 1.0.1 |
 | **Min SDK** | Android 8.0 (Oreo) | API 26 |
 | **Target SDK** | Android 15 | API 35 |
-| **Compile SDK** | 35 | — |
+| **Compile SDK** | 36 | — |
 | **Java Version** | 17 | — |
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 Bluebird/
 ├── app/
-│   ├── build.gradle.kts
+│   ├── build.gradle.kts                  # versionCode=10, versionName=2.0
 │   ├── proguard-rules.pro
 │   └── src/main/
 │       ├── AndroidManifest.xml
-│       └── java/com/bluebird/
+│       └── java/io/github/norbertweb/bluebird/
 │           ├── BluebirdApplication.kt
 │           ├── DesktopModeHelper.kt
-│           ├── LauncherApplication.kt
-│           ├── LauncherViewModel.kt          # Core logic (~92KB) — all state & business logic
+│           ├── LauncherViewModel.kt          # Core logic with 70+ settings
 │           ├── MainActivity.kt               # Entry point, OOBE routing, immersive mode
 │           │
-│           ├── browser/
+│           ├── browser/                      # WebView-based browser
 │           │   ├── data/
 │           │   │   └── BrowserRepository.kt
 │           │   ├── ui/
 │           │   │   ├── BrowserScreen.kt
-│           │   │   ├── NewTabPage.kt
-│           │   │   ├── components/
-│           │   │   │   ├── Dialogs.kt
-│           │   │   │   └── NavigationComponents.kt
-│           │   │   ├── keyboard/
-│           │   │   │   └── FloatingKeyboard.kt
-│           │   │   ├── model/
-│           │   │   │   └── Models.kt
-│           │   │   ├── panels/
-│           │   │   │   └── Panels.kt
-│           │   │   └── webview/
-│           │   │       └── BrowserWebView.kt
+│           │   │   └── NewTabPage.kt
+│           │   ├── components/
+│           │   ├── keyboard/
+│           │   ├── model/
+│           │   ├── panels/
+│           │   ├── webview/
 │           │   └── utils/
 │           │       ├── AdBlocker.kt
 │           │       ├── DownloadHelper.kt
-│           │       ├── UrlUtils.kt
-│           │       └── UserAgents.kt
+│           │       └── UrlUtils.kt
+│           │
+│           ├── core/
+│           │   └── filesystem/
+│           │       └── BluebirdFileSystem.kt # Real filesystem support
 │           │
 │           ├── data/
-│           │   ├── BootReceiver.kt           # Auto-launch on device boot
-│           │   └── NotificationListener.kt   # NotificationListenerService
+│           │   ├── BootReceiver.kt           # Auto-launch on boot
+│           │   └── NotificationListener.kt   # System notifications
 │           │
-│           ├── editor/
+│           ├── editor/                       # Premium text/code editor
 │           │   ├── core/
 │           │   │   ├── EditorModels.kt
 │           │   │   └── PremiumEditorState.kt
-│           │   ├── editor/actions/
-│           │   │   └── TextActions.kt
 │           │   ├── highlighting/
-│           │   │   └── SyntaxEngine.kt       # Syntax/code highlighting engine
-│           │   ├── ui/
-│           │   │   ├── components/
-│           │   │   │   └── EditorComponents.kt
-│           │   │   ├── screens/
-│           │   │   │   └── PremiumTextEditorScreen.kt
-│           │   │   └── theme/
-│           │   │       └── EditorThemes.kt
+│           │   │   └── SyntaxEngine.kt
+│           │   ├── ui/screens/
+│           │   │   └── PremiumTextEditorScreen.kt
 │           │   └── utils/
 │           │       └── EditorPreferences.kt
 │           │
+│           ├── media/                        # Media player service
+│           │   ├── MediaLibraryRepository.kt
+│           │   └── PlaybackService.kt
+│           │
 │           ├── ui/
 │           │   ├── components/
-│           │   │   ├── ActionCenter.kt       # Notification panel + quick tiles
-│           │   │   ├── CommonComponents.kt   # AcrylicSurface, AppIconSmall, shared UI
-│           │   │   ├── Desktop.kt            # Wallpaper, icons, context menu (~104KB)
+│           │   │   ├── ActionCenter.kt       # Notifications + quick tiles
+│           │   │   ├── CommonComponents.kt   # Acrylic UI
+│           │   │   ├── Desktop.kt            # Desktop with icons
 │           │   │   ├── DesktopPreferences.kt
 │           │   │   ├── DesktopWallpaperState.kt
-│           │   │   ├── SearchOverlay.kt      # Global search overlay
-│           │   │   ├── StartMenu.kt          # Start menu, app grid, power menu (~98.6KB)
-│           │   │   ├── Taskbar.kt            # Bluebird taskbar, tray, clock (~75.3KB)
-│           │   │   ├── WidgetsPanel.kt       # Widgets slide-in panel
-│           │   │   └── WindowManager.kt      # Floating window container & routing
+│           │   │   ├── NotificationToast.kt  # Toast notifications (v1.8)
+│           │   │   ├── SearchOverlay.kt
+│           │   │   ├── StartMenu.kt
+│           │   │   ├── Taskbar.kt
+│           │   │   ├── TerminalScreen.kt     # Terminal (v1.8+)
+│           │   │   ├── WebAppManager.kt      # Web app support (v1.8)
+│           │   │   ├── WidgetsPanel.kt
+│           │   │   └── WindowManager.kt
 │           │   ├── screens/
 │           │   │   ├── AppScreens.kt         # Calculator, Calendar, Photos, TaskManager
-│           │   │   ├── BrowserScreen.kt      # WebView browser (legacy screen)
-│           │   │   ├── DesktopScreen.kt      # Root desktop compositor
-│           │   │   ├── FileExplorerScreen.kt # Real file manager
-│           │   │   ├── ImageViewerScreen.kt  # Full-screen image viewer
-│           │   │   ├── Launcherupdatesettings.kt # In-app update settings
-│           │   │   ├── LockScreenActivity.kt # System lock screen activity
-│           │   │   ├── MediaPlayerScreen.kt  # Audio/video player
-│           │   │   ├── MessagesScreen.kt     # SMS reader/sender
-│           │   │   ├── PhoneScreen.kt        # Dialer + contacts + call log
-│           │   │   ├── RecycleBinScreen.kt   # Recycle bin manager
-│           │   │   ├── SettingsScreen.kt     # Full settings (12 categories)
-│           │   │   ├── SetupScreen.kt        # First-launch OOBE wizard
-│           │   │   └── TextEditorScreen.kt   # In-launcher text/code editor
+│           │   │   ├── DesktopScreen.kt
+│           │   │   ├── FileExplorerScreen.kt
+│           │   │   ├── ImageViewerScreen.kt
+│           │   │   ├── MediaPlayerScreen.kt
+│           │   │   ├── MessagesScreen.kt
+│           │   │   ├── RecycleBinScreen.kt
+│           │   │   ├── SettingsScreen.kt
+│           │   │   ├── SetupScreen.kt        # OOBE wizard
+│           │   │   ├── LockScreenActivity.kt
+│           │   │   ├── BrowserScreen.kt
+│           │   │   └── Launcherupdatesettings.kt
 │           │   └── theme/
 │           │       └── Theme.kt              # bluebirdColors, dark/light Material3 themes
+│           │
+│           ├── wordprocessor/                # Word Impress (v1.8)
+│           │   ├── WordImpress.kt
+│           │   ├── RichTextEngine.kt
+│           │   ├── BlockViews.kt
+│           │   ├── Pagination.kt
+│           │   ├── PdfExport.kt
+│           │   ├── WdocIO.kt
+│           │   └── WdocModel.kt
 │           │
 │           └── update/
 │               ├── UpdateManager.kt          # GitHub-based update checker & downloader
@@ -469,42 +578,43 @@ Bluebird/
 ├── CONTRIBUTING.md
 ├── LICENSE
 ├── SECURITY.md
-└── README.md
+├── README.md
+└── screenshots/
 ```
 
 ---
 
-## 🔐 Permissions
+## Permissions
 
 Bluebird requests the following permissions, each explained:
 
 | Permission | Why it's needed | Required? |
 |-----------|-----------------|-----------|
-| `QUERY_ALL_PACKAGES` | List all installed apps in Start Menu | ✅ Yes |
-| `RECEIVE_BOOT_COMPLETED` | Auto-start as home screen after reboot | ✅ Yes |
-| `SET_WALLPAPER` / `SET_WALLPAPER_HINTS` | Apply custom wallpaper to system | ✅ Yes |
-| `READ_MEDIA_IMAGES/VIDEO/AUDIO` | Browse media files in File Explorer | ✅ Yes |
-| `READ_EXTERNAL_STORAGE` | Filesystem access (Android ≤ 12) | ✅ Yes |
-| `MANAGE_EXTERNAL_STORAGE` | Full filesystem access for File Explorer | ⚠️ Optional |
-| `READ_CONTACTS` | Show real contacts in Phone app | ⚠️ Optional |
-| `CALL_PHONE` | Dial calls from the Phone dialer | ⚠️ Optional |
-| `READ_CALL_LOG` | Show recent calls in Phone app | ⚠️ Optional |
-| `READ_SMS` / `SEND_SMS` / `RECEIVE_SMS` | Read and send messages | ⚠️ Optional |
-| `CAMERA` | Take profile picture during OOBE | ⚠️ Optional |
-| `POST_NOTIFICATIONS` | Show system notifications | ⚠️ Optional |
-| `BIND_NOTIFICATION_LISTENER_SERVICE` | Read live notifications via system service | ⚠️ Optional |
-| `INTERNET` / `ACCESS_NETWORK_STATE` | Browser app, network status, update checker | ⚠️ Optional |
-| `BLUETOOTH_CONNECT` / `BLUETOOTH_SCAN` | Bluetooth status in Quick Settings | ⚠️ Optional |
-| `WRITE_SETTINGS` | Adjust screen brightness | ⚠️ Optional |
-| `BATTERY_STATS` | Real battery level in status bar | ⚠️ Optional |
+| `QUERY_ALL_PACKAGES` | List all installed apps in Start Menu | Yes |
+| `RECEIVE_BOOT_COMPLETED` | Auto-start as home screen after reboot | Yes |
+| `SET_WALLPAPER` / `SET_WALLPAPER_HINTS` | Apply custom wallpaper to system | Yes |
+| `READ_MEDIA_IMAGES` / `READ_MEDIA_VIDEO` / `READ_MEDIA_AUDIO` | Browse media files in File Explorer and Media Player | Yes |
+| `READ_EXTERNAL_STORAGE` | Filesystem access (Android 12 and below) | Yes |
+| `MANAGE_EXTERNAL_STORAGE` | Full filesystem access for File Explorer | Optional |
+| `READ_CONTACTS` | Show real contacts in Phone app | Optional |
+| `CALL_PHONE` | Dial calls from the Phone dialer | Optional |
+| `READ_CALL_LOG` | Show recent calls in Phone app | Optional |
+| `READ_SMS` / `SEND_SMS` / `RECEIVE_SMS` | Read and send messages | Optional |
+| `CAMERA` | Take profile picture during OOBE | Optional |
+| `POST_NOTIFICATIONS` | Show system and toast notifications | Optional |
+| `BIND_NOTIFICATION_LISTENER_SERVICE` | Read live notifications via system service | Optional |
+| `INTERNET` / `ACCESS_NETWORK_STATE` | Browser, App Store, web apps, network status, update checker | Optional |
+| `BLUETOOTH_CONNECT` / `BLUETOOTH_SCAN` | Bluetooth status in Quick Settings | Optional |
+| `WRITE_SETTINGS` | Adjust screen brightness | Optional |
+| `BATTERY_STATS` | Real battery level in status bar | Optional |
 
-> ⚠️ `MANAGE_EXTERNAL_STORAGE` requires manual grant in Android Settings on API 30+. The OOBE wizard guides the user through this.
+> `MANAGE_EXTERNAL_STORAGE` requires manual grant in Android Settings on API 30+. The OOBE wizard guides the user through this.
 
-> ⚠️ **Notification Listener** must be manually granted in **Settings → Notifications → Notification Access**. The OOBE wizard opens this screen directly.
+> **Notification Listener** must be manually granted in **Settings → Notifications → Notification Access**. The OOBE wizard opens this screen directly.
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -517,7 +627,7 @@ Bluebird requests the following permissions, each explained:
 
 ```bash
 git clone https://github.com/norbert-web/bluebird.git
-cd io.github.norbertweb.bluebird
+cd bluebird
 ```
 
 ### Open in Android Studio
@@ -536,7 +646,7 @@ After installing, Android will prompt you to select a default launcher. Choose *
 
 ---
 
-## 🔨 Building from Source
+## Building from Source
 
 ### Debug Build (for development)
 
@@ -609,11 +719,11 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
-## 📦 Download & Releases
+## Download & Releases
 
-### Latest Release: v1.6.0
+### Latest Release: v2.0
 
-**[⬇️ Download from GitHub Releases →](https://github.com/norbert-web/bluebird/releases/latest)**
+**[Download from GitHub Releases →](https://github.com/norbert-web/bluebird/releases/latest)**
 
 ### Installing the APK
 
@@ -631,7 +741,7 @@ adb install io.github.norbertweb.bluebird-release.apk
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 Bluebird stores all user preferences in `SharedPreferences` under the key `launcher_prefs_v2`. There is no config file — everything is configured through the in-app **Settings** and **OOBE wizard**.
 
@@ -640,7 +750,7 @@ Bluebird stores all user preferences in `SharedPreferences` under the key `launc
 To fully reset Bluebird:
 
 ```bash
-adb shell pm clear io.github.norbertweb.bluebirdb.norbertweb.bluebird
+adb shell pm clear io.github.norbertweb.bluebird
 ```
 
 Or: **Android Settings → Apps → Bluebird → Storage → Clear Data**
@@ -651,11 +761,11 @@ If you want to publish your own fork, change the package name in:
 
 1. `app/build.gradle.kts` → `namespace` and `applicationId`
 2. `app/src/main/AndroidManifest.xml` → `android:authorities` in the `FileProvider`
-3. Rename the Java package directory from `com/bluebird/` to your new package
+3. Rename the Java package directory from `io/github/norbertweb/bluebird/` to your new package
 
 ---
 
-## ⚠️ Known Limitations
+## Known Limitations
 
 | Limitation | Reason | Workaround |
 |-----------|--------|-----------|
@@ -666,30 +776,38 @@ If you want to publish your own fork, change the package name in:
 | **File deletions are permanent** | Recycle Bin tracks metadata but `File.delete()` can't be reliably undone on all devices | Items appear in Recycle Bin with restore option |
 | **Screen brightness control** | Requires `WRITE_SETTINGS` which must be granted manually | Settings → Display → System permissions |
 | **Wallpaper on lock screen** | Android system lock screen is separate from the in-app lock screen | Use the in-app lock (Start → Power → Lock) for Bluebird's lock screen |
+| **Web apps run in a sandboxed WebView** | Bluebird web apps are not native apps and are limited to WebView-supported APIs | Use native Android apps for functionality outside WebView's scope |
 
 ---
 
-## 🗺️ Roadmap
+## Roadmap
 
-### Upcoming
+### v2.1 — Next Release (In Development)
+
+- [ ] Continued Fluent Design System rollout: typography, motion curves, and layered depth
+- [ ] Fluent-style Mica and Acrylic material refinements
 - [ ] Resizable floating windows (drag handles on edges/corners)
-- [ ] Remote Schools built-in learning app (Uganda curriculum P1–S6)
 - [ ] Taskbar auto-hide mode (hover to reveal)
 - [ ] Multiple virtual desktops
-- [ ] Window transparency controls
 
-### Future
+### Upcoming
+
+- [ ] Remote Schools built-in learning app (Uganda curriculum P1–S6)
+- [ ] Window transparency controls
 - [ ] Widget support (third-party app widgets on desktop)
 - [ ] Clipboard manager
+
+### Future
+
 - [ ] Screen recording
 - [ ] Keyboard shortcuts (for physical keyboards)
-- [ ] Custom accent color picker (full color wheel)
+- [ ] Full color-wheel accent picker
 - [ ] Cloud sync for settings and shortcuts
-- [ ] Theming engine (custom themes beyond dark/light)
+- [ ] Full custom theming engine beyond dark/light/Fluent presets
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are warmly welcome! Here's how to get started:
 
@@ -718,6 +836,7 @@ Use the [GitHub Issues](https://github.com/norbert-web/bluebird/issues) tracker.
 - Keep Composables small and focused
 - Add `@Preview` annotations where useful
 - State mutations must go through `LauncherViewModel` — never mutate state directly in a composable
+- New icons should use Fluent UI System Icons to stay consistent with the v2.x visual direction
 
 ### Branching Strategy
 
@@ -731,7 +850,7 @@ Use the [GitHub Issues](https://github.com/norbert-web/bluebird/issues) tracker.
 
 ---
 
-## 📜 License
+## License
 
 ```
 MIT License
@@ -759,23 +878,24 @@ SOFTWARE.
 
 ---
 
-## 🙏 Credits
+## Credits
 
 ### Libraries Used
 
 | Library | License | Purpose |
 |---------|---------|---------|
 | [Jetpack Compose](https://developer.android.com/jetpack/compose) | Apache 2.0 | UI framework |
+| [Media3 (ExoPlayer)](https://developer.android.com/media/media3) | Apache 2.0 | Audio/video playback |
 | [Coil](https://coil-kt.github.io/coil/) | Apache 2.0 | Image loading |
 | [Gson](https://github.com/google/gson) | Apache 2.0 | JSON serialization |
-| [Accompanist](https://google.github.io/accompanist/) | Apache 2.0 | System UI, permissions, painter |
-| [Material Icons Extended](https://fonts.google.com/icons) | Apache 2.0 | Icon set |
+| [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) | MIT | Windows 11–style icon set |
+| [Material Icons Extended](https://fonts.google.com/icons) | Apache 2.0 | Supplementary icon set |
 | [AndroidX DataStore](https://developer.android.com/jetpack/androidx/releases/datastore) | Apache 2.0 | Preferences persistence |
 | [AndroidX SplashScreen](https://developer.android.com/develop/ui/views/launch/splash-screen) | Apache 2.0 | Splash screen API |
 
 ### Design Inspiration
 
-- [Windows 11](https://www.microsoft.com/en-us/windows/windows-11) by Microsoft — for the UI design language, Fluent Design system, and Acrylic material
+- [Windows 11](https://www.microsoft.com/en-us/windows/windows-11) by Microsoft — for the UI design language, Fluent Design System, and Acrylic material
 
 ### Contributors
 
@@ -785,7 +905,7 @@ SOFTWARE.
 
 ---
 
-## 📬 Contact
+## Contact
 
 - **GitHub Issues**: [github.com/norbert-web/bluebird/issues](https://github.com/norbert-web/bluebird/issues)
 - **Discussions**: [github.com/norbert-web/bluebird/discussions](https://github.com/norbert-web/bluebird/discussions)
@@ -795,6 +915,6 @@ SOFTWARE.
 
 <div align="center">
 
-Made with 🫡💪💗 and Kotlin · [⬆️ Back to top](#-bluebird)
+Made with Kotlin · [Back to top](#bluebird)
 
 </div>
