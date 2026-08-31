@@ -1,4 +1,4 @@
-package com.io.github.norbertweb.bluebird.browser.model
+package io.github.norbertweb.bluebird.browser.model
 
 import java.util.UUID
 
@@ -36,6 +36,8 @@ data class HistoryEntry(val id: String = UUID.randomUUID().toString(), val title
     val faviconColor: Long = 0xFF1A73E8, val visitedAt: Long = System.currentTimeMillis())
 
 enum class DownloadStatus { DOWNLOADING, COMPLETED, FAILED, PAUSED, CANCELLED }
+
+enum class ClearDataOption { HISTORY, COOKIES, CACHE, SITE_STORAGE, FORM_DATA, DOWNLOADS }
 
 data class DownloadItem(val id: String = UUID.randomUUID().toString(), val downloadManagerId: Long = -1L, val fileName: String,
     val url: String, val mimeType: String, val fileSize: Long = 0L, var status: DownloadStatus = DownloadStatus.DOWNLOADING,

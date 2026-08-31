@@ -1,8 +1,8 @@
-package com.io.github.norbertweb.bluebird.browser.data
+package io.github.norbertweb.bluebird.browser.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.io.github.norbertweb.bluebird.browser.model.*
+import io.github.norbertweb.bluebird.browser.model.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID

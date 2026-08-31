@@ -1,7 +1,9 @@
-package com.io.github.norbertweb.bluebird.browser.ui
+package io.github.norbertweb.bluebird.browser.ui
 
 // Use model alias to avoid clashing with android.webkit.PermissionRequest
+import android.content.Context
 import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.print.PrintManager
@@ -16,11 +18,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -51,51 +60,56 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.io.github.norbertweb.bluebird.browser.data.BrowserRepository
-import com.io.github.norbertweb.bluebird.browser.security.CredentialVault
-import com.io.github.norbertweb.bluebird.browser.security.StoredCredential
-import com.io.github.norbertweb.bluebird.browser.model.Bookmark
-import com.io.github.norbertweb.bluebird.browser.model.BookmarkFolder
-import com.io.github.norbertweb.bluebird.browser.model.BrowserPanel
-import com.io.github.norbertweb.bluebird.browser.model.BrowserSettings
-import com.io.github.norbertweb.bluebird.browser.model.BrowserTab
-import com.io.github.norbertweb.bluebird.browser.model.DownloadItem
-import com.io.github.norbertweb.bluebird.browser.model.HistoryEntry
-import com.io.github.norbertweb.bluebird.browser.model.JsDialogState
-import com.io.github.norbertweb.bluebird.browser.model.MAX_HISTORY_ENTRIES
-import com.io.github.norbertweb.bluebird.browser.model.MAX_TABS
-import com.io.github.norbertweb.bluebird.browser.model.NEWTAB_URL
-import com.io.github.norbertweb.bluebird.browser.model.ClearDataOption
-import com.io.github.norbertweb.bluebird.browser.model.SslDialogState
-import com.io.github.norbertweb.bluebird.browser.model.TabGroup
-import com.io.github.norbertweb.bluebird.browser.model.StoredPermissionDecision
-import com.io.github.norbertweb.bluebird.browser.ui.components.BookmarksBar
-import com.io.github.norbertweb.bluebird.browser.ui.components.EdgeNavigationBar
-import com.io.github.norbertweb.bluebird.browser.ui.components.EdgeTabBar
-import com.io.github.norbertweb.bluebird.browser.ui.components.FindInPageBar
-import com.io.github.norbertweb.bluebird.browser.ui.components.GeolocationDialog
-import com.io.github.norbertweb.bluebird.browser.ui.components.JsDialog
-import com.io.github.norbertweb.bluebird.browser.ui.components.ClearBrowsingDataDialog
-import com.io.github.norbertweb.bluebird.browser.ui.components.PermissionRequestDialog
-import com.io.github.norbertweb.bluebird.browser.ui.components.SavePasswordDialog
-import com.io.github.norbertweb.bluebird.browser.ui.components.SslWarningDialog
-import com.io.github.norbertweb.bluebird.browser.ui.newtab.NewTabPage
-import com.io.github.norbertweb.bluebird.browser.ui.panels.AddressSuggestionsDropdown
-import com.io.github.norbertweb.bluebird.browser.ui.panels.EdgeContextMenu
-import com.io.github.norbertweb.bluebird.browser.ui.panels.SidePanel
-import com.io.github.norbertweb.bluebird.browser.ui.panels.TabOverviewGrid
-import com.io.github.norbertweb.bluebird.browser.ui.webview.BrowserWebView
-import com.io.github.norbertweb.bluebird.browser.ui.webview.captureCredentialFromCurrentForm
-import com.io.github.norbertweb.bluebird.browser.ui.webview.fillCredentialIntoCurrentForm
-import com.io.github.norbertweb.bluebird.browser.utils.DownloadHelper
-import com.io.github.norbertweb.bluebird.browser.utils.UrlUtils
-import com.io.github.norbertweb.bluebird.browser.utils.onMain
+import io.github.norbertweb.bluebird.browser.data.BrowserRepository
+import io.github.norbertweb.bluebird.browser.security.CredentialVault
+import io.github.norbertweb.bluebird.browser.security.StoredCredential
+import io.github.norbertweb.bluebird.browser.model.Bookmark
+import io.github.norbertweb.bluebird.browser.model.BookmarkFolder
+import io.github.norbertweb.bluebird.browser.model.BrowserPanel
+import io.github.norbertweb.bluebird.browser.model.BrowserSettings
+import io.github.norbertweb.bluebird.browser.model.BrowserTab
+import io.github.norbertweb.bluebird.browser.model.DownloadItem
+import io.github.norbertweb.bluebird.browser.model.HistoryEntry
+import io.github.norbertweb.bluebird.browser.model.JsDialogState
+import io.github.norbertweb.bluebird.browser.model.MAX_HISTORY_ENTRIES
+import io.github.norbertweb.bluebird.browser.model.MAX_TABS
+import io.github.norbertweb.bluebird.browser.model.NEWTAB_URL
+import io.github.norbertweb.bluebird.browser.model.ClearDataOption
+import io.github.norbertweb.bluebird.browser.model.SslDialogState
+import io.github.norbertweb.bluebird.browser.model.TabGroup
+import io.github.norbertweb.bluebird.browser.model.StoredPermissionDecision
+import io.github.norbertweb.bluebird.browser.model.SitePermission
+import io.github.norbertweb.bluebird.browser.ui.components.BookmarksBar
+import io.github.norbertweb.bluebird.browser.ui.components.EdgeNavigationBar
+import io.github.norbertweb.bluebird.browser.ui.components.EdgeTabBar
+import io.github.norbertweb.bluebird.browser.ui.components.FindInPageBar
+import io.github.norbertweb.bluebird.browser.ui.components.GeolocationDialog
+import io.github.norbertweb.bluebird.browser.ui.components.JsDialog
+import io.github.norbertweb.bluebird.browser.ui.components.ClearBrowsingDataDialog
+import io.github.norbertweb.bluebird.browser.ui.components.PermissionRequestDialog
+import io.github.norbertweb.bluebird.browser.ui.components.SavePasswordDialog
+import io.github.norbertweb.bluebird.browser.ui.components.SslWarningDialog
+import io.github.norbertweb.bluebird.browser.ui.components.CredentialPickerDialog
+import io.github.norbertweb.bluebird.browser.ui.components.FluentIcon
+import io.github.norbertweb.bluebird.browser.ui.components.FluentIcons
+import io.github.norbertweb.bluebird.browser.ui.newtab.NewTabPage
+import io.github.norbertweb.bluebird.browser.ui.panels.AddressSuggestionsDropdown
+import io.github.norbertweb.bluebird.browser.ui.panels.EdgeContextMenu
+import io.github.norbertweb.bluebird.browser.ui.panels.EdgeTabContextMenu
+import io.github.norbertweb.bluebird.browser.ui.panels.SidePanel
+import io.github.norbertweb.bluebird.browser.ui.panels.TabOverviewGrid
+import io.github.norbertweb.bluebird.browser.ui.webview.BrowserWebView
+import io.github.norbertweb.bluebird.browser.ui.webview.captureCredentialFromCurrentForm
+import io.github.norbertweb.bluebird.browser.ui.webview.fillCredentialIntoCurrentForm
+import io.github.norbertweb.bluebird.browser.utils.DownloadHelper
+import io.github.norbertweb.bluebird.browser.utils.UrlUtils
+import io.github.norbertweb.bluebird.browser.utils.onMain
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
-import com.io.github.norbertweb.bluebird.browser.model.PermissionRequest as BrowserPermissionRequest
+import io.github.norbertweb.bluebird.browser.model.PermissionRequest as BrowserPermissionRequest
 
 // ═══════════════════════════════════════════════════════════════════════
 // BrowserScreen — root composable
@@ -119,7 +133,7 @@ fun BrowserScreen() {
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val repo       = remember { BrowserRepository.get(context) }
-    val homeContentRepo = remember { com.io.github.norbertweb.bluebird.browser.data.HomeContentRepository.get(context) }
+    val homeContentRepo = remember { io.github.norbertweb.bluebird.browser.data.HomeContentRepository.get(context) }
     val credentialVault = remember { CredentialVault(context) }
     val scope      = rememberCoroutineScope()
     val dlHelper   = remember { DownloadHelper(context) }
@@ -414,6 +428,13 @@ fun BrowserScreen() {
         scheduleSave()
     }
 
+    fun updateTab(id: String, block: BrowserTab.() -> Unit) {
+        val idx = tabs.indexOfFirst { it.id == id }
+        if (idx >= 0) {
+            tabs[idx] = tabs[idx].copy().also(block)
+        }
+    }
+
     fun createGroupForTab(tabId: String) {
         val color = listOf(0xFF1A73E8, 0xFF9C6DCA, 0xFF107C10, 0xFFD13438, 0xFFEAA300)[tabGroups.size % 5]
         val group = TabGroup(name = "Tab group ${tabGroups.size + 1}", color = color)
@@ -430,13 +451,6 @@ fun BrowserScreen() {
     fun removeEmptyGroups() {
         val used = tabs.mapNotNull { it.groupId }.toSet()
         tabGroups.removeAll { it.id !in used }
-    }
-
-    fun updateTab(id: String, block: BrowserTab.() -> Unit) {
-        val idx = tabs.indexOfFirst { it.id == id }
-        if (idx >= 0) {
-            tabs[idx] = tabs[idx].copy().also(block)
-        }
     }
 
     fun navigate(rawUrl: String, tabId: String = activeTabId) {
@@ -841,7 +855,8 @@ fun BrowserScreen() {
         Box(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth()
+                .fillMaxWidth(),
+            contentAlignment = Alignment.TopEnd
         ) {
             // ── Memory-aware tab lifecycle ─────────────────────────────
             // Only the active tab owns a WebView. Inactive tabs retain their
@@ -988,7 +1003,7 @@ fun BrowserScreen() {
                             onSslError           = { d -> sslDialog = d },
                             onPermissionRequest  = { r -> permDialog = r },
                             onRememberPermission = { origin, resource, decision ->
-                                repo.saveSitePermission(com.io.github.norbertweb.bluebird.browser.model.SitePermission(origin, resource, decision))
+                                repo.saveSitePermission(io.github.norbertweb.bluebird.browser.model.SitePermission(origin, resource, decision))
                 sitePermissions = repo.loadSitePermissions()
                             },
                             getStoredPermission  = { origin, resource -> repo.getSitePermission(origin, resource) },
@@ -1072,10 +1087,13 @@ fun BrowserScreen() {
             // AnimatedVisibility is NOT used here because its ColumnScope
             // extension overload cannot be resolved unambiguously inside Box.
             // Visibility is controlled by the outer if-guard instead.
+            // Positioning: the parent Box now sets contentAlignment =
+            // Alignment.TopEnd directly, so this child no longer needs its
+            // own .align() modifier (that call was resolving against the
+            // wrong scope and failing to compile).
             if (activePanel != BrowserPanel.NONE) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
                         .fillMaxHeight()
                         .zIndex(10f)
                 ) {
@@ -1109,7 +1127,7 @@ fun BrowserScreen() {
                         onDownloadCancel = { dl ->
                             dlHelper.cancel(dl.downloadManagerId)
                             val idx = downloads.indexOfFirst { it.id == dl.id }
-                            if (idx >= 0) downloads[idx] = downloads[idx].copy(status = com.io.github.norbertweb.bluebird.browser.model.DownloadStatus.CANCELLED)
+                            if (idx >= 0) downloads[idx] = downloads[idx].copy(status = io.github.norbertweb.bluebird.browser.model.DownloadStatus.CANCELLED)
                             scheduleSave()
                         },
                         onDownloadRetry = { dl ->
@@ -1119,7 +1137,7 @@ fun BrowserScreen() {
                                 dl,
                                 onProgress = { progress, bytes ->
                                     val i = downloads.indexOfFirst { it.id == dl.id }
-                                    if (i >= 0) downloads[i] = downloads[i].copy(progress = progress, bytesDownloaded = bytes, status = com.io.github.norbertweb.bluebird.browser.model.DownloadStatus.DOWNLOADING)
+                                    if (i >= 0) downloads[i] = downloads[i].copy(progress = progress, bytesDownloaded = bytes, status = io.github.norbertweb.bluebird.browser.model.DownloadStatus.DOWNLOADING)
                                     scheduleSave()
                                 },
                                 onComplete = { status ->
@@ -1133,7 +1151,7 @@ fun BrowserScreen() {
                         },
                         onShowDownloads = { dlHelper.openDownloadsFolder() },
                         onClearCompletedDownloads = {
-                            downloads.filter { it.status == com.io.github.norbertweb.bluebird.browser.model.DownloadStatus.COMPLETED }
+                            downloads.filter { it.status == io.github.norbertweb.bluebird.browser.model.DownloadStatus.COMPLETED }
                                 .forEach { dlHelper.remove(it.downloadManagerId); downloads.remove(it) }
                             scheduleSave()
                         },
@@ -1373,7 +1391,7 @@ fun BrowserScreen() {
             origin  = origin,
             onAllow = { cb.invoke(origin, true, false);  geoDialog = null },
             onDeny  = { cb.invoke(origin, false, false); geoDialog = null },
-            onRemember = { remember -> repo.saveSitePermission(com.io.github.norbertweb.bluebird.browser.model.SitePermission(origin, "geolocation", if (remember) StoredPermissionDecision.ALLOW else StoredPermissionDecision.DENY)) },
+            onRemember = { remember -> repo.saveSitePermission(io.github.norbertweb.bluebird.browser.model.SitePermission(origin, "geolocation", if (remember) StoredPermissionDecision.ALLOW else StoredPermissionDecision.DENY)) },
             isDark  = isDark
         )
     }

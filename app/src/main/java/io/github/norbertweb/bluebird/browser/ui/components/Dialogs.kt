@@ -1,4 +1,4 @@
-package com.io.github.norbertweb.bluebird.browser.ui.components
+package io.github.norbertweb.bluebird.browser.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,10 +19,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.io.github.norbertweb.bluebird.browser.model.JsDialogState
-import com.io.github.norbertweb.bluebird.browser.model.JsDialogType
-import com.io.github.norbertweb.bluebird.browser.model.SslDialogState
-import com.io.github.norbertweb.bluebird.browser.model.StoredPermissionDecision
+import io.github.norbertweb.bluebird.browser.model.JsDialogState
+import io.github.norbertweb.bluebird.browser.model.JsDialogType
+import io.github.norbertweb.bluebird.browser.model.SslDialogState
+import io.github.norbertweb.bluebird.browser.model.StoredPermissionDecision
 
 // ═══════════════════════════════════════════════════════════════════════
 // JsDialogComposable — alert / confirm / prompt
@@ -185,7 +185,7 @@ fun SslWarningDialog(
 
 @Composable
 fun PermissionRequestDialog(
-    request: com.io.github.norbertweb.bluebird.browser.model.PermissionRequest,
+    request: io.github.norbertweb.bluebird.browser.model.PermissionRequest,
     isDark: Boolean
 ) {
     val bg        = if (isDark) Color(0xFF2C2C2C) else Color.White
@@ -303,7 +303,7 @@ fun GeolocationDialog(
 fun ClearBrowsingDataDialog(
     isDark: Boolean,
     onDismiss: () -> Unit,
-    onClear: (Set<com.io.github.norbertweb.bluebird.browser.model.ClearDataOption>) -> Unit
+    onClear: (Set<io.github.norbertweb.bluebird.browser.model.ClearDataOption>) -> Unit
 ) {
     val bg = if (isDark) Color(0xFF2C2C2C) else Color.White
     val textColor = if (isDark) Color(0xFFE8E8E8) else Color(0xFF1A1A1A)
@@ -311,8 +311,8 @@ fun ClearBrowsingDataDialog(
     var selected by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf(
             setOf(
-                com.io.github.norbertweb.bluebird.browser.model.ClearDataOption.HISTORY,
-                com.io.github.norbertweb.bluebird.browser.model.ClearDataOption.CACHE
+                io.github.norbertweb.bluebird.browser.model.ClearDataOption.HISTORY,
+                io.github.norbertweb.bluebird.browser.model.ClearDataOption.CACHE
             )
         )
     }
@@ -324,15 +324,15 @@ fun ClearBrowsingDataDialog(
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("Choose what Bluebird should remove.", color = textColor.copy(.65f), fontSize = 12.sp)
                 val labels = listOf(
-                    com.io.github.norbertweb.bluebird.browser.model.ClearDataOption.HISTORY to "Browsing history",
-                    com.io.github.norbertweb.bluebird.browser.model.ClearDataOption.COOKIES to "Cookies",
-                    com.io.github.norbertweb.bluebird.browser.model.ClearDataOption.CACHE to "Cached files and images",
-                    com.io.github.norbertweb.bluebird.browser.model.ClearDataOption.SITE_STORAGE to "Site storage",
-                    com.io.github.norbertweb.bluebird.browser.model.ClearDataOption.FORM_DATA to "Saved form data",
-                    com.io.github.norbertweb.bluebird.browser.model.ClearDataOption.DOWNLOADS to "Download records"
+                    io.github.norbertweb.bluebird.browser.model.ClearDataOption.HISTORY to "Browsing history",
+                    io.github.norbertweb.bluebird.browser.model.ClearDataOption.COOKIES to "Cookies",
+                    io.github.norbertweb.bluebird.browser.model.ClearDataOption.CACHE to "Cached files and images",
+                    io.github.norbertweb.bluebird.browser.model.ClearDataOption.SITE_STORAGE to "Site storage",
+                    io.github.norbertweb.bluebird.browser.model.ClearDataOption.FORM_DATA to "Saved form data",
+                    io.github.norbertweb.bluebird.browser.model.ClearDataOption.DOWNLOADS to "Download records"
                 )
                 labels.forEach { (option, label) ->
-                    androidx.compose.material3.Row(
+                    Row(
                         modifier = Modifier.fillMaxWidth().clickable {
                             selected = if (option in selected) selected - option else selected + option
                         }.padding(vertical = 3.dp),
@@ -409,10 +409,10 @@ fun SavePasswordDialog(
 @Composable
 fun CredentialPickerDialog(
     origin: String,
-    credentials: List<com.io.github.norbertweb.bluebird.browser.security.StoredCredential>,
+    credentials: List<io.github.norbertweb.bluebird.browser.security.StoredCredential>,
     isDark: Boolean,
     onDismiss: () -> Unit,
-    onSelect: (com.io.github.norbertweb.bluebird.browser.security.StoredCredential) -> Unit
+    onSelect: (io.github.norbertweb.bluebird.browser.security.StoredCredential) -> Unit
 ) {
     val bg = if (isDark) Color(0xFF2C2C2C) else Color.White
     val text = if (isDark) Color(0xFFE8E8E8) else Color(0xFF1A1A1A)

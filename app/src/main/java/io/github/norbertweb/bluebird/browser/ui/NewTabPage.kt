@@ -1,4 +1,4 @@
-package com.io.github.norbertweb.bluebird.browser.ui.newtab
+package io.github.norbertweb.bluebird.browser.ui.newtab
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
@@ -38,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,18 +53,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.io.github.norbertweb.bluebird.browser.data.HomeContentRepository
-import com.io.github.norbertweb.bluebird.browser.model.Bookmark
-import com.io.github.norbertweb.bluebird.browser.model.BrowserSettings
-import com.io.github.norbertweb.bluebird.browser.model.HistoryEntry
-import com.io.github.norbertweb.bluebird.browser.model.NewsArticle
-import com.io.github.norbertweb.bluebird.browser.model.NewsSubscription
-import com.io.github.norbertweb.bluebird.browser.ui.components.FluentIcon
-import com.io.github.norbertweb.bluebird.browser.ui.components.FluentIcons
-import com.io.github.norbertweb.bluebird.ui.components.LocalWindowRuntime
+import io.github.norbertweb.bluebird.browser.data.HomeContentRepository
+import io.github.norbertweb.bluebird.browser.model.Bookmark
+import io.github.norbertweb.bluebird.browser.model.BrowserSettings
+import io.github.norbertweb.bluebird.browser.model.HistoryEntry
+import io.github.norbertweb.bluebird.browser.model.NewsArticle
+import io.github.norbertweb.bluebird.browser.model.NewsSubscription
+import io.github.norbertweb.bluebird.browser.ui.components.FluentIcon
+import io.github.norbertweb.bluebird.browser.ui.components.FluentIcons
+import io.github.norbertweb.bluebird.ui.components.LocalWindowRuntime
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -98,6 +100,7 @@ fun NewTabPage(
     var wallpaper by remember { mutableStateOf<Bitmap?>(null) }
     var news by remember { mutableStateOf<List<NewsArticle>>(emptyList()) }
     var showCustomize by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     // Home content is intentionally lazy and throttled. Opening a new tab does
     // not create a continuous network job; wallpaper is one download per 5h
@@ -220,7 +223,9 @@ fun NewTabPage(
             onToggleSubscription = { id, enabled ->
                 val updated = homeRepo.loadSubscriptions().map { if (it.id == id) it.copy(enabled = enabled) else it }
                 homeRepo.saveSubscriptions(updated)
-                news = if (settings.homeShowNews) homeRepo.loadNews(force = true) else emptyList()
+                coroutineScope.launch {
+                    news = if (settings.homeShowNews) homeRepo.loadNews(force = true) else emptyList()
+                }
             },
             onDismiss = { showCustomize = false }
         )
@@ -370,7 +375,7 @@ private fun QuickLinksSection(cardBg: Color, textColor: Color, subColor: Color, 
 }
 
 @Composable
-private fun RecentSection(title: String, icon: String, accent: Color, textColor: Color, subColor: Color, content: @Composable RowScope.() -> Unit) {
+private fun RecentSection(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, accent: Color, textColor: Color, subColor: Color, content: @Composable RowScope.() -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 8.dp)) {
             FluentIcon(icon, null, tint = accent, modifier = Modifier.size(14.dp))

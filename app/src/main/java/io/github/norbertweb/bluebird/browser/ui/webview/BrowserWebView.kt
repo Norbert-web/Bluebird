@@ -1,4 +1,4 @@
-package com.io.github.norbertweb.bluebird.browser.ui.webview
+package io.github.norbertweb.bluebird.browser.ui.webview
 
 import android.graphics.Bitmap
 import android.net.http.SslError
@@ -18,6 +18,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,17 +26,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import com.io.github.norbertweb.bluebird.browser.model.BrowserSettings
-import com.io.github.norbertweb.bluebird.browser.model.BrowserTab
-import com.io.github.norbertweb.bluebird.browser.model.JsDialogState
-import com.io.github.norbertweb.bluebird.browser.model.JsDialogType
-import com.io.github.norbertweb.bluebird.browser.model.SslDialogState
-import com.io.github.norbertweb.bluebird.browser.model.StoredPermissionDecision
-import com.io.github.norbertweb.bluebird.browser.model.SitePermission
-import com.io.github.norbertweb.bluebird.browser.utils.AdBlocker
-import com.io.github.norbertweb.bluebird.browser.utils.UserAgents
-import com.io.github.norbertweb.bluebird.browser.utils.onMain
-import com.io.github.norbertweb.bluebird.browser.model.PermissionRequest as BrowserPermissionRequest
+import io.github.norbertweb.bluebird.browser.model.BrowserSettings
+import io.github.norbertweb.bluebird.browser.model.BrowserTab
+import io.github.norbertweb.bluebird.browser.model.JsDialogState
+import io.github.norbertweb.bluebird.browser.model.JsDialogType
+import io.github.norbertweb.bluebird.browser.model.SslDialogState
+import io.github.norbertweb.bluebird.browser.model.StoredPermissionDecision
+import io.github.norbertweb.bluebird.browser.model.SitePermission
+import io.github.norbertweb.bluebird.browser.utils.AdBlocker
+import io.github.norbertweb.bluebird.browser.utils.UserAgents
+import io.github.norbertweb.bluebird.browser.utils.onMain
+import io.github.norbertweb.bluebird.browser.model.PermissionRequest as BrowserPermissionRequest
 
 // ═══════════════════════════════════════════════════════════════════════
 // BrowserWebView — fully featured WebView with:
@@ -66,6 +67,7 @@ fun BrowserWebView(
     onTitleChanged: (String) -> Unit,
     onUrlChanged: (String) -> Unit,
     onFaviconChanged: (Bitmap?) -> Unit,
+    onCredentialFormDetected: (String?) -> Unit = {},
     onFindResultsChanged: (Int, Int) -> Unit,    // activeMatch, totalMatches
     onDownloadStart: (String, String, String, String, Long) -> Unit,
     onJsDialog: (JsDialogState) -> Unit,
@@ -161,7 +163,8 @@ fun BrowserWebView(
                         }
                     },
                     onUrlChanged     = onUrlChanged,
-                    onSslError       = onSslError
+                    onSslError       = onSslError,
+                    onCredentialFormDetected = onCredentialFormDetected
                 )
 
                 // ── WebChromeClient ───────────────────────────────────
@@ -337,7 +340,8 @@ private fun buildWebViewClient(
     onPageError: (String, String) -> Unit,
     onRestoreScroll: (WebView) -> Unit,
     onUrlChanged: (String) -> Unit,
-    onSslError: (SslDialogState) -> Unit
+    onSslError: (SslDialogState) -> Unit,
+    onCredentialFormDetected: (String?) -> Unit
 ): WebViewClient = object : WebViewClient() {
 
     override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {

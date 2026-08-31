@@ -1,11 +1,13 @@
-package com.io.github.norbertweb.bluebird.browser.ui.panels
-import com.io.github.norbertweb.bluebird.browser.ui.components.FluentIcon
-import com.io.github.norbertweb.bluebird.browser.ui.components.FluentIcons
+package io.github.norbertweb.bluebird.browser.ui.panels
+import io.github.norbertweb.bluebird.browser.ui.components.FluentIcon
+import io.github.norbertweb.bluebird.browser.ui.components.FluentIcons
 
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,11 +28,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Switch
@@ -38,6 +42,10 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,20 +57,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.input.ImeAction
-import com.io.github.norbertweb.bluebird.browser.model.Bookmark
-import com.io.github.norbertweb.bluebird.browser.model.BookmarkFolder
-import com.io.github.norbertweb.bluebird.browser.model.BrowserPanel
-import com.io.github.norbertweb.bluebird.browser.model.BrowserSettings
-import com.io.github.norbertweb.bluebird.browser.model.BrowserTab
-import com.io.github.norbertweb.bluebird.browser.model.DownloadItem
-import com.io.github.norbertweb.bluebird.browser.model.DownloadStatus
-import com.io.github.norbertweb.bluebird.browser.model.HistoryEntry
-import com.io.github.norbertweb.bluebird.browser.model.SearchEngine
-import com.io.github.norbertweb.bluebird.browser.model.StartPage
-import com.io.github.norbertweb.bluebird.browser.model.SitePermission
-import com.io.github.norbertweb.bluebird.browser.model.StoredPermissionDecision
-import com.io.github.norbertweb.bluebird.browser.model.TabGroup
-import com.io.github.norbertweb.bluebird.browser.security.StoredCredential
+import io.github.norbertweb.bluebird.browser.model.Bookmark
+import io.github.norbertweb.bluebird.browser.model.BookmarkFolder
+import io.github.norbertweb.bluebird.browser.model.BrowserPanel
+import io.github.norbertweb.bluebird.browser.model.BrowserSettings
+import io.github.norbertweb.bluebird.browser.model.BrowserTab
+import io.github.norbertweb.bluebird.browser.model.DownloadItem
+import io.github.norbertweb.bluebird.browser.model.DownloadStatus
+import io.github.norbertweb.bluebird.browser.model.HistoryEntry
+import io.github.norbertweb.bluebird.browser.model.SearchEngine
+import io.github.norbertweb.bluebird.browser.model.StartPage
+import io.github.norbertweb.bluebird.browser.model.SitePermission
+import io.github.norbertweb.bluebird.browser.model.StoredPermissionDecision
+import io.github.norbertweb.bluebird.browser.model.TabGroup
+import io.github.norbertweb.bluebird.browser.security.StoredCredential
 import java.util.UUID
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -574,9 +582,9 @@ fun HistoryPanel(
             return@Column
         }
         val sdf = SimpleDateFormat("MMM d · h:mm a", Locale.getDefault())
-        LazyColumn(Modifier.fillMaxSize(), PaddingValues(8.dp), Arrangement.spacedBy(2.dp)) {
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(filtered, key = { it.id }) { entry ->
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable { onNavigate(entry.url) }.padding(horizontal = 8.dp, vertical = 5.dp), Alignment.CenterVertically, Arrangement.spacedBy(8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable { onNavigate(entry.url) }.padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.size(18.dp).background(Color(entry.faviconColor), CircleShape), Alignment.Center) { Text(entry.title.firstOrNull()?.toString()?.uppercase() ?: "?", fontSize = 8.sp, color = Color.White) }
                     Column(Modifier.weight(1f)) {
                         Text(entry.title, fontSize = 10.sp, color = textColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -701,6 +709,7 @@ fun DownloadsPanel(
             }
         }
     }
+}
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -962,7 +971,7 @@ fun EdgeContextMenu(
 }
 
 @Composable
-private fun MenuRow(icon: String, label: String, textColor: Color, onClick: () -> Unit) {
+private fun MenuRow(icon: ImageVector, label: String, textColor: Color, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1235,7 +1244,7 @@ fun AddressSuggestionsDropdown(
     val cleanQuery = query.trim()
     if (cleanQuery.isBlank()) return
 
-    val urlLike = com.io.github.norbertweb.bluebird.browser.utils.UrlUtils.looksLikeUrl(cleanQuery) ||
+    val urlLike = io.github.norbertweb.bluebird.browser.utils.UrlUtils.looksLikeUrl(cleanQuery) ||
         cleanQuery.startsWith("http://", ignoreCase = true) ||
         cleanQuery.startsWith("https://", ignoreCase = true)
 
@@ -1323,7 +1332,7 @@ fun AddressSuggestionsDropdown(
 
 @Composable
 private fun SuggestionRow(
-    icon: Int,
+    icon: ImageVector,
     title: String,
     url: String,
     color: Color,
@@ -1351,7 +1360,67 @@ private fun SuggestionRow(
 // ═══════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun EmptyState(icon: String, label: String, textColor: Color) {
+private fun BookmarkRow(
+    bookmark: Bookmark,
+    textColor: Color,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        FluentIcon(FluentIcons.BookmarkBorder, null, tint = Color(bookmark.faviconColor.toInt()), modifier = Modifier.size(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(bookmark.title, fontSize = 11.sp, color = textColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(bookmark.url, fontSize = 9.sp, color = textColor.copy(0.45f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        IconButton(onClick = onDelete, modifier = Modifier.size(26.dp)) {
+            FluentIcon(FluentIcons.Delete, null, tint = textColor.copy(0.4f), modifier = Modifier.size(13.dp))
+        }
+    }
+}
+
+@Composable
+private fun PanelSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    placeholder: String,
+    textColor: Color,
+    accentColor: Color
+) {
+    androidx.compose.material3.TextField(
+        value = query,
+        onValueChange = onQueryChange,
+        singleLine = true,
+        placeholder = { Text(placeholder, fontSize = 11.sp, color = textColor.copy(0.4f)) },
+        leadingIcon = { FluentIcon(FluentIcons.Search, null, tint = textColor.copy(0.5f), modifier = Modifier.size(14.dp)) },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQueryChange("") }) {
+                    FluentIcon(FluentIcons.Close, null, tint = textColor.copy(0.4f), modifier = Modifier.size(13.dp))
+                }
+            }
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .height(40.dp),
+        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = textColor),
+        colors = androidx.compose.material3.TextFieldDefaults.colors(
+            focusedIndicatorColor = accentColor,
+            unfocusedIndicatorColor = Color.Transparent,
+            cursorColor = accentColor
+        )
+    )
+}
+
+@Composable
+private fun EmptyState(icon: ImageVector, label: String, textColor: Color) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             FluentIcon(icon, null, tint = textColor.copy(0.25f), modifier = Modifier.size(36.dp))
@@ -1445,4 +1514,5 @@ fun EdgeTabContextMenu(
                 MenuRow(FluentIcons.Close, "Close tab", textColor) { onClose() }
             }
         }
-    }}}
+    }
+}

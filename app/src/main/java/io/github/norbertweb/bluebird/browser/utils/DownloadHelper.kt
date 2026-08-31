@@ -1,4 +1,4 @@
-package com.io.github.norbertweb.bluebird.browser.utils
+package io.github.norbertweb.bluebird.browser.utils
 
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
@@ -10,8 +10,8 @@ import android.net.Uri
 import android.os.Environment
 import android.os.Build
 import android.webkit.URLUtil
-import com.io.github.norbertweb.bluebird.browser.model.DownloadItem
-import com.io.github.norbertweb.bluebird.browser.model.DownloadStatus
+import io.github.norbertweb.bluebird.browser.model.DownloadItem
+import io.github.norbertweb.bluebird.browser.model.DownloadStatus
 import kotlinx.coroutines.*
 import java.io.File
 

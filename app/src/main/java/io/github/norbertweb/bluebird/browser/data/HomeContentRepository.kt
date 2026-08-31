@@ -1,10 +1,10 @@
-package com.io.github.norbertweb.bluebird.browser.data
+package io.github.norbertweb.bluebird.browser.data
 
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import com.io.github.norbertweb.bluebird.browser.model.NewsArticle
-import com.io.github.norbertweb.bluebird.browser.model.NewsSubscription
+import io.github.norbertweb.bluebird.browser.model.NewsArticle
+import io.github.norbertweb.bluebird.browser.model.NewsSubscription
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray

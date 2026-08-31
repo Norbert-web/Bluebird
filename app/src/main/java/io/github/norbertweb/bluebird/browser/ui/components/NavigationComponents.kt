@@ -1,4 +1,4 @@
-package com.io.github.norbertweb.bluebird.browser.ui.components
+package io.github.norbertweb.bluebird.browser.ui.components
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
@@ -18,12 +18,12 @@ import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.awaitPointerEvent
-import androidx.compose.ui.input.pointer.awaitPointerEventScope
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.isTertiaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.text.TextFieldValue
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
@@ -41,8 +41,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.io.github.norbertweb.bluebird.browser.model.Bookmark
-import com.io.github.norbertweb.bluebird.browser.model.BrowserTab
+import io.github.norbertweb.bluebird.browser.model.Bookmark
+import io.github.norbertweb.bluebird.browser.model.BrowserTab
 
 // ═══════════════════════════════════════════════════════════════════════
 // Desktop-style controlled text field
@@ -63,7 +63,7 @@ fun BrowserTextField(
     focusRequestToken: Int = 0
 ) {
     var fieldValue by remember {
-        mutableStateOf(TextFieldValue(value = value))
+        mutableStateOf(TextFieldValue(text = value))
     }
     var wasFocused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
@@ -95,6 +95,8 @@ fun BrowserTextField(
         fontSize.value <= 12f -> 17.sp
         else -> 19.sp
     }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val resolvedBoxHeight = with(density) { resolvedLineHeight.toDp() }
 
     BasicTextField(
         value = fieldValue,
@@ -143,7 +145,7 @@ fun BrowserTextField(
         cursorBrush = SolidColor(Color(0xFF1A73E8)),
         decorationBox = { inner ->
             Box(
-                modifier = Modifier.fillMaxWidth().height(resolvedLineHeight),
+                modifier = Modifier.fillMaxWidth().height(resolvedBoxHeight),
                 contentAlignment = Alignment.CenterStart
             ) {
                 if (fieldValue.text.isEmpty()) {
@@ -169,7 +171,7 @@ fun BrowserTextField(
 
 @Composable
 fun NavBtn(
-    icon: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     enabled: Boolean = true,
     tint: Color,
     contentDescription: String? = null,
@@ -573,7 +575,7 @@ private fun EdgeTabItem(
             } else if (tab.rendererDiscarded) {
                 // The renderer was intentionally released to save RAM. The tab
                 // remains fully usable and will recreate its WebView on selection.
-                FluentIcon(FluentIcons.Refresh, "Renderer will reload", tint = iconColor.copy(alpha = 0.55f), modifier = Modifier.size(9.dp))
+                FluentIcon(FluentIcons.Refresh, "Renderer will reload", tint = textColor.copy(alpha = 0.55f), modifier = Modifier.size(9.dp))
             }
 
             Box(

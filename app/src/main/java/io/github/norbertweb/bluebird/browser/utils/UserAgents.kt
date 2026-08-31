@@ -1,4 +1,4 @@
-package com.io.github.norbertweb.bluebird.browser.utils
+package io.github.norbertweb.bluebird.browser.utils
 
 // ═══════════════════════════════════════════════════════════════════════
 // User-agent strings

@@ -1,11 +1,11 @@
-package com.io.github.norbertweb.bluebird.browser.utils
+package io.github.norbertweb.bluebird.browser.utils
 
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import java.util.Locale
-import com.io.github.norbertweb.bluebird.browser.model.NEWTAB_URL
-import com.io.github.norbertweb.bluebird.browser.model.SearchEngine
+import io.github.norbertweb.bluebird.browser.model.NEWTAB_URL
+import io.github.norbertweb.bluebird.browser.model.SearchEngine
 
 // ═══════════════════════════════════════════════════════════════════════
 // Main-thread dispatcher

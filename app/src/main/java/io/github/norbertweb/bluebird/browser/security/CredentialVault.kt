@@ -1,4 +1,4 @@
-package com.io.github.norbertweb.bluebird.browser.security
+package io.github.norbertweb.bluebird.browser.security
 
 import android.content.Context
 import android.util.Base64

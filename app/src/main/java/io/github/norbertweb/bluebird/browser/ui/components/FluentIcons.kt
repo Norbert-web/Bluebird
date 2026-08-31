@@ -1,4 +1,4 @@
-package com.io.github.norbertweb.bluebird.browser.ui.components
+package io.github.norbertweb.bluebird.browser.ui.components
 
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -6,6 +6,44 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import fluent.ui.system.icons.FluentIcons as NiyajaliFluentIcons
+
+import fluent.ui.system.icons.filled.ArrowDownload
+import fluent.ui.system.icons.filled.Star
+import fluent.ui.system.icons.regular.Add
+import fluent.ui.system.icons.regular.ArrowClockwise
+import fluent.ui.system.icons.regular.ArrowDownload
+import fluent.ui.system.icons.regular.ArrowLeft
+import fluent.ui.system.icons.regular.ArrowRight
+import fluent.ui.system.icons.regular.Bookmark
+import fluent.ui.system.icons.regular.CheckmarkCircle
+import fluent.ui.system.icons.regular.ChevronDown
+import fluent.ui.system.icons.regular.ChevronUp
+import fluent.ui.system.icons.regular.Delete
+import fluent.ui.system.icons.regular.Dismiss
+import fluent.ui.system.icons.regular.Document
+import fluent.ui.system.icons.regular.Edit
+import fluent.ui.system.icons.regular.ErrorCircle
+import fluent.ui.system.icons.regular.EyeOff
+import fluent.ui.system.icons.regular.Globe
+import fluent.ui.system.icons.regular.History
+import fluent.ui.system.icons.regular.Home
+import fluent.ui.system.icons.regular.Info
+import fluent.ui.system.icons.regular.Location
+import fluent.ui.system.icons.regular.LockClosed
+import fluent.ui.system.icons.regular.MoreVertical
+import fluent.ui.system.icons.regular.Pause
+import fluent.ui.system.icons.regular.Pin
+import fluent.ui.system.icons.regular.Print
+import fluent.ui.system.icons.regular.Prohibited
+import fluent.ui.system.icons.regular.Search
+import fluent.ui.system.icons.regular.Settings
+import fluent.ui.system.icons.regular.Share
+import fluent.ui.system.icons.regular.Shield
+import fluent.ui.system.icons.regular.Sparkle
+import fluent.ui.system.icons.regular.Star
+import fluent.ui.system.icons.regular.Subtract
+import fluent.ui.system.icons.regular.Warning
+import fluent.ui.system.icons.regular.ZoomIn
 
 /**
  * Bluebird's single Fluent System Icons gateway.
