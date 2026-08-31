@@ -177,9 +177,10 @@ private const val START_MENU_PREFS = "start_menu_layout_prefs"
 
 private fun getSavedSizeMode(context: Context): StartMenuSizeMode {
     val prefs = context.getSharedPreferences(START_MENU_PREFS, Context.MODE_PRIVATE)
-    val name = prefs.getString("size_mode", StartMenuSizeMode.COMPACT.name)
+    // Default changed from COMPACT to EXPANDED per updated design spec.
+    val name = prefs.getString("size_mode", StartMenuSizeMode.EXPANDED.name)
     return runCatching { StartMenuSizeMode.valueOf(name ?: "COMPACT") }
-        .getOrDefault(StartMenuSizeMode.COMPACT)
+        .getOrDefault(StartMenuSizeMode.EXPANDED)
 }
 
 private fun saveSizeMode(context: Context, mode: StartMenuSizeMode) {
@@ -202,38 +203,12 @@ private fun saveLayoutMode(context: Context, mode: LayoutMode) {
 // ─────────────────────────────────────────────────────────
 // Design Tokens — Professional Blue / Enterprise
 // ─────────────────────────────────────────────────────────
-private object DS {
-    val glassDark   = Color(0xCC1C2128)
-    val glassLight  = Color(0xCCF0F2F5)
-    val surfaceDark  = Color(0xFF252B32)
-    val surfaceLight = Color(0xFFE8ECF0)
-    val borderDark  = Color(0xFF373E47)
-    val borderLight = Color(0xFFCDD5DF)
-    val accentStart = Color(0xFF0078D4)
-    val accentEnd   = Color(0xFF005A9E)
-    val hoverDark  = Color(0x14FFFFFF)
-    val hoverLight = Color(0x0C000000)
-    val pressedDark  = Color(0x22FFFFFF)
-    val pressedLight = Color(0x14000000)
-    val badgeRed   = Color(0xFFCB4335)
-    val successGreen = Color(0xFF3FB950)
-
-    val menuWidthCompact   = 560.dp
-    val menuWidthExpanded  = 780.dp
-    val menuHeightCompact  = 660.dp
-    val menuHeightExpanded = 840.dp
-
-    val cornerRadius  = 8.dp   // Windows 11 flyout/menu corner radius
-    val sectionCorner = 8.dp
-    val tileCorner    = 4.dp   // Fluent 2 control-corner-radius, used for small icon tiles
-    val chipCorner    = 6.dp
-
-    val accentBrushValue: Brush = Brush.linearGradient(
-        colors = listOf(accentStart, accentEnd),
-        start = Offset(0f, 0f), end = Offset(160f, 160f)
-    )
-    fun accentBrush() = accentBrushValue
-}
+// `DS` (design tokens) now lives in FluentDesignSystem.kt and is shared with
+// SearchOverlay.kt — this used to be a private copy that had drifted from
+// SearchOverlay's own hardcoded colors/corner-radius, which is why the two
+// surfaces looked like different apps. Glass alpha is now driven by the
+// user's opacity setting (DS.glass / DS.surfaceGlass) instead of a fixed
+// 0xCC baked into the color literal.
 
 // Icon lookups now come from the shared `FluentIcon` object in FluentIcon.kt,
 // used by every UI file in this package (Start Menu, Desktop, TaskBar, Settings).
@@ -305,6 +280,11 @@ fun StartMenu(
     var layoutPrefs by remember { mutableStateOf(LayoutPreferences(mode = getSavedLayoutMode(context))) }
     var showLayoutMenu by remember { mutableStateOf(false) }
     var showSizeMenu by remember { mutableStateOf(false) }
+    var showOpacityMenu by remember { mutableStateOf(false) }
+    // User-controllable surface transparency (Settings > Personalization).
+    // Previously there was no variable here at all — every glass alpha was
+    // a fixed value baked into the DS color literal.
+    val (opacity, setOpacity) = rememberOpacity(context)
 
     fun changeSizeMode(mode: StartMenuSizeMode) {
         sizeMode = mode
@@ -345,7 +325,7 @@ fun StartMenu(
     val cornerRadius = if (isFullscreen) 0.dp else DS.cornerRadius
 
     val isDark       = uiState.isDarkTheme
-    val bgColor      = if (isDark) DS.glassDark else DS.glassLight
+    val bgColor      = DS.glass(isDark, opacity) // live opacity setting, not a fixed 0xCC alpha
     val borderColor  = if (isDark) DS.borderDark else DS.borderLight
     val textPrimary  = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
@@ -483,6 +463,64 @@ fun StartMenu(
                     }
                 }
 
+                // Personalization: surface transparency — previously there was no
+                // control for this anywhere; every glass alpha was hardcoded.
+                Box {
+                    IconToggleButton(
+                        checked = showOpacityMenu,
+                        onCheckedChange = { showOpacityMenu = it },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(DS.chipCorner))
+                            .background(
+                                if (showOpacityMenu) DS.accentStart.copy(alpha = 0.15f)
+                                else Color.Transparent
+                            )
+                    ) {
+                        Icon(
+                            FluentIcon.Color,
+                            contentDescription = "Transparency",
+                            tint = if (showOpacityMenu) DS.accentStart else textPrimary.copy(alpha = 0.5f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showOpacityMenu,
+                        onDismissRequest = { showOpacityMenu = false },
+                        modifier = Modifier
+                            .width(220.dp)
+                            .background(
+                                if (isDark) DS.surfaceDark else DS.glassLight,
+                                RoundedCornerShape(DS.sectionCorner)
+                            )
+                            .border(1.dp, borderColor, RoundedCornerShape(DS.sectionCorner))
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                            Text(
+                                "Transparency",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (isDark) Color.White else Color.Black
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            androidx.compose.material3.Slider(
+                                value = opacity,
+                                onValueChange = { setOpacity(it) },
+                                valueRange = DS.OPACITY_MIN..DS.OPACITY_MAX,
+                                colors = androidx.compose.material3.SliderDefaults.colors(
+                                    thumbColor = DS.accentStart,
+                                    activeTrackColor = DS.accentStart
+                                )
+                            )
+                            Text(
+                                "${(opacity * 100).toInt()}% opaque",
+                                fontSize = 10.sp,
+                                color = textPrimary.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
+                }
+
                 // Size picker: Compact / Expanded / Full Screen — replaces the old
                 // two-state expand toggle and is now persisted (see changeSizeMode()).
                 if (!isMobileHome) {
@@ -547,7 +585,13 @@ fun StartMenu(
 
             Spacer(Modifier.height(14.dp))
 
-            if (isMobileHome) {
+            // Bug fix: this used to be a plain `if (isMobileHome)` — the top
+            // search bar could set activeTab = SEARCH while in mobile mode,
+            // but nothing here checked activeTab, so search silently did
+            // nothing on the phone-style layout. Falling through to the
+            // existing tab-content branch (below) when a search is active
+            // reuses the same SearchResultsView desktop mode already uses.
+            if (isMobileHome && activeTab != StartMenuTab.SEARCH) {
                 // ── Mobile-style home screen: full-bleed paginated app grid + dock ──
                 MobileHomeView(
                     uiState = uiState,
@@ -850,157 +894,6 @@ private fun PinnedView(
     }
 }
 
-// ─────────────────────────────────────────────────────────
-// MOBILE HOME VIEW — phone-launcher-style paginated app grid + dock
-// ─────────────────────────────────────────────────────────
-private const val MOBILE_HOME_APPS_PER_PAGE = 20 // 4 columns × 5 rows
-
-@Composable
-private fun MobileHomeView(
-    uiState: LauncherUiState,
-    viewModel: LauncherViewModel,
-    isDark: Boolean,
-    context: Context,
-    modifier: Modifier = Modifier
-) {
-    val sortedApps = remember(uiState.installedApps) {
-        uiState.installedApps.sortedBy { it.name.lowercase() }
-    }
-    val pages = remember(sortedApps) {
-        val chunks = sortedApps.chunked(MOBILE_HOME_APPS_PER_PAGE)
-        if (chunks.isEmpty()) listOf(emptyList()) else chunks
-    }
-    val pagerState = rememberPagerState(pageCount = { pages.size })
-    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    val dockApps = uiState.pinnedTaskbarApps.take(5)
-
-    Column(modifier = modifier.fillMaxWidth()) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-        ) { pageIndex ->
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(pages[pageIndex], key = { it.packageName }) { app ->
-                    MobileAppIcon(
-                        app = app,
-                        isDark = isDark,
-                        onClick = {
-                            incrementAppOpenCount(context, app.packageName)
-                            viewModel.openApp(context, app)
-                        }
-                    )
-                }
-            }
-        }
-
-        // Page indicator dots (only shown when apps span more than one page)
-        if (pages.size > 1) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                repeat(pages.size) { i ->
-                    val active = pagerState.currentPage == i
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 3.dp)
-                            .size(if (active) 7.dp else 5.dp)
-                            .clip(CircleShape)
-                            .background(if (active) DS.accentStart else textPrimary.copy(alpha = 0.25f))
-                    )
-                }
-            }
-        }
-
-        // Bottom dock — pinned/taskbar apps, phone-style
-        if (dockApps.isNotEmpty()) {
-            HorizontalDivider(color = if (isDark) DS.borderDark else DS.borderLight, thickness = 0.5.dp)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(if (isDark) DS.surfaceDark.copy(alpha = 0.5f) else DS.surfaceLight.copy(alpha = 0.5f))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                dockApps.forEach { app ->
-                    MobileAppIcon(
-                        app = app,
-                        isDark = isDark,
-                        showLabel = false,
-                        iconSize = 48,
-                        onClick = {
-                            incrementAppOpenCount(context, app.packageName)
-                            viewModel.openApp(context, app)
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MobileAppIcon(
-    app: AppInfo,
-    isDark: Boolean,
-    showLabel: Boolean = true,
-    iconSize: Int = 56,
-    onClick: () -> Unit
-) {
-    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    var pressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(targetValue = if (pressed) 0.92f else 1f, label = "mobile_icon_scale")
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .scale(scale)
-            .pointerInput(app.packageName) {
-                detectTapGestures(
-                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
-                    onTap = { onClick() }
-                )
-            }
-    ) {
-        Box(
-            modifier = Modifier
-                .size(iconSize.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(if (isDark) DS.surfaceDark else DS.surfaceLight),
-            contentAlignment = Alignment.Center
-        ) {
-            if (app.icon != null) {
-                val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
-                Image(bitmap = bmp, contentDescription = app.name, modifier = Modifier.size((iconSize - 12).dp))
-            } else {
-                Icon(FluentIcon.Apps, null, tint = DS.accentStart, modifier = Modifier.size((iconSize / 2.5).dp))
-            }
-        }
-        if (showLabel) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                app.name,
-                fontSize = 10.sp,
-                color = textPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.width((iconSize + 16).dp)
-            )
-        }
-    }
-}
 
 // ─────────────────────────────────────────────────────────
 // ALL APPS VIEW
@@ -1674,9 +1567,9 @@ fun AnimatedPinnedIcon(
                 .padding(vertical = 8.dp, horizontal = 4.dp)
         ) {
             Box(modifier = Modifier.size(iconSize.dp), contentAlignment = Alignment.Center) {
-                if (app.icon != null) {
-                    val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
-                    Image(bitmap = bmp, contentDescription = app.name, modifier = Modifier.size((iconSize - 4).dp))
+                val cachedBmp = rememberAppIconBitmap(app)
+                if (cachedBmp != null) {
+                    Image(bitmap = cachedBmp, contentDescription = app.name, modifier = Modifier.size((iconSize - 4).dp))
                 } else {
                     Box(
                         modifier = Modifier
@@ -1763,14 +1656,35 @@ fun AnimatedBuiltInIcon(
             }
             .padding(vertical = 8.dp, horizontal = 4.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(iconSize.dp)
-                .clip(RoundedCornerShape(DS.sectionCorner))
-                .background(DS.accentStart),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(imageVector = icon, contentDescription = name, tint = Color.White, modifier = Modifier.size(18.dp))
+        // Custom SVG-derived icons (see BuiltInAppIcons.kt) already contain
+        // their own colored rounded-square background, so they render
+        // full-bleed here. Apps without a custom icon yet fall back to the
+        // original accent-tile + white Fluent glyph treatment.
+        val customIconResId = rememberBuiltInIconResourceId(name)
+        if (customIconResId != 0) {
+            Box(
+                modifier = Modifier
+                    .size(iconSize.dp)
+                    .clip(RoundedCornerShape(DS.sectionCorner)),
+                contentAlignment = Alignment.Center
+            ) {
+                BuiltInAppIcon(
+                    appName = name,
+                    fallback = icon,
+                    tint = Color.White,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(iconSize.dp)
+                    .clip(RoundedCornerShape(DS.sectionCorner))
+                    .background(DS.accentStart),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(imageVector = icon, contentDescription = name, tint = Color.White, modifier = Modifier.size(18.dp))
+            }
         }
         if (showLabel) {
             Spacer(Modifier.height(4.dp))
@@ -1816,12 +1730,12 @@ private fun HorizontalAppCard(app: AppInfo, isDark: Boolean, onClick: () -> Unit
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(modifier = Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-                    if (app.icon != null) {
-                        val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
-                        Image(bitmap = bmp, contentDescription = app.name, modifier = Modifier.size(28.dp))
-                    } else {
-                        Icon(FluentIcon.Apps, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
-                    }
+                    val cachedBmp = rememberAppIconBitmap(app)
+                if (cachedBmp != null) {
+                    Image(bitmap = cachedBmp, contentDescription = app.name, modifier = Modifier.size(28.dp))
+                } else {
+                    Icon(FluentIcon.Apps, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
+                }
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(app.name, fontSize = 9.sp, color = textColor, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
@@ -1843,12 +1757,12 @@ private fun CompactAppIcon(app: AppInfo, isDark: Boolean, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        if (app.icon != null) {
-            val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
-            Image(bitmap = bmp, contentDescription = app.name, modifier = Modifier.size(24.dp))
-        } else {
-            Icon(FluentIcon.Apps, null, tint = DS.accentStart, modifier = Modifier.size(16.dp))
-        }
+        val cachedBmp = rememberAppIconBitmap(app)
+                if (cachedBmp != null) {
+                    Image(bitmap = cachedBmp, contentDescription = app.name, modifier = Modifier.size(24.dp))
+                } else {
+                    Icon(FluentIcon.Apps, null, tint = DS.accentStart, modifier = Modifier.size(16.dp))
+                }
     }
 }
 
@@ -1885,9 +1799,9 @@ private fun AllAppsRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(modifier = Modifier.size(30.dp), contentAlignment = Alignment.Center) {
-                if (app.icon != null) {
-                    val bmp = remember(app.packageName) { app.icon!!.toBitmap().asImageBitmap() }
-                    Image(bitmap = bmp, contentDescription = app.name, modifier = Modifier.size(28.dp))
+                val cachedBmp = rememberAppIconBitmap(app)
+                if (cachedBmp != null) {
+                    Image(bitmap = cachedBmp, contentDescription = app.name, modifier = Modifier.size(28.dp))
                 } else {
                     Icon(FluentIcon.Apps, null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
                 }
@@ -2147,8 +2061,6 @@ private fun BottomUserBar(
 ) {
     val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val greeting    = remember { timeGreeting() }
-    val context     = LocalContext.current
-    var showPowerMenu by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -2213,96 +2125,9 @@ private fun BottomUserBar(
             }
         }
 
-        // Power button — was previously missing, leaving PowerMenuItem() unused.
-        Box {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(DS.sectionCorner))
-                    .background(if (showPowerMenu) DS.accentStart.copy(alpha = 0.15f) else Color.Transparent)
-                    .clickable { showPowerMenu = true },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = FluentIcon.Power,
-                    contentDescription = "Power options",
-                    tint = if (showPowerMenu) DS.accentStart else textPrimary.copy(alpha = 0.7f),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-            DropdownMenu(
-                expanded = showPowerMenu,
-                onDismissRequest = { showPowerMenu = false },
-                modifier = Modifier
-                    .background(if (isDark) DS.surfaceDark else DS.glassLight, RoundedCornerShape(DS.sectionCorner))
-                    .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner))
-            ) {
-                PowerMenuItem(label = "Sleep", icon = FluentIcon.SleepArrow, isDark = isDark) {
-                    showPowerMenu = false
-                    // Locking the screen is the closest a normal app can get to "sleep" —
-                    // PowerManager.goToSleep() is a hidden/system-only API and isn't in the
-                    // public SDK. This requires the app to be a device/profile owner; it's
-                    // a safe no-op (caught below) otherwise.
-                    runCatching {
-                        (context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? android.app.admin.DevicePolicyManager)
-                            ?.lockNow()
-                    }
-                }
-                PowerMenuItem(label = "Restart", icon = FluentIcon.ArrowSync, isDark = isDark) {
-                    showPowerMenu = false
-                    // PowerManager.reboot() is public API but needs the signature-level
-                    // android.permission.REBOOT, normally granted only to system apps.
-                    runCatching {
-                        (context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)?.reboot(null)
-                    }
-                }
-                PowerMenuItem(label = "Shut Down", icon = FluentIcon.Power, isDark = isDark) {
-                    showPowerMenu = false
-                    // There is no public SDK call to power off the device from an app —
-                    // Intent.ACTION_REQUEST_SHUTDOWN is a hidden/system-only constant, not
-                    // part of the public Intent API. This reaches PowerManager's hidden
-                    // shutdown(...) via reflection instead, which only succeeds on a
-                    // system-signed / privileged build; it's a safe no-op elsewhere.
-                    runCatching {
-                        val pm = context.getSystemService(Context.POWER_SERVICE)
-                        pm?.javaClass
-                            ?.getMethod(
-                                "shutdown",
-                                Boolean::class.javaPrimitiveType,
-                                String::class.java,
-                                Boolean::class.javaPrimitiveType
-                            )
-                            ?.invoke(pm, false, "userrequested", false)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PowerMenuItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isDark: Boolean, onClick: () -> Unit) {
-    var pressed by remember { mutableStateOf(false) }
-    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    val iconTint = if (label == "Shut Down") DS.badgeRed else DS.accentStart
-
-    Row(
-        modifier = Modifier
-            .width(150.dp)
-            .clip(RoundedCornerShape(DS.chipCorner))
-            .background(if (pressed) (if (isDark) DS.pressedDark else DS.pressedLight) else Color.Transparent)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
-                    onTap = { onClick() }
-                )
-            }
-            .padding(horizontal = 10.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Icon(imageVector = icon, contentDescription = label, tint = iconTint, modifier = Modifier.size(14.dp))
-        Text(label, fontSize = 12.sp, color = textColor, fontWeight = FontWeight.Normal)
+        // Power button — extracted to PowerMenu.kt (PowerMenuButton) so it can
+        // be reused elsewhere without duplicating the sleep/restart/shutdown logic.
+        PowerMenuButton(isDark = isDark, textPrimary = textPrimary)
     }
 }
 
@@ -2324,8 +2149,12 @@ fun StartMenuAppIcon(
     )
 }
 
+// Renamed from `BuiltInAppIcon` to avoid colliding with the new
+// BuiltInAppIcon(appName, fallback, tint, modifier) in BuiltInAppIcons.kt.
+// If other files in the project still call the old `BuiltInAppIcon(name, icon, isDark, onClick)`
+// signature, update those call sites to this name.
 @Composable
-fun BuiltInAppIcon(name: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isDark: Boolean, onClick: () -> Unit) {
+fun LegacyBuiltInAppIconCompat(name: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isDark: Boolean, onClick: () -> Unit) {
     AnimatedBuiltInIcon(name = name, icon = icon, isDark = isDark, editMode = false, onClick = onClick)
 }
 

@@ -1,5 +1,6 @@
 package io.github.norbertweb.bluebird.ui.components
 
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -7,6 +8,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,8 +41,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -158,11 +165,16 @@ private fun bluebirdToast(
     var dragOffsetX        by remember { mutableStateOf(0f) }
     var isPaused           by remember { mutableStateOf(false) }
     var remainingFraction  by remember { mutableStateOf(1f) }
+    var thresholdCrossed   by remember { mutableStateOf(false) }
     val dismissThreshold   = 260f
+    val haptics            = LocalHapticFeedback.current
 
     val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
-    LaunchedEffect(Unit) { entered = true }
+    LaunchedEffect(Unit) {
+        entered = true
+        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
 
     fun startExit() {
         if (!exiting) exiting = true
@@ -213,16 +225,35 @@ private fun bluebirdToast(
             .alpha(alpha)
             .offset { IntOffset(totalOffset.toInt(), 0) }
             .width(340.dp)
+            .shadow(
+                elevation = 6.dp,
+                shape     = RoundedCornerShape(10.dp),
+                clip      = false,
+                ambientColor = Color.Black.copy(alpha = if (isDark) 0.5f else 0.18f),
+                spotColor    = Color.Black.copy(alpha = if (isDark) 0.5f else 0.18f)
+            )
             .pointerInput(toast.id) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
                         isPaused = false
-                        if (dragOffsetX > dismissThreshold) startExit() else dragOffsetX = 0f
+                        if (dragOffsetX > dismissThreshold) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            startExit()
+                        } else {
+                            dragOffsetX = 0f
+                        }
+                        thresholdCrossed = false
                     },
                     onHorizontalDrag = { change, delta ->
                         change.consume()
                         isPaused = true
                         dragOffsetX = (dragOffsetX + delta).coerceAtLeast(0f)
+                        if (dragOffsetX > dismissThreshold && !thresholdCrossed) {
+                            thresholdCrossed = true
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        } else if (dragOffsetX <= dismissThreshold) {
+                            thresholdCrossed = false
+                        }
                     }
                 )
             },
@@ -280,11 +311,22 @@ private fun bluebirdToast(
                     val primaryLabel = toast.actionLabel ?: if (toast.packageName != null) "Open" else null
                     if (primaryLabel != null) {
                         Spacer(modifier = Modifier.height(6.dp))
+                        val actionInteraction = remember { MutableInteractionSource() }
+                        val actionPressed by actionInteraction.collectIsPressedAsState()
+                        val actionScale by animateFloatAsState(
+                            targetValue   = if (actionPressed) 0.93f else 1f,
+                            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh),
+                            label         = "toastActionPress"
+                        )
                         Box(
                             modifier = Modifier
+                                .graphicsLayer { scaleX = actionScale; scaleY = actionScale }
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(toast.accent)
-                                .clickable {
+                                .clickable(
+                                    interactionSource = actionInteraction,
+                                    indication        = null
+                                ) {
                                     if (toast.actionUrl != null) onAction(toast.actionUrl) else onOpen()
                                     startExit()
                                 }
@@ -300,11 +342,22 @@ private fun bluebirdToast(
                     }
                 }
 
+                val dismissInteraction = remember { MutableInteractionSource() }
+                val dismissPressed by dismissInteraction.collectIsPressedAsState()
+                val dismissScale by animateFloatAsState(
+                    targetValue   = if (dismissPressed) 0.8f else 1f,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh),
+                    label         = "toastDismissPress"
+                )
                 Box(
                     modifier = Modifier
+                        .graphicsLayer { scaleX = dismissScale; scaleY = dismissScale }
                         .size(20.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .clickable { startExit() },
+                        .clickable(
+                            interactionSource = dismissInteraction,
+                            indication        = null
+                        ) { startExit() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -316,7 +369,15 @@ private fun bluebirdToast(
                 }
             }
 
-            // Thin countdown strip along the bottom edge
+            // Thin countdown strip along the bottom edge. Animated toward
+            // the latest tick so it reads as a continuous drain rather than
+            // visibly stepping every 50ms, and eases toward the auto-dismiss
+            // moment for a softer finish.
+            val animatedFraction by animateFloatAsState(
+                targetValue   = remainingFraction,
+                animationSpec = tween(60, easing = LinearEasing),
+                label         = "toastCountdown"
+            )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -326,7 +387,7 @@ private fun bluebirdToast(
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .fillMaxWidth(remainingFraction)
+                        .fillMaxWidth(animatedFraction)
                         .background(toast.accent.copy(alpha = 0.6f))
                 )
             }

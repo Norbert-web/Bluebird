@@ -1333,9 +1333,9 @@ private fun LibraryPane(
             Column {
                 Text("Films & TV", color = tc, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 if (state.isLoading)
-                    Text("Loading…", color = FTV.Accent, fontSize = 10.sp)
+                    Text("Loading…", color = FTV.Accent, fontSize = 11.sp)
                 else
-                    Text("${state.allTracks.size} items", color = tcm, fontSize = 10.sp)
+                    Text("${state.allTracks.size} items", color = tcm, fontSize = 11.sp)
             }
             Spacer(Modifier.weight(1f))
             IconButton(onClick = { state.showSettings = true }, modifier = Modifier.size(28.dp)) {
@@ -1378,7 +1378,7 @@ private fun LibraryPane(
                             MediaTab.PLAYLIST -> "Queue"; MediaTab.FOLDERS -> "Folders"
                             MediaTab.RECENTS -> "Recent"; MediaTab.FAVORITES -> "Faves"
                         },
-                        color = if (active) Color.White else tcm, fontSize = 11.sp,
+                        color = if (active) Color.White else tcm, fontSize = 12.5.sp,
                         fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
                     )
                 }
@@ -1397,11 +1397,14 @@ private fun LibraryPane(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(FI.Search, null, tint = tcm, modifier = Modifier.size(14.dp))
-                Box(Modifier.weight(1f)) {
-                    if (state.searchQuery.isEmpty()) Text("Search…", color = tcm, fontSize = 12.sp)
+                // FIX: same cursor-floats-above-text bug as FileExplorer's search box —
+                // this Box had no contentAlignment, so both the placeholder and the
+                // BasicTextField defaulted to top-start instead of centering on the line.
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (state.searchQuery.isEmpty()) Text("Search…", color = tcm, fontSize = 14.sp)
                     androidx.compose.foundation.text.BasicTextField(
                         value = state.searchQuery, onValueChange = { state.searchQuery = it },
-                        textStyle = androidx.compose.ui.text.TextStyle(color = tc, fontSize = 12.sp),
+                        textStyle = androidx.compose.ui.text.TextStyle(color = tc, fontSize = 14.sp, fontWeight = FontWeight.Medium),
                         cursorBrush = SolidColor(FTV.Accent), singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1421,13 +1424,13 @@ private fun LibraryPane(
                     IconButton(onClick = { state.openPlaylistId = null }, modifier = Modifier.size(32.dp)) {
                         Icon(FI.Back, null, tint = tc, modifier = Modifier.size(18.dp))
                     }
-                    Text(openPl.name, color = tc, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    Text(openPl.name, color = tc, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     IconButton(onClick = { state.playPlaylist(openPl.id) }, modifier = Modifier.size(32.dp)) {
                         Icon(FI.Play, null, tint = FTV.Accent, modifier = Modifier.size(18.dp))
                     }
                 } else {
-                    Text("Your playlists", color = tcs, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text("Your playlists", color = tcs, fontSize = 13.5.sp, modifier = Modifier.weight(1f))
                     Row(
                         Modifier.clip(RoundedCornerShape(6.dp)).background(FTV.Accent)
                             .clickable { state.showNewPlaylistDialog = true }
@@ -1435,7 +1438,7 @@ private fun LibraryPane(
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(FI.Add, null, tint = Color.White, modifier = Modifier.size(13.dp))
-                        Text("New", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text("New", color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -1445,17 +1448,17 @@ private fun LibraryPane(
         if (!showsPlaylistFolderList) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 val cnt = state.filteredTracks.size
-                Text("$cnt ${when(state.activeTab){ MediaTab.VIDEOS->"videos"; MediaTab.MUSIC->"tracks"; else->"items" }}", color = tcm, fontSize = 10.sp)
+                Text("$cnt ${when(state.activeTab){ MediaTab.VIDEOS->"videos"; MediaTab.MUSIC->"tracks"; else->"items" }}", color = tcm, fontSize = 11.sp)
                 if (state.activeTab == MediaTab.MUSIC || state.activeTab == MediaTab.VIDEOS) {
-                    Text("Add all to queue", color = FTV.Accent, fontSize = 10.sp,
+                    Text("Add all to queue", color = FTV.Accent, fontSize = 11.sp,
                         modifier = Modifier.clickable { state.filteredTracks.forEach { state.addToPlaylist(it) } })
                 }
                 if (state.activeTab == MediaTab.PLAYLIST && state.playlist.isNotEmpty()) {
-                    Text("Clear queue", color = FTV.DangerRed, fontSize = 10.sp,
+                    Text("Clear queue", color = FTV.DangerRed, fontSize = 11.sp,
                         modifier = Modifier.clickable { state.clearQueue() })
                 }
                 if (state.activeTab == MediaTab.PLAYLISTS && state.openPlaylist != null) {
-                    Text("Add tracks…", color = FTV.Accent, fontSize = 10.sp,
+                    Text("Add tracks…", color = FTV.Accent, fontSize = 11.sp,
                         modifier = Modifier.clickable { state.activeTab = MediaTab.MUSIC })
                 }
             }
@@ -1499,8 +1502,8 @@ private fun LibraryPane(
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Icon(FI.PlaylistPlay, null, tint = tcm, modifier = Modifier.size(32.dp))
-                                    Text("No playlists yet", color = tcs, fontSize = 12.sp)
-                                    Text("Tap New to create one", color = tcm, fontSize = 10.sp)
+                                    Text("No playlists yet", color = tcs, fontSize = 13.5.sp)
+                                    Text("Tap New to create one", color = tcm, fontSize = 11.sp)
                                 }
                             }
                         }
@@ -1518,9 +1521,9 @@ private fun LibraryPane(
                                     Icon(FI.PlaylistPlay, null, tint = FTV.Accent, modifier = Modifier.size(20.dp))
                                 }
                                 Column(Modifier.weight(1f)) {
-                                    Text(pl.name, color = tc, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                    Text(pl.name, color = tc, fontSize = 14.sp, fontWeight = FontWeight.Medium,
                                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text("${pl.trackKeys.size} tracks", color = tcm, fontSize = 11.sp)
+                                    Text("${pl.trackKeys.size} tracks", color = tcm, fontSize = 12.5.sp)
                                 }
                                 Box {
                                     Icon(FI.MoreVert, null, tint = tcm,
@@ -1528,17 +1531,17 @@ private fun LibraryPane(
                                     DropdownMenu(expanded = showPlMenu, onDismissRequest = { showPlMenu = false },
                                         modifier = fluentMenuModifier(isDark)) {
                                         DropdownMenuItem(
-                                            text = { Text("Play", color = if (isDark) FTV.Text else FTV.LText, fontSize = 13.sp) },
+                                            text = { Text("Play", color = if (isDark) FTV.Text else FTV.LText, fontSize = 14.sp) },
                                             onClick = { state.playPlaylist(pl.id); showPlMenu = false },
                                             leadingIcon = { Icon(FI.Play, null, tint = FTV.Accent, modifier = Modifier.size(16.dp)) }
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("Rename", color = if (isDark) FTV.Text else FTV.LText, fontSize = 13.sp) },
+                                            text = { Text("Rename", color = if (isDark) FTV.Text else FTV.LText, fontSize = 14.sp) },
                                             onClick = { state.editingPlaylistId = pl.id; showPlMenu = false },
                                             leadingIcon = { Icon(FI.Edit, null, tint = FTV.Accent, modifier = Modifier.size(16.dp)) }
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("Delete", color = FTV.DangerRed, fontSize = 13.sp) },
+                                            text = { Text("Delete", color = FTV.DangerRed, fontSize = 14.sp) },
                                             onClick = { state.deletePlaylist(ctx, pl.id); showPlMenu = false },
                                             leadingIcon = { Icon(FI.Delete, null, tint = FTV.DangerRed, modifier = Modifier.size(16.dp)) }
                                         )
@@ -1556,8 +1559,8 @@ private fun LibraryPane(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text("This playlist is empty", color = tcs, fontSize = 12.sp)
-                                    Text("Long-press or use ⋮ on any track to add it here", color = tcm, fontSize = 10.sp, textAlign = TextAlign.Center)
+                                    Text("This playlist is empty", color = tcs, fontSize = 13.5.sp)
+                                    Text("Long-press or use ⋮ on any track to add it here", color = tcm, fontSize = 11.sp, textAlign = TextAlign.Center)
                                 }
                             }
                         }
@@ -1716,8 +1719,8 @@ private fun GroupHeader(name: String, count: Int, isDark: Boolean, tc: Color, tc
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Column(Modifier.weight(1f)) {
-            Text(name, color = tc, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("$count track${if (count != 1) "s" else ""}", color = tcm, fontSize = 10.sp)
+            Text(name, color = tc, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("$count track${if (count != 1) "s" else ""}", color = tcm, fontSize = 11.sp)
         }
         Box(Modifier.size(26.dp).clip(CircleShape).background(FTV.Accent.copy(0.15f)).clickable { onPlayAll() }, contentAlignment = Alignment.Center) {
             Icon(FI.Play, null, tint = FTV.Accent, modifier = Modifier.size(14.dp))
@@ -1778,19 +1781,19 @@ private fun LibraryRow(
         }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(track.displayTitle, color = if (isActive) FTV.Accent else tc, fontSize = 13.sp,
+                Text(track.displayTitle, color = if (isActive) FTV.Accent else tc, fontSize = 14.sp,
                     fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 if (track.isFavorite) Icon(FI.Star, null, tint = FTV.Gold, modifier = Modifier.size(11.dp))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(track.displayArtist, color = tcs, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(track.displayArtist, color = tcs, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (track.durationMs > 0) {
-                    Text("·", color = tcm, fontSize = 11.sp)
-                    Text(formatDuration(track.durationMs), color = tcm, fontSize = 11.sp)
+                    Text("·", color = tcm, fontSize = 12.5.sp)
+                    Text(formatDuration(track.durationMs), color = tcm, fontSize = 12.5.sp)
                 }
             }
-            if (track.playCount > 0) Text("Played ${track.playCount}×", color = tcm, fontSize = 9.sp)
+            if (track.playCount > 0) Text("Played ${track.playCount}×", color = tcm, fontSize = 10.5.sp)
         }
         if (showMoveControls) {
             Column(Modifier.width(20.dp)) {
@@ -1818,7 +1821,7 @@ private fun LibraryRow(
                 }
                 items.forEach { (icon, label, action) ->
                     DropdownMenuItem(
-                        text = { Text(label, color = if (isDark) FTV.Text else FTV.LText, fontSize = 13.sp) },
+                        text = { Text(label, color = if (isDark) FTV.Text else FTV.LText, fontSize = 14.sp) },
                         onClick = { action(); showMenu = false },
                         leadingIcon = { Icon(icon, null, tint = FTV.Accent, modifier = Modifier.size(16.dp)) }
                     )
@@ -1851,8 +1854,8 @@ private fun MiniNowPlaying(state: PlayerState, isDark: Boolean, tc: Color, tcs: 
                 tint = if (track.isVideo) FTV.VideoGreen else FTV.AudioPurple, modifier = Modifier.size(16.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(track.displayTitle,  color = tc,  fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-            Text(track.displayArtist, color = tcm, fontSize = 9.sp,  maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(track.displayTitle,  color = tc,  fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+            Text(track.displayArtist, color = tcm, fontSize = 10.5.sp,  maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         IconButton(onClick = { state.togglePlayPause() }, modifier = Modifier.size(30.dp)) {
             Icon(if (state.isPlaying) FI.Pause else FI.Play, null, tint = FTV.Accent, modifier = Modifier.size(18.dp))
@@ -1896,13 +1899,13 @@ private fun PlayerPane(
             Spacer(Modifier.width(4.dp))
             if (track != null) {
                 Icon(if (track.isVideo) FI.Movie else FI.MusicNoteFilled, null, tint = FTV.Accent, modifier = Modifier.size(14.dp))
-                Text(track.displayTitle, color = tc, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                Text(track.displayTitle, color = tc, fontSize = 14.sp, fontWeight = FontWeight.Medium,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 160.dp))
                 if (track.displayArtist != "Unknown Artist") {
-                    Text("—", color = tcm, fontSize = 11.sp)
-                    Text(track.displayArtist, color = tcs, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 120.dp))
+                    Text("—", color = tcm, fontSize = 12.5.sp)
+                    Text(track.displayArtist, color = tcs, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 120.dp))
                 }
-            } else Text("Films & TV", color = tcs, fontSize = 13.sp)
+            } else Text("Films & TV", color = tcs, fontSize = 14.sp)
             Spacer(Modifier.weight(1f))
             if (track != null) {
                 val scope = rememberCoroutineScope()
@@ -1976,7 +1979,7 @@ private fun EmptyState(tc: Color, tcm: Color) {
             }
         }
         Text("No media selected", color = tc, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-        Text("Pick a video or song from the library", color = tcm, fontSize = 13.sp)
+        Text("Pick a video or song from the library", color = tcm, fontSize = 14.sp)
     }
 }
 
@@ -2122,7 +2125,7 @@ private fun AudioPlayerArea(
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(FI.QueueMusic, null, tint = tcm, modifier = Modifier.size(14.dp))
-                Text("Up next: ${next.displayTitle}", color = tcs, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Up next: ${next.displayTitle}", color = tcs, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -2161,9 +2164,9 @@ private fun ProgressBar(state: PlayerState, tc: Color, tcm: Color, accent: Color
 
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatDuration((displayedProgress * state.durationMs).toLong()), color = tcm, fontSize = 11.sp)
-            Text("-${formatDuration((state.durationMs - (displayedProgress * state.durationMs).toLong()).coerceAtLeast(0))}", color = tcm, fontSize = 11.sp)
-            Text(formatDuration(state.durationMs), color = tcm, fontSize = 11.sp)
+            Text(formatDuration((displayedProgress * state.durationMs).toLong()), color = tcm, fontSize = 12.5.sp)
+            Text("-${formatDuration((state.durationMs - (displayedProgress * state.durationMs).toLong()).coerceAtLeast(0))}", color = tcm, fontSize = 12.5.sp)
+            Text(formatDuration(state.durationMs), color = tcm, fontSize = 12.5.sp)
         }
         Spacer(Modifier.height(2.dp))
         Box(Modifier.fillMaxWidth().height(32.dp), contentAlignment = Alignment.Center) {
@@ -2270,7 +2273,7 @@ private fun SpeedChip(state: PlayerState, bgTint: Color, tc: Color) {
             Modifier.clip(RoundedCornerShape(6.dp)).background(bgTint.copy(0.12f))
                 .clickable { expanded = true }.padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
-        ) { Text(speedLabel(state.playbackSpeed), color = tc, fontSize = 11.sp, fontWeight = FontWeight.Medium) }
+        ) { Text(speedLabel(state.playbackSpeed), color = tc, fontSize = 12.5.sp, fontWeight = FontWeight.Medium) }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = fluentFlyoutOnScrimModifier()) {
             SPEED_STEPS.forEach { s ->
                 val active = state.playbackSpeed == s
@@ -2298,7 +2301,7 @@ private fun SleepTimerChip(state: PlayerState, bgTint: Color) {
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Icon(FI.Timer, null, tint = bgTint, modifier = Modifier.size(13.dp))
-            if (state.sleepTimerActive) Text(formatTimer(state.sleepTimerSeconds), color = bgTint, fontSize = 11.sp)
+            if (state.sleepTimerActive) Text(formatTimer(state.sleepTimerSeconds), color = bgTint, fontSize = 12.5.sp)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = fluentFlyoutOnScrimModifier()) {
             if (state.sleepTimerActive) {
@@ -2352,14 +2355,14 @@ private fun MoreControlsSheet(
             // Playback speed
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Playback speed", color = tcs, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    Text(speedLabel(state.playbackSpeed), color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("Playback speed", color = tcs, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                    Text(speedLabel(state.playbackSpeed), color = accent, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                 }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SPEED_STEPS.forEach { s ->
                         val active = state.playbackSpeed == s
                         Text(
-                            speedLabel(s), color = if (active) Color.White else tc, fontSize = 12.sp,
+                            speedLabel(s), color = if (active) Color.White else tc, fontSize = 13.5.sp,
                             fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
                             modifier = Modifier.clip(RoundedCornerShape(8.dp))
                                 .background(if (active) accent else (if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh))
@@ -2375,15 +2378,15 @@ private fun MoreControlsSheet(
             // Sleep timer
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Sleep timer", color = tcs, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Sleep timer", color = tcs, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                     if (state.sleepTimerActive) {
-                        Text(formatTimer(state.sleepTimerSeconds), color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(formatTimer(state.sleepTimerSeconds), color = accent, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                     }
                 }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (state.sleepTimerActive) {
                         Text(
-                            "Cancel", color = FTV.DangerRed, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                            "Cancel", color = FTV.DangerRed, fontSize = 13.5.sp, fontWeight = FontWeight.Medium,
                             modifier = Modifier.clip(RoundedCornerShape(8.dp))
                                 .background(FTV.DangerRed.copy(0.12f))
                                 .clickable { state.sleepTimerActive = false }
@@ -2392,7 +2395,7 @@ private fun MoreControlsSheet(
                     } else {
                         SLEEP_OPTIONS.forEach { (min, label) ->
                             Text(
-                                label, color = tc, fontSize = 12.sp,
+                                label, color = tc, fontSize = 13.5.sp,
                                 modifier = Modifier.clip(RoundedCornerShape(8.dp))
                                     .background(if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh)
                                     .clickable { state.sleepTimerSeconds = min * 60L; state.sleepTimerActive = true }
@@ -2407,7 +2410,7 @@ private fun MoreControlsSheet(
 
             // Volume
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Volume", color = tcs, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text("Volume", color = tcs, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Icon(
                         when { state.isMuted || state.volume == 0f -> FI.VolumeOff
@@ -2427,12 +2430,12 @@ private fun MoreControlsSheet(
             if (track?.isVideo == true) {
                 Divider(color = border)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Aspect ratio", color = tcs, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Aspect ratio", color = tcs, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         AspectRatio.values().forEach { ar ->
                             val active = state.aspectRatio == ar
                             Text(
-                                ar.label, color = if (active) Color.White else tc, fontSize = 12.sp,
+                                ar.label, color = if (active) Color.White else tc, fontSize = 13.5.sp,
                                 fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
                                 modifier = Modifier.clip(RoundedCornerShape(8.dp))
                                     .background(if (active) accent else (if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh))
@@ -2461,7 +2464,7 @@ private fun AspectRatioChip(state: PlayerState, tint: Color) {
             Modifier.clip(RoundedCornerShape(6.dp)).background(tint.copy(0.12f))
                 .clickable { expanded = true }.padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
-        ) { Text(state.aspectRatio.label, color = tint, fontSize = 11.sp) }
+        ) { Text(state.aspectRatio.label, color = tint, fontSize = 12.5.sp) }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = fluentFlyoutOnScrimModifier()) {
             AspectRatio.entries.forEach { ar ->
                 val active = state.aspectRatio == ar
@@ -2503,7 +2506,7 @@ private fun SettingsSheet(
             }
             Divider(color = border)
 
-            Text("Theme", color = tcs, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
+            Text("Theme", color = tcs, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BBTheme.values().forEach { theme ->
                     val active = ThemeHolder.current == theme
@@ -2517,14 +2520,14 @@ private fun SettingsSheet(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Box(Modifier.size(28.dp).clip(CircleShape).background(theme.palette.accent))
-                        Text(theme.label, color = tc, fontSize = 10.sp, maxLines = 1)
+                        Text(theme.label, color = tc, fontSize = 11.sp, maxLines = 1)
                     }
                 }
             }
 
             Divider(color = border)
 
-            Text("Equalizer", color = tcs, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
+            Text("Equalizer", color = tcs, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 EqPreset.values().forEach { preset ->
                     val active = state.eqPreset == preset
@@ -2533,14 +2536,14 @@ private fun SettingsSheet(
                             .background(if (active) FTV.Accent else (if (isDark) FTV.SurfaceHigh else FTV.LSurfaceHigh))
                             .clickable { state.applyEqPreset(preset) }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) { Text(preset.label, color = if (active) Color.White else tc, fontSize = 12.sp) }
+                    ) { Text(preset.label, color = if (active) Color.White else tc, fontSize = 13.5.sp) }
                 }
             }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     Text("Bass Boost", color = tc, fontSize = 14.sp)
-                    Text("Enhance low frequencies — now applies to video too", color = tcm, fontSize = 11.sp)
+                    Text("Enhance low frequencies — now applies to video too", color = tcm, fontSize = 12.5.sp)
                 }
                 Switch(checked = state.bassBoostOn, onCheckedChange = { state.setBassBoost(it) },
                     colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = FTV.Accent))
@@ -2549,7 +2552,7 @@ private fun SettingsSheet(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     Text("3D Virtualizer", color = tc, fontSize = 14.sp)
-                    Text("Spacious surround sound", color = tcm, fontSize = 11.sp)
+                    Text("Spacious surround sound", color = tcm, fontSize = 12.5.sp)
                 }
                 Switch(checked = state.virtualizerOn, onCheckedChange = { state.setVirtualizer(it) },
                     colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = FTV.Accent))
@@ -2557,7 +2560,7 @@ private fun SettingsSheet(
 
             Divider(color = border)
 
-            Text("Crossfade", color = tcs, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
+            Text("Crossfade", color = tcs, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
             Column {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Duration", color = tc, fontSize = 14.sp)
@@ -2600,7 +2603,7 @@ private fun TagEditorSheet(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text("Edit Tags", color = tc, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text("Changes are saved in-app only (does not modify the file)", color = tcs, fontSize = 11.sp)
+            Text("Changes are saved in-app only (does not modify the file)", color = tcs, fontSize = 12.5.sp)
             Divider(color = border)
             listOf(
                 Triple("Title", title) { v: String -> title = v },
@@ -2608,7 +2611,7 @@ private fun TagEditorSheet(
                 Triple("Album", album) { v: String -> album = v }
             ).forEach { (label, value, setter) ->
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(label, color = tcs, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    Text(label, color = tcs, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
                     OutlinedTextField(
                         value = value, onValueChange = setter,
                         modifier = Modifier.fillMaxWidth(),
@@ -2697,7 +2700,7 @@ private fun AddToPlaylistDialog(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     Text("Add to playlist", color = tc, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Text(track.displayTitle, color = tcs, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(track.displayTitle, color = tcs, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) { Icon(FI.Close, null, tint = tcm, modifier = Modifier.size(16.dp)) }
             }
@@ -2705,7 +2708,7 @@ private fun AddToPlaylistDialog(
 
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                 if (state.userPlaylists.isEmpty() && !showNewRow) {
-                    Text("No playlists yet — create one below", color = tcm, fontSize = 12.sp, modifier = Modifier.padding(vertical = 12.dp))
+                    Text("No playlists yet — create one below", color = tcm, fontSize = 13.5.sp, modifier = Modifier.padding(vertical = 12.dp))
                 }
                 state.userPlaylists.forEach { pl ->
                     val alreadyIn = track.metaKey in pl.trackKeys
@@ -2718,8 +2721,8 @@ private fun AddToPlaylistDialog(
                             if (alreadyIn) FI.CheckBox else FI.CheckBoxOutline, null,
                             tint = if (alreadyIn) FTV.Accent else tcm, modifier = Modifier.size(18.dp)
                         )
-                        Text(pl.name, color = tc, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Text("${pl.trackKeys.size}", color = tcm, fontSize = 11.sp)
+                        Text(pl.name, color = tc, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text("${pl.trackKeys.size}", color = tcm, fontSize = 12.5.sp)
                     }
                 }
             }
@@ -2734,10 +2737,10 @@ private fun AddToPlaylistDialog(
                             .padding(horizontal = 10.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
-                        if (newName.isEmpty()) Text("Playlist name…", color = tcm, fontSize = 12.sp)
+                        if (newName.isEmpty()) Text("Playlist name…", color = tcm, fontSize = 13.5.sp)
                         androidx.compose.foundation.text.BasicTextField(
                             value = newName, onValueChange = { newName = it },
-                            textStyle = androidx.compose.ui.text.TextStyle(color = tc, fontSize = 13.sp),
+                            textStyle = androidx.compose.ui.text.TextStyle(color = tc, fontSize = 14.sp),
                             cursorBrush = SolidColor(FTV.Accent), singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -2754,7 +2757,7 @@ private fun AddToPlaylistDialog(
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(FI.Add, null, tint = FTV.Accent, modifier = Modifier.size(18.dp))
-                    Text("New playlist", color = FTV.Accent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text("New playlist", color = FTV.Accent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -2801,9 +2804,9 @@ private fun NamePromptDialog(
                 )
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                Text("Cancel", color = FTV.TextMuted, fontSize = 13.sp, modifier = Modifier.clickable(onClick = onDismiss).padding(8.dp))
+                Text("Cancel", color = FTV.TextMuted, fontSize = 14.sp, modifier = Modifier.clickable(onClick = onDismiss).padding(8.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Save", color = FTV.Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                Text("Save", color = FTV.Accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.clickable { if (value.isNotBlank()) onConfirm(value) }.padding(8.dp))
             }
         }

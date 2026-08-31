@@ -21,8 +21,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -57,11 +55,11 @@ import kotlinx.coroutines.delay
 // Search filter categories (like the one for Windows 11)
 // ─────────────────────────────────────────────
 private enum class SearchFilter(val label: String, val icon: ImageVector) {
-    All("All", Icons.Default.Apps),
-    Apps("Apps", Icons.Default.AppsOutage),
-    Web("Web", Icons.Default.Language),
-    Settings("Settings", Icons.Default.Settings),
-    Files("Files", Icons.Default.FolderOpen)
+    All("All", FluentIcon.Apps),
+    Apps("Apps", FluentIcon.Grid),
+    Web("Web", FluentIcon.Globe),
+    Settings("Settings", FluentIcon.Settings),
+    Files("Files", FluentIcon.FolderOpen)
 }
 
 // ─────────────────────────────────────────────
@@ -75,9 +73,9 @@ private const val SEARCH_OVERLAY_PREFS = "search_overlay_prefs"
 
 private fun getSavedSearchSizeMode(context: Context): SearchSizeMode {
     val prefs = context.getSharedPreferences(SEARCH_OVERLAY_PREFS, Context.MODE_PRIVATE)
-    val name = prefs.getString("size_mode", SearchSizeMode.COMPACT.name)
+    val name = prefs.getString("size_mode", SearchSizeMode.EXPANDED.name) // default changed to EXPANDED per updated design spec
     return runCatching { SearchSizeMode.valueOf(name ?: "COMPACT") }
-        .getOrDefault(SearchSizeMode.COMPACT)
+        .getOrDefault(SearchSizeMode.EXPANDED)
 }
 
 private fun saveSearchSizeMode(context: Context, mode: SearchSizeMode) {
@@ -192,8 +190,12 @@ fun SearchOverlay(
     val hasResults = appResults.isNotEmpty()
 
     // Background surface (acrylic style)
-    val surfaceBg = if (isDark) Color(0xFF1C1C2A) else Color(0xFFF0F0F5)
-    val surfaceBorder = if (isDark) Color(0x28FFFFFF) else Color(0x28000000)
+    // Was Color(0xFF1C1C2A)/Color(0xFFF0F0F5) — a separate fixed palette from
+    // Start Menu's glass background, and not affected by the transparency
+    // setting at all. Now shares DS.glass() with the live opacity value.
+    val (searchOpacity, _) = rememberOpacity(context)
+    val surfaceBg = DS.glass(isDark, searchOpacity)
+    val surfaceBorder = if (isDark) DS.borderDark else DS.borderLight
 
     LaunchedEffect(Unit) {
         runCatching { focusRequester.requestFocus() }
@@ -202,7 +204,7 @@ fun SearchOverlay(
         runCatching { keyboardController?.show() }
     }
 
-    val cornerRadius = if (isFullscreen) 0.dp else 16.dp
+    val cornerRadius = if (isFullscreen) 0.dp else DS.overlayCorner // was a local 16dp, now matches the shared Start Menu radius language
 
     Surface(
         modifier = modifier
@@ -265,7 +267,7 @@ fun SearchOverlay(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            Icons.Default.Search,
+                            FluentIcon.Search,
                             contentDescription = null,
                             tint = if (searchQuery.isEmpty()) Color(0xFF888888) else bluebirdColors.AccentBlue,
                             modifier = Modifier.size(16.dp)
@@ -297,7 +299,7 @@ fun SearchOverlay(
 
                         AnimatedVisibility(visible = searchQuery.isNotEmpty()) {
                             Icon(
-                                Icons.Default.Close,
+                                FluentIcon.Dismiss,
                                 contentDescription = "Clear",
                                 tint = textColor.copy(alpha = 0.45f),
                                 modifier = Modifier
@@ -321,9 +323,9 @@ fun SearchOverlay(
                         ) {
                             Icon(
                                 when (sizeMode) {
-                                    SearchSizeMode.COMPACT    -> Icons.Default.OpenInFull
-                                    SearchSizeMode.EXPANDED   -> Icons.Default.AspectRatio
-                                    SearchSizeMode.FULLSCREEN -> Icons.Default.CloseFullscreen
+                                    SearchSizeMode.COMPACT    -> FluentIcon.FullScreenMax
+                                    SearchSizeMode.EXPANDED   -> FluentIcon.Resize
+                                    SearchSizeMode.FULLSCREEN -> FluentIcon.FullScreenMin
                                 },
                                 contentDescription = "Panel size: ${sizeMode.name}",
                                 tint = textColor.copy(0.6f),
@@ -354,7 +356,7 @@ fun SearchOverlay(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     if (sizeMode == mode) {
-                                        Icon(Icons.Default.Check, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
+                                        Icon(FluentIcon.Checkmark, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
                                     } else {
                                         Spacer(Modifier.size(14.dp))
                                     }
@@ -449,7 +451,7 @@ private fun IdleSearchContent(
     // ── Recommended / Top Apps ──
     SectionHeader(
         title = "Recommended",
-        icon = Icons.Default.Star,
+        icon = FluentIcon.Sparkle,
         textColor = textColor,
         action = null
     )
@@ -471,7 +473,7 @@ private fun IdleSearchContent(
     Spacer(Modifier.height(14.dp))
 
     // ── Quick searches ──
-    SectionHeader(title = "Quick search", icon = Icons.Default.Bolt, textColor = textColor, action = null)
+    SectionHeader(title = "Quick search", icon = FluentIcon.Flash, textColor = textColor, action = null)
     Spacer(Modifier.height(8.dp))
 
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -490,7 +492,7 @@ private fun IdleSearchContent(
         Spacer(Modifier.height(14.dp))
         SectionHeader(
             title = "Recent searches",
-            icon = Icons.Default.History,
+            icon = FluentIcon.List,
             textColor = textColor,
             action = "Clear" to onClearRecent
         )
@@ -533,7 +535,7 @@ private fun SearchResultsContent(
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Default.SearchOff, null, tint = textColor.copy(0.18f), modifier = Modifier.size(28.dp))
+                Icon(FluentIcon.Search, null, tint = textColor.copy(0.18f), modifier = Modifier.size(28.dp))
                 Spacer(Modifier.height(6.dp))
                 Text("No apps found for \"$query\"", color = textColor.copy(0.45f), fontSize = 12.sp)
             }
@@ -544,7 +546,7 @@ private fun SearchResultsContent(
     if (showApps && appResults.isNotEmpty()) {
         SectionHeader(
             title = "Apps",
-            icon = Icons.Default.Apps,
+            icon = FluentIcon.Apps,
             textColor = textColor,
             action = if (appResults.size > maxResults) "See all (${appResults.size})" to {} else null
         )
@@ -586,7 +588,7 @@ private fun SearchResultsContent(
         HorizontalDivider(color = Color(0x14FFFFFF), modifier = Modifier.padding(vertical = 4.dp))
         Spacer(Modifier.height(4.dp))
 
-        SectionHeader(title = "Web", icon = Icons.Default.Language, textColor = textColor, action = null)
+        SectionHeader(title = "Web", icon = FluentIcon.Globe, textColor = textColor, action = null)
         Spacer(Modifier.height(6.dp))
 
         // Search the web row
@@ -643,7 +645,7 @@ private fun BestMatchItem(app: AppInfo, isDark: Boolean, textColor: Color, onCli
                     .background(bluebirdColors.AccentBlue),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Star, null, tint = Color.White, modifier = Modifier.size(8.dp))
+                Icon(FluentIcon.Sparkle, null, tint = Color.White, modifier = Modifier.size(8.dp))
             }
         }
 
@@ -707,7 +709,7 @@ private fun AppResultRow(app: AppInfo, query: String, isDark: Boolean, textColor
             Text(nameAnnotated, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("App", color = textColor.copy(0.4f), fontSize = 10.sp)
         }
-        Icon(Icons.Default.ChevronRight, null, tint = textColor.copy(0.25f), modifier = Modifier.size(14.dp))
+        Icon(FluentIcon.ChevronRight, null, tint = textColor.copy(0.25f), modifier = Modifier.size(14.dp))
     }
 }
 
@@ -720,14 +722,14 @@ private fun WebSearchRow(query: String, isDark: Boolean, textColor: Color, onCli
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(if (isDark) Color(0xFF25253A) else Color(0xFFE5E5F5))
+            .background(if (isDark) DS.surfaceDark else DS.surfaceLight) // was a local one-off color pair
             .border(0.5.dp, bluebirdColors.AccentBlue.copy(0.2f), RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Icon(Icons.Default.Language, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(16.dp))
+        Icon(FluentIcon.Globe, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(16.dp))
         Text(
             buildAnnotatedString {
                 append("Search the web for ")
@@ -739,7 +741,7 @@ private fun WebSearchRow(query: String, isDark: Boolean, textColor: Color, onCli
             fontSize = 13.sp,
             modifier = Modifier.weight(1f)
         )
-        Icon(Icons.Default.OpenInNew, null, tint = textColor.copy(0.3f), modifier = Modifier.size(13.dp))
+        Icon(FluentIcon.Open, null, tint = textColor.copy(0.3f), modifier = Modifier.size(13.dp))
     }
 }
 
@@ -757,9 +759,9 @@ private fun WebSuggestionRow(suggestion: String, isDark: Boolean, textColor: Col
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Icon(Icons.Default.TrendingUp, null, tint = textColor.copy(0.3f), modifier = Modifier.size(13.dp))
+        Icon(FluentIcon.ArrowTrendingUp, null, tint = textColor.copy(0.3f), modifier = Modifier.size(13.dp))
         Text(suggestion, color = textColor.copy(0.75f), fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Icon(Icons.Default.NorthWest, null, tint = textColor.copy(0.2f), modifier = Modifier.size(12.dp))
+        Icon(FluentIcon.ArrowReply, null, tint = textColor.copy(0.2f), modifier = Modifier.size(12.dp))
     }
 }
 
@@ -777,7 +779,7 @@ private fun RecentSearchRow(query: String, isDark: Boolean, textColor: Color, on
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Icon(Icons.Default.History, null, tint = textColor.copy(0.4f), modifier = Modifier.size(14.dp))
+        Icon(FluentIcon.List, null, tint = textColor.copy(0.4f), modifier = Modifier.size(14.dp))
         Text(
             query,
             color = textColor.copy(0.8f),
@@ -786,7 +788,7 @@ private fun RecentSearchRow(query: String, isDark: Boolean, textColor: Color, on
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
-        Icon(Icons.Default.NorthWest, null, tint = textColor.copy(0.2f), modifier = Modifier.size(12.dp))
+        Icon(FluentIcon.ArrowReply, null, tint = textColor.copy(0.2f), modifier = Modifier.size(12.dp))
     }
 }
 
@@ -913,7 +915,7 @@ private fun TopAppItem(app: AppInfo, isDark: Boolean, onClick: () -> Unit) {
 // ─────────────────────────────────────────────
 @Composable
 private fun QuickSearchChip(label: String, icon: ImageVector, isDark: Boolean, onClick: () -> Unit) {
-    val bgColor = if (isDark) Color(0xFF252535) else Color(0xFFE0E0EE)
+    val bgColor = if (isDark) DS.surfaceDark else DS.surfaceLight // was a local one-off color pair
     val textColor = if (isDark) Color.White else Color(0xFF1A1A1A)
 
     Row(
@@ -943,12 +945,12 @@ private fun generateWebSuggestions(query: String): List<String> = listOf(
 )
 
 private val quickSearchItems = listOf(
-    "Weather" to Icons.Default.WbSunny,
-    "News" to Icons.Default.Newspaper,
-    "Calculator" to Icons.Default.Calculate,
-    "Maps" to Icons.Default.Map,
-    "Music" to Icons.Default.MusicNote,
-    "Photos" to Icons.Default.PhotoLibrary,
-    "Translate" to Icons.Default.Translate,
-    "Shopping" to Icons.Default.ShoppingBag
+    "Weather" to FluentIcon.WeatherSunny,
+    "News" to FluentIcon.DocumentText,
+    "Calculator" to FluentIcon.Calculator,
+    "Maps" to FluentIcon.Location,
+    "Music" to FluentIcon.MusicNote2,
+    "Photos" to FluentIcon.ImageMultiple,
+    "Translate" to FluentIcon.Globe,
+    "Shopping" to FluentIcon.Stack
 )

@@ -2749,12 +2749,26 @@ private fun DesktopIcon(
                         )
                     }
                     else -> {
-                        Icon(
-                            imageVector            = fallbackIcon,
-                            contentDescription = null,
-                            tint               = fallbackTint,
-                            modifier           = Modifier.fillMaxSize()
-                        )
+                        // Built-in apps now check for a custom Windows-11-style SVG icon
+                        // first (same set Start Menu uses via BuiltInAppIcons.kt), falling
+                        // back to the Fluent glyph automatically if one isn't found — so
+                        // desktop icons and Start Menu icons for the same app always match.
+                        val builtInName = item.builtInScreen?.let { builtInAppDisplayName(it) }
+                        if (builtInName != null) {
+                            BuiltInAppIcon(
+                                appName = builtInName,
+                                fallback = fallbackIcon,
+                                tint = fallbackTint,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Icon(
+                                imageVector            = fallbackIcon,
+                                contentDescription = null,
+                                tint               = fallbackTint,
+                                modifier           = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                 }
 

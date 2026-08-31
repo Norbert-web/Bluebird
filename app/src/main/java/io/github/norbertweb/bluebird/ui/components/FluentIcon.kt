@@ -6,12 +6,15 @@ import fluent.ui.system.icons.regular.Airplane
 import fluent.ui.system.icons.regular.Alert
 import fluent.ui.system.icons.regular.AlertOff
 import fluent.ui.system.icons.regular.Apps
+import fluent.ui.system.icons.regular.ArrowAutofitWidth
 import fluent.ui.system.icons.regular.ArrowDownload
 import fluent.ui.system.icons.regular.ArrowReply
+import fluent.ui.system.icons.regular.ArrowRotateClockwise
 import fluent.ui.system.icons.regular.ArrowSort
 import fluent.ui.system.icons.regular.ArrowSync
 import fluent.ui.system.icons.regular.ArrowTrending
 import fluent.ui.system.icons.regular.ArrowUpload
+import fluent.ui.system.icons.regular.Accessibility
 import fluent.ui.system.icons.regular.Battery0
 import fluent.ui.system.icons.regular.Battery10
 import fluent.ui.system.icons.regular.Battery3
@@ -45,6 +48,13 @@ import fluent.ui.system.icons.regular.Edit
 import fluent.ui.system.icons.regular.EyeOff
 import fluent.ui.system.icons.regular.Flash
 import fluent.ui.system.icons.regular.Folder
+import fluent.ui.system.icons.regular.LeafOne
+import fluent.ui.system.icons.regular.Keyboard
+import fluent.ui.system.icons.regular.LockClosedKey
+import fluent.ui.system.icons.regular.Cast
+import fluent.ui.system.icons.regular.PhoneLaptop
+import fluent.ui.system.icons.regular.Crop
+import fluent.ui.system.icons.regular.WeatherMoon as WeatherMoonNightLight
 import fluent.ui.system.icons.regular.FolderOpen
 import fluent.ui.system.icons.regular.FolderProhibited
 import fluent.ui.system.icons.regular.FolderZip
@@ -254,6 +264,31 @@ object FluentIcon {
     val WeatherCloudy   = FluentIcons.Regular.WeatherCloudy
     val WeatherRain     = FluentIcons.Regular.WeatherRainShowersDay
     val WeatherSunny    = FluentIcons.Regular.WeatherSunny
+
+    // ── Windows 11 Quick Settings extras ──────────────────────────────────
+    // These back the additional Action Center tiles (touch keyboard, night
+    // light, mobile hotspot, cast, rotation lock, accessibility, energy
+    // saver, snip). As noted above, confirm exact names against whichever
+    // fluentui-system-icons version is actually resolved — Cast and
+    // LockClosedKey resolved fine in this build; Nfc did not (see below).
+    val Keyboard        = FluentIcons.Regular.Keyboard
+    val NightLight      = FluentIcons.Regular.WeatherMoonNightLight
+    val Hotspot         = FluentIcons.Regular.PhoneLaptop
+    val Cast            = FluentIcons.Regular.Cast
+    // NFC has no confirmed glyph in this pack's resolved version (build
+    // failed on Regular.Nfc — "Unresolved reference"). Falling back to the
+    // Phone icon, which is already proven to resolve elsewhere in this file.
+    // Swap for a real contactless/NFC glyph once you confirm its exact name
+    // against the actual artifact version Gradle pulled — check the catalog
+    // at https://niyajali.github.io/fluentui-system-icons or Android
+    // Studio's autocomplete on FluentIcons.Regular.
+    val Nfc             = FluentIcons.Regular.Phone
+    val RotationLock    = FluentIcons.Regular.LockClosedKey
+    val Accessibility   = FluentIcons.Regular.Accessibility
+    val EnergySaver     = FluentIcons.Regular.LeafOne
+    val Snip            = FluentIcons.Regular.Crop
+    val AutoRotate      = FluentIcons.Regular.ArrowRotateClockwise
+    val AutofitWidth    = FluentIcons.Regular.ArrowAutofitWidth
 }
 
 /**

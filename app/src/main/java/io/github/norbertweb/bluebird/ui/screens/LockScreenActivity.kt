@@ -37,6 +37,7 @@ class LockScreenActivity : ComponentActivity() {
     }
 }
 
+
 @Composable
 fun LockScreenOverlay(onUnlock: () -> Unit) {
     LockScreenContent(onUnlock = onUnlock)

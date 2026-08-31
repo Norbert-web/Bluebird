@@ -42,6 +42,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -397,7 +398,7 @@ private fun PermissionGate(
                 else
                     "Tap below to grant storage permission",
                 color = textColor.copy(alpha = 0.6f),
-                fontSize = 13.sp,
+                fontSize = 14.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 32.dp)
             )
@@ -441,6 +442,7 @@ private fun FileExplorerContent(
     val navBg = if (isDark) Color(0xFF202020) else Color(0xFFF3F5F7)
     val contentBorder = textColor.copy(alpha = if (isDark) 0.10f else 0.08f)
     val explorerFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
     var ctrlMouseSelection by remember { mutableStateOf(false) }
     var shiftMouseSelection by remember { mutableStateOf(false) }
     var selectionAnchor by remember { mutableStateOf<String?>(null) }
@@ -491,7 +493,18 @@ private fun FileExplorerContent(
         }
     }
 
-    LaunchedEffect(Unit) { explorerFocusRequester.requestFocus() }
+    // FIX: the explorer root requests focus so hardware-keyboard shortcuts (Ctrl+C,
+    // Delete, arrow-key navigation) work without needing a click first — but focusing
+    // a plain non-text-editable node like this can still make Android pop the on-screen
+    // keyboard on some devices, since focus and IME visibility aren't strictly coupled
+    // to "is this actually a text field". Explicitly hiding it right after keeps the
+    // shortcut-handling focus while stopping the keyboard from appearing uninvited.
+    // The Search field is unaffected — it only shows the keyboard when the user
+    // actually taps into it, same as Media Player's search box already does.
+    LaunchedEffect(Unit) {
+        explorerFocusRequester.requestFocus()
+        keyboardController?.hide()
+    }
 
     val quickAccess = remember {
         listOf(
@@ -780,7 +793,7 @@ private fun FileListArea(
                             modifier = Modifier.size(30.dp)
                         )
                         Spacer(Modifier.height(8.dp))
-                        Text("Loading", color = textColor.copy(alpha = 0.5f), fontSize = 11.sp)
+                        Text("Loading", color = textColor.copy(alpha = 0.5f), fontSize = 12.5.sp)
                     }
                 }
             }
@@ -802,14 +815,14 @@ private fun FileListArea(
                         Text(
                             if (state.searchQuery.isNotBlank()) "No matching files" else "This folder is empty",
                             color = textColor.copy(alpha = 0.55f),
-                            fontSize = 13.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Medium
                         )
                         if (state.searchQuery.isNotBlank()) {
                             Text(
                                 "Try a different search",
                                 color = textColor.copy(alpha = 0.35f),
-                                fontSize = 11.sp
+                                fontSize = 12.5.sp
                             )
                         }
                     }
@@ -887,10 +900,10 @@ private fun FileListHeader(surfaceBg: Color, textColor: Color) {
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("Name", color = textColor.copy(alpha = 0.62f), fontSize = 10.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-        Text("Date modified", color = textColor.copy(alpha = 0.58f), fontSize = 10.sp, modifier = Modifier.width(128.dp))
-        Text("Type", color = textColor.copy(alpha = 0.58f), fontSize = 10.sp, modifier = Modifier.width(68.dp))
-        Text("Size", color = textColor.copy(alpha = 0.58f), fontSize = 10.sp, modifier = Modifier.width(62.dp))
+        Text("Name", color = textColor.copy(alpha = 0.62f), fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        Text("Date modified", color = textColor.copy(alpha = 0.58f), fontSize = 11.sp, modifier = Modifier.width(128.dp))
+        Text("Type", color = textColor.copy(alpha = 0.58f), fontSize = 11.sp, modifier = Modifier.width(68.dp))
+        Text("Size", color = textColor.copy(alpha = 0.58f), fontSize = 11.sp, modifier = Modifier.width(62.dp))
     }
 }
 
@@ -975,6 +988,7 @@ private fun FileExplorerDialogs(
     if (state.showRenameDialog && state.renameTarget != null) {
         RenameDialog(
             target = state.renameTarget!!,
+            isDark = isDark,
             onConfirm = { newName ->
                 val target = state.renameTarget?.file
                 val cleanName = newName.trim()
@@ -1017,6 +1031,7 @@ private fun FileExplorerDialogs(
     if (state.showDeleteDialog && deleteTargets.isNotEmpty()) {
         DeleteDialog(
             targets = deleteTargets,
+            isDark = isDark,
             onConfirm = {
                 deleteTargets.forEach { viewModel?.deleteToRecycleBin(it.absolutePath) }
                 val label = if (deleteTargets.size == 1) "Deleted \"${deleteTargets[0].name}\"" else "Deleted ${deleteTargets.size} items"
@@ -1034,6 +1049,7 @@ private fun FileExplorerDialogs(
     // New Folder Dialog
     if (state.showNewFolderDialog) {
         NewFolderDialog(
+            isDark = isDark,
             onConfirm = { folderName ->
                 val cleanName = folderName.trim()
                 if (cleanName.isBlank() || cleanName == "." || cleanName == ".." || cleanName.contains(File.separatorChar)) {
@@ -1071,79 +1087,182 @@ private fun FileExplorerDialogs(
 @Composable
 private fun RenameDialog(
     target: RealFileItem,
+    isDark: Boolean,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var newName by remember { mutableStateOf(target.name) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Rename") },
-        text = {
-            OutlinedTextField(
-                value = newName,
-                onValueChange = { newName = it },
-                label = { Text("New name") },
-                singleLine = true
+    // Real Windows Explorer pre-selects the base name (not the extension) when you hit
+    // Rename, so typing immediately overwrites just the name. TextFieldValue lets us set
+    // that initial selection instead of leaving the caret at the end like a plain String.
+    val dotIndex = target.name.lastIndexOf('.')
+    val baseNameEnd = if (!target.isDirectory && dotIndex > 0) dotIndex else target.name.length
+    var newName by remember {
+        mutableStateOf(
+            androidx.compose.ui.text.input.TextFieldValue(
+                text = target.name,
+                selection = androidx.compose.ui.text.TextRange(0, baseNameEnd)
             )
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(newName) }) { Text("Rename") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
+        )
+    }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    Win11Dialog(
+        isDark = isDark,
+        title = "Rename",
+        onDismissRequest = onDismiss,
+        confirmLabel = "Rename",
+        onConfirm = { onConfirm(newName.text) },
+        onCancel = onDismiss
+    ) { colors ->
+        Win11TextField(
+            value = newName,
+            onValueChange = { newName = it },
+            colors = colors,
+            modifier = Modifier.focusRequester(focusRequester)
+        )
+    }
 }
 
 @Composable
 private fun DeleteDialog(
     targets: List<File>,
+    isDark: Boolean,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val colors = rememberWin11DialogColors(isDark)
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Delete") },
+        containerColor = colors.bg,
+        shape = RoundedCornerShape(8.dp),
+        title = { Text("Delete", color = colors.text, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) },
         text = {
             Text(
                 if (targets.size == 1) "Move '${targets[0].name}' to Recycle Bin?"
-                else "Move ${targets.size} items to Recycle Bin?"
+                else "Move ${targets.size} items to Recycle Bin?",
+                color = colors.text.copy(alpha = 0.85f),
+                fontSize = 13.sp
             )
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text("Delete", color = bluebirdColors.DangerRed)
-            }
+            Button(
+                onClick = onConfirm,
+                shape = RoundedCornerShape(4.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = bluebirdColors.DangerRed)
+            ) { Text("Delete") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            OutlinedButton(onClick = onDismiss, shape = RoundedCornerShape(4.dp)) { Text("Cancel") }
         }
     )
 }
 
 @Composable
 private fun NewFolderDialog(
+    isDark: Boolean,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var folderName by remember { mutableStateOf("New Folder") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New Folder") },
-        text = {
-            OutlinedTextField(
-                value = folderName,
-                onValueChange = { folderName = it },
-                label = { Text("Folder name") },
-                singleLine = true
+    // Same "pre-selected so you can just start typing" behavior as Explorer's real
+    // New Folder dialog — the whole default name is selected, not just cursor-at-end.
+    var folderName by remember {
+        mutableStateOf(
+            androidx.compose.ui.text.input.TextFieldValue(
+                text = "New Folder",
+                selection = androidx.compose.ui.text.TextRange(0, "New Folder".length)
             )
-        },
+        )
+    }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    Win11Dialog(
+        isDark = isDark,
+        title = "New Folder",
+        onDismissRequest = onDismiss,
+        confirmLabel = "Create",
+        onConfirm = { onConfirm(folderName.text) },
+        onCancel = onDismiss
+    ) { colors ->
+        Win11TextField(
+            value = folderName,
+            onValueChange = { folderName = it },
+            colors = colors,
+            modifier = Modifier.focusRequester(focusRequester)
+        )
+    }
+}
+
+// ────────────────────────────────────────────────────────
+// Shared Win11-style dialog chrome — rounded corners, accent-colored focus
+// ring/buttons, and a consistent surface color instead of Material3's defaults.
+// ────────────────────────────────────────────────────────
+
+private data class Win11DialogColors(val bg: Color, val text: Color, val accent: Color, val fieldBg: Color, val border: Color)
+
+@Composable
+private fun rememberWin11DialogColors(isDark: Boolean): Win11DialogColors {
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val bg = if (isDark) Color(0xFF2C2C2C) else Color(0xFFFBFBFB)
+    val fieldBg = if (isDark) Color(0xFF3A3A3A) else Color.White
+    val border = textColor.copy(alpha = if (isDark) 0.16f else 0.18f)
+    return Win11DialogColors(bg, textColor, bluebirdColors.AccentBlue, fieldBg, border)
+}
+
+@Composable
+private fun Win11Dialog(
+    isDark: Boolean,
+    title: String,
+    onDismissRequest: () -> Unit,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+    content: @Composable (Win11DialogColors) -> Unit
+) {
+    val colors = rememberWin11DialogColors(isDark)
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        containerColor = colors.bg,
+        shape = RoundedCornerShape(8.dp),
+        title = { Text(title, color = colors.text, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) },
+        text = { content(colors) },
         confirmButton = {
-            TextButton(onClick = { onConfirm(folderName) }) { Text("Create") }
+            Button(
+                onClick = onConfirm,
+                shape = RoundedCornerShape(4.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.accent)
+            ) { Text(confirmLabel) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            OutlinedButton(onClick = onCancel, shape = RoundedCornerShape(4.dp)) { Text("Cancel") }
         }
+    )
+}
+
+@Composable
+private fun Win11TextField(
+    value: androidx.compose.ui.text.input.TextFieldValue,
+    onValueChange: (androidx.compose.ui.text.input.TextFieldValue) -> Unit,
+    colors: Win11DialogColors,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = TextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.Medium),
+        shape = RoundedCornerShape(4.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = colors.accent,
+            unfocusedBorderColor = colors.border,
+            focusedTextColor = colors.text,
+            unfocusedTextColor = colors.text,
+            cursorColor = colors.accent,
+            focusedContainerColor = colors.fieldBg,
+            unfocusedContainerColor = colors.fieldBg
+        ),
+        modifier = modifier.fillMaxWidth()
     )
 }
 
@@ -1313,12 +1432,16 @@ private fun CommandBar(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(7.dp))
-                    Box(Modifier.weight(1f)) {
+                    // FIX: this Box had no contentAlignment, so both the placeholder and the
+                    // BasicTextField defaulted to top-start inside a box sized to its tallest
+                    // child — that's what made the cursor/caret appear to float above the
+                    // visible text line instead of sitting centered on it.
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                         if (searchQuery.isEmpty()) {
                             Text(
                                 "Search this folder",
                                 color = textColor.copy(alpha = 0.42f),
-                                fontSize = 11.sp,
+                                fontSize = 12.5.sp,
                                 maxLines = 1
                             )
                         }
@@ -1326,7 +1449,7 @@ private fun CommandBar(
                             value = searchQuery,
                             onValueChange = onSearchChange,
                             singleLine = true,
-                            textStyle = TextStyle(color = textColor, fontSize = 11.sp),
+                            textStyle = TextStyle(color = textColor, fontSize = 12.5.sp, fontWeight = FontWeight.Medium),
                             cursorBrush = SolidColor(bluebirdColors.AccentBlue),
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -1397,7 +1520,7 @@ private fun BreadcrumbBar(
                 Text(
                     label,
                     color = if (index == parts.lastIndex) textColor else bluebirdColors.AccentBlueLight,
-                    fontSize = 11.sp,
+                    fontSize = 12.5.sp,
                     fontWeight = if (index == parts.lastIndex) FontWeight.Medium else FontWeight.Normal,
                     modifier = Modifier
                         .clip(RoundedCornerShape(5.dp))
@@ -1458,7 +1581,7 @@ private fun Ribbon(
             Text(
                 "Sort",
                 color = textColor.copy(alpha = 0.50f),
-                fontSize = 10.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Medium
             )
             listOf("name", "date", "size", "type").forEach { sort ->
@@ -1473,7 +1596,7 @@ private fun Ribbon(
                     Text(
                         sort.replaceFirstChar { it.uppercase() },
                         color = if (sortBy == sort) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.65f),
-                        fontSize = 10.sp
+                        fontSize = 11.sp
                     )
                     if (sortBy == sort) {
                         Icon(
@@ -1496,7 +1619,7 @@ private fun Ribbon(
             Text(
                 "$itemCount items",
                 color = textColor.copy(alpha = 0.42f),
-                fontSize = 10.sp,
+                fontSize = 11.sp,
                 modifier = Modifier.padding(start = 4.dp)
             )
         }
@@ -1541,7 +1664,7 @@ private fun NavigationPane(
         Text(
             "Quick access",
             color = textColor.copy(alpha = 0.48f),
-            fontSize = 10.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
         )
@@ -1593,7 +1716,7 @@ private fun NavigationPane(
                     Text(
                         "Internal storage",
                         color = textColor.copy(alpha = 0.72f),
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -1608,7 +1731,7 @@ private fun NavigationPane(
                 Text(
                     "${formatFileSize(freeBytes)} free of ${formatFileSize(totalBytes)}",
                     color = textColor.copy(alpha = 0.46f),
-                    fontSize = 9.sp
+                    fontSize = 10.5.sp
                 )
             }
         }
@@ -1645,7 +1768,7 @@ private fun NavItem(
         Text(
             label,
             color = if (isSelected) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.88f),
-            fontSize = 11.sp,
+            fontSize = 12.5.sp,
             fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -1663,7 +1786,7 @@ private fun StatusBar(textColor: Color, itemCount: Int, selectedCount: Int) {
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("$itemCount items", color = textColor.copy(alpha = 0.45f), fontSize = 10.sp)
+            Text("$itemCount items", color = textColor.copy(alpha = 0.45f), fontSize = 11.sp)
             if (selectedCount > 0) {
                 Surface(
                     shape = RoundedCornerShape(8.dp),
@@ -1672,13 +1795,13 @@ private fun StatusBar(textColor: Color, itemCount: Int, selectedCount: Int) {
                     Text(
                         "$selectedCount selected",
                         color = bluebirdColors.AccentBlue,
-                        fontSize = 9.sp,
+                        fontSize = 10.5.sp,
                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                     )
                 }
             }
         }
-        Text("Bluebird Explorer", color = textColor.copy(alpha = 0.25f), fontSize = 9.sp)
+        Text("Bluebird Explorer", color = textColor.copy(alpha = 0.25f), fontSize = 10.5.sp)
     }
 }
 
@@ -1810,8 +1933,8 @@ private fun ListFileItem(
         Text(
             item.name,
             color = textColor,
-            fontSize = 12.sp,
-            fontWeight = if (item.isDirectory) FontWeight.Medium else FontWeight.Normal,
+            fontSize = 13.5.sp,
+            fontWeight = if (item.isDirectory) FontWeight.SemiBold else FontWeight.Medium,
             modifier = Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -1819,21 +1942,21 @@ private fun ListFileItem(
         Text(
             formatDate(item.lastModified),
             color = textColor.copy(alpha = 0.48f),
-            fontSize = 10.sp,
+            fontSize = 11.sp,
             modifier = Modifier.width(128.dp),
             maxLines = 1
         )
         Text(
             if (item.isDirectory) "Folder" else item.extension.uppercase().ifEmpty { "File" },
             color = textColor.copy(alpha = 0.48f),
-            fontSize = 10.sp,
+            fontSize = 11.sp,
             modifier = Modifier.width(68.dp),
             maxLines = 1
         )
         Text(
             if (item.isDirectory) "" else formatFileSize(item.size),
             color = textColor.copy(alpha = 0.48f),
-            fontSize = 10.sp,
+            fontSize = 11.sp,
             modifier = Modifier.width(62.dp),
             maxLines = 1
         )
@@ -1881,8 +2004,8 @@ private fun GridFileItem(
         Text(
             item.name,
             color = textColor,
-            fontSize = 11.sp,
-            fontWeight = if (item.isDirectory) FontWeight.Medium else FontWeight.Normal,
+            fontSize = 12.5.sp,
+            fontWeight = if (item.isDirectory) FontWeight.SemiBold else FontWeight.Medium,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
@@ -1892,7 +2015,7 @@ private fun GridFileItem(
             Text(
                 formatFileSize(item.size),
                 color = textColor.copy(alpha = 0.38f),
-                fontSize = 9.sp,
+                fontSize = 10.5.sp,
                 maxLines = 1
             )
         }
@@ -2010,6 +2133,6 @@ private fun ContextMenuItem(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Icon(icon, null, tint = tint, modifier = Modifier.size(17.dp))
-        Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+        Text(label, fontSize = 13.5.sp, color = MaterialTheme.colorScheme.onSurface)
     }
 }

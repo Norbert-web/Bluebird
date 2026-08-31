@@ -802,7 +802,6 @@ private fun PipThumbnail(
     onDrag: (Float, Float) -> Unit
 ) {
     val bg   = if (isDark) Color(0xFF2A2A2A) else Color(0xFFEEEEEE)
-    val icon = remember(windowState.iconKey) { iconForKey(windowState.iconKey) }
 
     Box(
         modifier = Modifier
@@ -817,9 +816,13 @@ private fun PipThumbnail(
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(imageVector = icon, contentDescription = null,
+            // Now checks for the same custom SVG Start Menu/Desktop use before
+            // falling back to iconForKey()'s Fluent glyph.
+            WindowKeyIcon(
+                key = windowState.iconKey,
                 tint = if (isDark) Color.White.copy(0.7f) else Color(0xFF444444),
-                modifier = Modifier.size(28.dp))
+                modifier = Modifier.size(28.dp)
+            )
             Spacer(Modifier.height(4.dp))
             Text(windowState.title, fontSize = 10.sp,
                 color = if (isDark) Color.White.copy(0.6f) else Color(0xFF555555),
@@ -1088,7 +1091,6 @@ fun WindowTitleBar(
 ) {
     val barBg   = if (isDark) Color(0xFF2A2A2A) else Color(0xFFE8E8E8)
     val textCol = if (isDark) Color.White else Color(0xFF1C1C1C)
-    val icon    = remember(iconKey) { iconForKey(iconKey) }
     val bmpIcon = rememberWindowBitmapIcon(customIconPath)
 
     // Show dimensions in compact mode
@@ -1112,11 +1114,12 @@ fun WindowTitleBar(
                 modifier           = Modifier.size(14.dp).clip(RoundedCornerShape(3.dp))
             )
         } else {
-            Icon(
-                imageVector            = icon,
-                contentDescription = null,
-                tint               = if (isDark) Color.White.copy(0.75f) else Color(0xFF444444),
-                modifier           = Modifier.size(14.dp)
+            // Now checks for the same custom SVG Start Menu/Desktop use before
+            // falling back to iconForKey()'s Fluent glyph.
+            WindowKeyIcon(
+                key = iconKey,
+                tint = if (isDark) Color.White.copy(0.75f) else Color(0xFF444444),
+                modifier = Modifier.size(14.dp)
             )
         }
         Spacer(Modifier.width(6.dp))

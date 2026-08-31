@@ -833,12 +833,14 @@ private fun OverflowIconsPopup(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    val icon = remember(window.iconKey) { iconForKey(window.iconKey) }
                     val bmpIcon = rememberWindowBitmapIcon(window.customIconPath)
                     if (bmpIcon != null) {
                         Image(bmpIcon, null, modifier = Modifier.size(16.dp).clip(RoundedCornerShape(3.dp)))
                     } else {
-                        Icon(imageVector = icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        // Now checks for the same custom SVG Start Menu/Desktop use before
+                        // falling back to iconForKey()'s Fluent glyph — was a plain
+                        // Icon(imageVector = iconForKey(...)) call.
+                        WindowKeyIcon(key = window.iconKey, tint = Color.White, modifier = Modifier.size(16.dp))
                     }
                     Text(window.title, color = Color.White, fontSize = 12.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -1460,7 +1462,6 @@ private fun TaskbarWindowIcon(
         else bluebirdColors.HoverBg.copy(alpha = 0.5f),
         animationSpec = tween(200), label = "windowBg"
     )
-    val icon = remember(windowState.iconKey) { iconForKey(windowState.iconKey) }
     val bmpIcon = rememberWindowBitmapIcon(windowState.customIconPath)
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1482,9 +1483,13 @@ private fun TaskbarWindowIcon(
                         Image(bmpIcon, contentDescription = windowState.title,
                             modifier = Modifier.size(15.dp).clip(RoundedCornerShape(3.dp)))
                     } else {
-                        Icon(imageVector = icon, contentDescription = windowState.title,
+                        // Now checks for the same custom SVG Start Menu/Desktop use before
+                        // falling back to iconForKey()'s Fluent glyph.
+                        WindowKeyIcon(
+                            key = windowState.iconKey,
                             tint = if (isActive) Color.White else Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(15.dp))
+                            modifier = Modifier.size(15.dp)
+                        )
                     }
                     if (windowCount > 1) {
                         Box(

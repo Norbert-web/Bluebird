@@ -330,9 +330,17 @@ fun SettingsScreen(isDark: Boolean, viewModel: LauncherViewModel? = null) {
                         singleLine = true,
                         textStyle = androidx.compose.ui.text.TextStyle(color = resolvedText, fontSize = (13 * (uiState?.textScale ?: 1f)).sp),
                         modifier = Modifier.weight(1f),
+                        // FIX: decorationBox's content isn't auto-wrapped in any layout — the
+                        // placeholder Text and inner() were being emitted as bare siblings with
+                        // no shared alignment, which is exactly what made the caret render off
+                        // from the placeholder/typed text instead of sitting centered on it.
+                        // Same root cause as the earlier FileExplorer/MediaPlayer search-box fix,
+                        // different code shape (decorationBox vs. an unwrapped Box).
                         decorationBox = { inner ->
-                            if (navSearch.isEmpty()) Text("Find a setting", color = resolvedText.copy(alpha = 0.4f), fontSize = (13 * (uiState?.textScale ?: 1f)).sp)
-                            inner()
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (navSearch.isEmpty()) Text("Find a setting", color = resolvedText.copy(alpha = 0.4f), fontSize = (13 * (uiState?.textScale ?: 1f)).sp)
+                                inner()
+                            }
                         }
                     )
                 }
@@ -1189,8 +1197,10 @@ private fun AppsSettings(a: ScreenArgs) {
                 textStyle    = androidx.compose.ui.text.TextStyle(color = a.textColor, fontSize = (13 * scale).sp),
                 modifier     = Modifier.weight(1f),
                 decorationBox = { inner ->
-                    if (searchQuery.isEmpty()) Text("Search installed apps…", color = a.textColor.copy(alpha = 0.3f), fontSize = (13 * scale).sp)
-                    inner()
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (searchQuery.isEmpty()) Text("Search installed apps…", color = a.textColor.copy(alpha = 0.3f), fontSize = (13 * scale).sp)
+                        inner()
+                    }
                 }
             )
             if (searchQuery.isNotEmpty()) {
