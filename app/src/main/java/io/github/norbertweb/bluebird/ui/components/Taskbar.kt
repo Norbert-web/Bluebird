@@ -1,5 +1,9 @@
 package io.github.norbertweb.bluebird.ui.components
 
+// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
+// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
+// Dependency (module build.gradle.kts):
+//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.animation.AnimatedVisibility
@@ -15,7 +19,6 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,10 +48,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
-// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
-// Dependency (module build.gradle.kts):
-//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -69,8 +68,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.TransformOrigin
@@ -79,6 +77,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -90,7 +89,7 @@ import androidx.compose.ui.window.PopupProperties
 import io.github.norbertweb.bluebird.AppInfo
 import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
-import io.github.norbertweb.bluebird.WindowIconKey
+import io.github.norbertweb.bluebird.R
 import io.github.norbertweb.bluebird.WindowState
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.Dispatchers
@@ -315,10 +314,20 @@ fun bluebirdTaskbar(
                     .fillMaxWidth()
                     .height(taskbarHeight + if (settings.roundedTaskbar) 8.dp else 0.dp)
                     .padding(outerPadding)
-                    .shadow(if (settings.roundedTaskbar) 16.dp else 0.dp, taskbarShape)
+                    .shadow(if (settings.roundedTaskbar) 16.dp else 4.dp, taskbarShape)
                     .clip(taskbarShape)
                     .background(taskbarBg)
-                    .border(0.5.dp, Color(0x18FFFFFF), taskbarShape)
+                    // Subtle top highlight — the "glass edge" every Fluent Acrylic/Mica
+                    // surface in Windows 11 has along its top border. Was a single flat
+                    // 0.5dp border before, which read flat rather than glassy.
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0x1FFFFFFF), Color.Transparent),
+                            endY = with(density) { 10.dp.toPx() }
+                        ),
+                        taskbarShape
+                    )
+                    .border(0.5.dp, Color(0x1FFFFFFF), taskbarShape)
                     .pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = { offset ->
@@ -1254,61 +1263,74 @@ private fun SettingsToggle(label: String, value: Boolean, onToggle: (Boolean) ->
 private fun StartButton(isActive: Boolean, onClick: () -> Unit) {
     val scale by animateFloatAsState(
         targetValue = if (isActive) 0.9f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        animationSpec = Motion.micro(), // shared spring "personality" — see SoftUI.kt
         label = "startScale"
+    )
+    var pressed by remember { mutableStateOf(false) }
+    // Windows 11 gives the Start button a soft accent glow while the menu is
+    // open, plus a lighter press flash — was just a flat HoverBg fill before.
+    val bgAlpha by animateFloatAsState(
+        targetValue = if (isActive) 1f else if (pressed) 0.6f else 0f,
+        animationSpec = tween(120), label = "startBg"
     )
     Box(
         modifier = Modifier
-            .size(34.dp).scale(scale)
+            .size(36.dp).scale(scale)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isActive) bluebirdColors.HoverBg else Color.Transparent)
-            .clickable(onClick = onClick),
+            .background(
+                if (isActive) DS.accentStart.copy(alpha = 0.22f * bgAlpha)
+                else bluebirdColors.HoverBg.copy(alpha = bgAlpha)
+            )
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
+                    onTap = { onClick() }
+                )
+            },
         contentAlignment = Alignment.Center
     ) {
-        WindowsLogo(modifier = Modifier.size(15.dp), tint = Color.White)
+        Image(
+            painter = painterResource(id = R.drawable.ic_taskbar_start_logo),
+            contentDescription = "Start",
+            modifier = Modifier.size(18.dp)
+        )
     }
 }
 
-@Composable
-private fun WindowsLogo(modifier: Modifier = Modifier, tint: Color = Color.White) {
-    Canvas(modifier = modifier) {
-        val w    = size.width
-        val h    = size.height
-        val gap  = w * 0.09f
-        val half = (w - gap) / 2
-        drawRect(tint, Offset(0f, 0f),                 Size(half, half))
-        drawRect(tint, Offset(half + gap, 0f),         Size(half, half))
-        drawRect(tint, Offset(0f, half + gap),         Size(half, half))
-        drawRect(tint, Offset(half + gap, half + gap), Size(half, half))
-    }
-}
+// (WindowsLogo Canvas glyph removed — StartButton now renders the custom
+// ic_taskbar_start_logo.xml gradient logo via painterResource instead.)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Search Pill
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 private fun SearchPill(onClick: () -> Unit) {
-    var hovered by remember { mutableStateOf(false) }
+    var pressed by remember { mutableStateOf(false) }
     val bgColor by animateColorAsState(
-        targetValue = if (hovered) Color(0xFF454545) else Color(0xFF3A3A3A),
-        animationSpec = tween(150), label = "searchBg"
+        targetValue = if (pressed) Color(0x1FFFFFFF) else Color(0x14FFFFFF),
+        animationSpec = tween(120), label = "searchBg"
     )
     Row(
         modifier = Modifier
-            .width(160.dp).height(28.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .width(180.dp).height(30.dp)
+            .clip(RoundedCornerShape(DS.chipCorner + 8.dp))
             .background(bgColor)
-            .border(0.5.dp, Color(0x22FFFFFF), RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp),
+            .border(0.5.dp, Color(0x22FFFFFF), RoundedCornerShape(DS.chipCorner + 8.dp))
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
+                    onTap = { onClick() }
+                )
+            }
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        Icon(imageVector = FluentIcon.Search, contentDescription = "Search", tint = Color(0xFFAAAAAA), modifier = Modifier.size(13.dp))
-        Text("Search", color = Color(0xFF999999), fontSize = 11.sp)
+        Icon(imageVector = FluentIcon.Search, contentDescription = "Search", tint = Color(0xFFBBBBBB), modifier = Modifier.size(14.dp))
+        Text("Search", color = Color(0xFFAAAAAA), fontSize = 12.sp)
         Spacer(Modifier.weight(1f))
-        Icon(imageVector = FluentIcon.Sparkle, contentDescription = null, tint = bluebirdColors.AccentBlue.copy(alpha = 0.7f),
-            modifier = Modifier.size(11.dp))
+        Icon(imageVector = FluentIcon.Sparkle, contentDescription = null, tint = DS.accentStart.copy(alpha = 0.75f),
+            modifier = Modifier.size(12.dp))
     }
 }
 
@@ -1513,12 +1535,16 @@ private fun TaskbarWindowIcon(
                 }
             }
         }
+        val indicatorWidth by animateDpAsState(
+            targetValue = if (isActive) 16.dp else if (windowCount > 1) 10.dp else 6.dp,
+            animationSpec = tween(180), label = "indicatorWidth"
+        )
         Box(
             modifier = Modifier
-                .width(if (isActive) 16.dp else if (windowCount > 1) 10.dp else 6.dp)
+                .width(indicatorWidth)
                 .height(2.dp)
                 .clip(RoundedCornerShape(1.dp))
-                .background(if (isActive) bluebirdColors.AccentBlue else Color.White.copy(alpha = 0.35f))
+                .background(if (isActive) DS.accentStart else Color.White.copy(alpha = 0.35f))
         )
     }
 }

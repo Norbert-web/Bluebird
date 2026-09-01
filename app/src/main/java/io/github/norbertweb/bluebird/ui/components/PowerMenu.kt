@@ -1,6 +1,7 @@
 package io.github.norbertweb.bluebird.ui.components
 
 import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,14 +27,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 
 // ─────────────────────────────────────────────────────────
-// POWER MENU — extracted out of StartMenu.kt's BottomUserBar so it can be
-// reused (e.g. from Mobile Home or the lock screen) without duplicating
-// the sleep/restart/shutdown reflection calls.
+// POWER MENU — scoped to Bluebird itself, not the device.
+//
+// The previous version tried to sleep/reboot/shut down the *phone* via
+// hidden system APIs and reflection (DevicePolicyManager.lockNow(),
+// PowerManager.reboot(), a reflected PowerManager.shutdown(...)). None of
+// that works on a normal, non-system-signed install — it's a silent
+// no-op on real devices, which made it a fake feature. Bluebird is a
+// launcher app, not the OS, so "power" here now means power over the
+// Bluebird app process itself:
+//   • Reload — restarts the Bluebird app
+//   • Shut Down — closes the Bluebird app
 // ─────────────────────────────────────────────────────────
 @Composable
 fun PowerMenuButton(isDark: Boolean, textPrimary: androidx.compose.ui.graphics.Color) {
@@ -63,45 +73,36 @@ fun PowerMenuButton(isDark: Boolean, textPrimary: androidx.compose.ui.graphics.C
                 .background(if (isDark) DS.surfaceDark else DS.glassLight, RoundedCornerShape(DS.sectionCorner))
                 .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner))
         ) {
-            PowerMenuItem(label = "Sleep", icon = FluentIcon.SleepArrow, isDark = isDark) {
+            PowerMenuItem(label = "Reload", icon = FluentIcon.ArrowSync, isDark = isDark) {
                 showPowerMenu = false
-                // Locking the screen is the closest a normal app can get to "sleep" —
-                // PowerManager.goToSleep() is a hidden/system-only API and isn't in the
-                // public SDK. This requires the app to be a device/profile owner; it's
-                // a safe no-op (caught below) otherwise.
-                runCatching {
-                    (context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? android.app.admin.DevicePolicyManager)
-                        ?.lockNow()
-                }
-            }
-            PowerMenuItem(label = "Restart", icon = FluentIcon.ArrowSync, isDark = isDark) {
-                showPowerMenu = false
-                // PowerManager.reboot() is public API but needs the signature-level
-                // android.permission.REBOOT, normally granted only to system apps.
-                runCatching {
-                    (context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)?.reboot(null)
-                }
+                restartBluebird(context)
             }
             PowerMenuItem(label = "Shut Down", icon = FluentIcon.Power, isDark = isDark) {
                 showPowerMenu = false
-                // There is no public SDK call to power off the device from an app —
-                // Intent.ACTION_REQUEST_SHUTDOWN is a hidden/system-only constant, not
-                // part of the public Intent API. This reaches PowerManager's hidden
-                // shutdown(...) via reflection instead, which only succeeds on a
-                // system-signed / privileged build; it's a safe no-op elsewhere.
-                runCatching {
-                    val pm = context.getSystemService(Context.POWER_SERVICE)
-                    pm?.javaClass
-                        ?.getMethod(
-                            "shutdown",
-                            Boolean::class.javaPrimitiveType,
-                            String::class.java,
-                            Boolean::class.javaPrimitiveType
-                        )
-                        ?.invoke(pm, false, "userrequested", false)
-                }
+                shutDownBluebird(context)
             }
         }
+    }
+}
+
+/** Restarts the Bluebird app process: relaunches the launch activity, then kills this process. */
+private fun restartBluebird(context: Context) {
+    runCatching {
+        val packageManager = context.packageManager
+        val launchIntent = packageManager.getLaunchIntentForPackage(context.packageName)
+        if (launchIntent != null) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            context.startActivity(launchIntent)
+        }
+        android.os.Process.killProcess(android.os.Process.myPid())
+    }
+}
+
+/** Closes the Bluebird app: finishes the current activity (if any) and ends the process. */
+private fun shutDownBluebird(context: Context) {
+    runCatching {
+        (context as? android.app.Activity)?.finishAndRemoveTask()
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 }
 
@@ -127,6 +128,6 @@ private fun PowerMenuItem(label: String, icon: ImageVector, isDark: Boolean, onC
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Icon(imageVector = icon, contentDescription = label, tint = iconTint, modifier = Modifier.size(14.dp))
-        Text(label, fontSize = 12.sp, color = textColor, fontWeight = androidx.compose.ui.text.font.FontWeight.Normal)
+        Text(label, fontSize = 12.sp, color = textColor, fontWeight = FontWeight.Medium)
     }
 }

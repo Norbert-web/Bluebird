@@ -23,25 +23,31 @@ import androidx.compose.ui.unit.dp
 // size mode already was.
 // ─────────────────────────────────────────────────────────
 object DS {
-    // Base surface + accent palette (Windows 11 Mica/Acrylic-inspired)
-    val surfaceDark  = Color(0xFF252B32)
-    val surfaceLight = Color(0xFFE8ECF0)
-    val borderDark   = Color(0xFF373E47)
-    val borderLight  = Color(0xFFCDD5DF)
-    val accentStart  = Color(0xFF0078D4)
-    val accentEnd    = Color(0xFF005A9E)
-    val hoverDark    = Color(0x14FFFFFF)
-    val hoverLight   = Color(0x0C000000)
-    val pressedDark  = Color(0x22FFFFFF)
-    val pressedLight = Color(0x14000000)
-    val badgeRed     = Color(0xFFCB4335)
-    val successGreen = Color(0xFF3FB950)
+    // ── Premium palette — deep slate + refined indigo ──
+    // Replaces the old plain "Windows blue" (#0078D4) accent and the
+    // washed-out translucent-white/black borders. Borders are now real,
+    // slightly-tinted slate/gray tones so panels read as separated
+    // surfaces instead of one flat plane with a faint outline — this is
+    // what gives light and dark mode each their own distinct, deliberate
+    // tone instead of one palette with alpha tweaks.
+    val surfaceDark  = Color(0xFF1B1E26)
+    val surfaceLight = Color(0xFFF3F5F8)
+    val borderDark   = Color(0xFF2E323C)
+    val borderLight  = Color(0xFFDCE1E8)
+    val accentStart  = Color(0xFF4C63D9)
+    val accentEnd    = Color(0xFF33409F)
+    val hoverDark    = Color(0x1AFFFFFF)
+    val hoverLight   = Color(0x0A1B1E26)
+    val pressedDark  = Color(0x26FFFFFF)
+    val pressedLight = Color(0x141B1E26)
+    val badgeRed     = Color(0xFFD6564C)
+    val successGreen = Color(0xFF3EA66D)
 
     // Base (fully-opaque) glass tint — the alpha applied on top of this is
     // driven by `opacity`, so every glass surface in the app tracks the
     // same slider instead of each screen hardcoding its own alpha.
-    private val glassDarkBase  = Color(0xFF1C2128)
-    private val glassLightBase = Color(0xFFF0F2F5)
+    private val glassDarkBase  = Color(0xFF14161C)
+    private val glassLightBase = Color(0xFFF8F9FB)
 
     val menuWidthCompact   = 560.dp
     val menuWidthExpanded  = 780.dp

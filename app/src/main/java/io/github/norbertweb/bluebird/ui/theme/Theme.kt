@@ -5,62 +5,79 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import io.github.norbertweb.bluebird.R
+
+// ─── Selawik — Microsoft's open-source Segoe UI substitute ────────────────
+// Metrics-compatible with Segoe UI (SIL Open Font License, free to bundle).
+// Drop the 5 .ttf files you already fetched straight into res/font/ as-is —
+// their filenames (selawk, selawkl, selawksl, selawksb, selawkb) are
+// already valid Android resource names, no renaming needed.
+val SelawikFontFamily = FontFamily(
+    Font(R.font.selawkl,  FontWeight.Light),      // selawkl.ttf  — Light
+    Font(R.font.selawksl, FontWeight(350)),        // selawksl.ttf — Semilight
+    Font(R.font.selawk,   FontWeight.Normal),      // selawk.ttf   — Regular
+    Font(R.font.selawksb, FontWeight.SemiBold),    // selawksb.ttf — Semibold
+    Font(R.font.selawkb,  FontWeight.Bold),        // selawkb.ttf  — Bold
+)
 
 object bluebirdColors {
-    val GlassLight = Color(0xFF0078D4)
+    val GlassLight = Color(0xFF4C63D9)
 
 
-    val AccentBlue = Color(0xFF0078D4)
-    val AccentBlueLight = Color(0xFF4DA6FF)
-    val AccentBlueDark = Color(0xFF005A9E)
-    val Surface = Color(0xFF1C1C1C)
-    val SurfaceLight = Color(0xFFF5F5F5)
-    val SurfaceContainer = Color(0xFF2C2C2C)
-    val SurfaceContainerLight = Color(0xFFEEEEEE)
-    val TextPrimary = Color(0xFFFFFFFF)
-    val TextPrimaryLight = Color(0xFF1A1A1A)
-    val TextSecondary = Color(0xFFAAAAAA)
-    val TextSecondaryLight = Color(0xFF666666)
-    val TaskbarBg = Color(0xCC1A1A2E)
-    val TaskbarBgLight = Color(0xCCF0F0F0)
-    val GlassBg = Color(0x4D1C1C2E)
+    val AccentBlue = Color(0xFF4C63D9)
+    val AccentBlueLight = Color(0xFF7C8FEA)
+    val AccentBlueDark = Color(0xFF33409F)
+    val Surface = Color(0xFF14161C)
+    val SurfaceLight = Color(0xFFF8F9FB)
+    val SurfaceContainer = Color(0xFF1B1E26)
+    val SurfaceContainerLight = Color(0xFFF3F5F8)
+    val TextPrimary = Color(0xFFF5F6F8)
+    val TextPrimaryLight = Color(0xFF171A21)
+    val TextSecondary = Color(0xFFA3A9B4)
+    val TextSecondaryLight = Color(0xFF5B6270)
+    val TaskbarBg = Color(0xCC14161C)
+    val TaskbarBgLight = Color(0xCCF3F5F8)
+    val GlassBg = Color(0x4D14161C)
     val GlassBgLight = Color(0xB3FFFFFF)
-    val ContextMenuBg = Color(0xF0252535)
+    val ContextMenuBg = Color(0xF01B1E26)
     val ContextMenuBgLight = Color(0xF5FFFFFF)
-    val DangerRed = Color(0xFFE81123)
-    val SuccessGreen = Color(0xFF107C10)
-    val WarningYellow = Color(0xFFFFB900)
-    val Success = Color(0xFF4CAF50)
+    val DangerRed = Color(0xFFD6564C)
+    val SuccessGreen = Color(0xFF3EA66D)
+    val WarningYellow = Color(0xFFE0A82E)
+    val Success = Color(0xFF3EA66D)
 
     //new
 
 
-    val GlassDark = Color(0xCC2D2D2D)
-    val GlassBorderLight = Color(0x40FFFFFF)
-    val GlassBorderDark = Color(0x20FFFFFF)
+    val GlassDark = Color(0xCC1B1E26)
+    val GlassBorderLight = Color(0x40171A21)
+    val GlassBorderDark = Color(0x30FFFFFF)
 
 
 
-    val StartMenuBg = Color(0xE6282828)
-    val StartMenuBgLight = Color(0xE6F5F5F5)
+    val StartMenuBg = Color(0xE614161C)
+    val StartMenuBgLight = Color(0xE6F8F9FB)
 
     val HoverBg = Color(0x1AFFFFFF)
-    val HoverBgLight = Color(0x1A000000)
+    val HoverBgLight = Color(0x0A171A21)
 
-    val WidgetBg = Color(0xFF2C2C2C)
-    val WidgetBgLight = Color(0xFFF0F0F0)
+    val WidgetBg = Color(0xFF1B1E26)
+    val WidgetBgLight = Color(0xFFF3F5F8)
 
-    val Separator = Color(0x30FFFFFF)
-    val SeparatorLight = Color(0x30000000)
+    val Separator = Color(0x33FFFFFF)
+    val SeparatorLight = Color(0x26171A21)
 
 
-    val Warning = Color(0xFFFCE100)
-    val Error = Color(0xFFD13438)
+    val Warning = Color(0xFFE0A82E)
+    val Error = Color(0xFFD6564C)
 
-    val BlueGradientStart = Color(0xFF0078D4)
-    val BlueGradientEnd = Color(0xFF40A9FF)
+    val BlueGradientStart = Color(0xFF4C63D9)
+    val BlueGradientEnd = Color(0xFF7C8FEA)
 
     val WallpaperOverlay = Color(0x99000000)
 
@@ -97,6 +114,11 @@ private fun TextUnit.scale(factor: Float): TextUnit =
     if (this == TextUnit.Unspecified) this else (this.value * factor).sp
 
 private fun TextStyle.scale(factor: Float): TextStyle = copy(
+    // This one line applies Selawik across every screen in the app —
+    // display/headline/title/body/label all funnel through this same
+    // extension already (see scaledTypography below), so there's no need
+    // to touch it in more than this one place.
+    fontFamily = SelawikFontFamily,
     fontSize   = fontSize.scale(factor),
     lineHeight = lineHeight.scale(factor)
 )

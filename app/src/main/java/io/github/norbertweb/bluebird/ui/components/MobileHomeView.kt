@@ -1,7 +1,6 @@
 package io.github.norbertweb.bluebird.ui.components
 
 import android.content.Context
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -17,14 +16,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,8 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -44,34 +37,28 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.norbertweb.bluebird.AppInfo
+import io.github.norbertweb.bluebird.LauncherScreen
 import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 
 // ─────────────────────────────────────────────────────────
-// MOBILE HOME VIEW — v2
+// MOBILE HOME VIEW — v3
 //
-// Previously this was a bare 4-col grid + dock with none of the desktop
-// Start Menu's visual language (no glass, no accent) — it read like an
-// unfinished placeholder screen bolted onto a Windows-11-styled app. It
-// also had a real bug: the existing top search bar (PremiumSearchBar,
-// rendered above this view in StartMenu.kt) would set activeTab = SEARCH
-// when typed into, but the caller never checked activeTab while in mobile
-// mode — so search silently did nothing here. Fixed at the call site in
-// StartMenu.kt (falls through to the existing SearchResultsView when
-// activeTab == SEARCH, instead of duplicating a second search box here).
+// Was a paginated, side-swiped HorizontalPager grid + a separate fixed
+// bottom dock. That's gone: this is now one continuous, down-scrolling
+// list (LazyColumn), matching what was asked for — no side paging.
 //
-// This version:
-//   • uses shared DS colors + the user's opacity setting for the glass bg,
-//     so it matches desktop Start Menu instead of looking like a separate app
-//   • groups apps under alphabetical section headers (Win11 "All apps"
-//     jump-list style) instead of one flat unlabeled grid
-//   • pulls icon bitmaps from the shared cache (rememberAppIconBitmap)
-//     instead of converting on the UI thread per composition — this was
-//     the main cause of stutter when swiping between pages
+// Sections, top to bottom:
+//   • Pinned    — pinned apps + pinned system apps (same "Add to Start"
+//                 pin used on desktop's All Apps / Pinned tab)
+//   • System    — Bluebird's built-in apps (Settings, Terminal, etc.),
+//                 with custom icons via rememberBuiltInIconResourceId
+//   • All Apps  — every installed app, alphabetically grouped
+//
+// "Recent" and the quick-action shortcuts never existed on this screen
+// and still don't. No animations anywhere in this file.
 // ─────────────────────────────────────────────────────────
-private const val MOBILE_HOME_APPS_PER_PAGE = 20 // 4 columns × 5 rows
-
 @Composable
 fun MobileHomeView(
     uiState: LauncherUiState,
@@ -86,103 +73,104 @@ fun MobileHomeView(
     val sortedApps = remember(uiState.installedApps) {
         uiState.installedApps.sortedBy { it.name.lowercase() }
     }
-    val pages = remember(sortedApps) {
-        val chunks = sortedApps.chunked(MOBILE_HOME_APPS_PER_PAGE)
-        if (chunks.isEmpty()) listOf(emptyList()) else chunks
+    val grouped = remember(sortedApps) {
+        sortedApps.groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
     }
-    val pagerState = rememberPagerState(pageCount = { pages.size })
-    val dockApps = uiState.pinnedTaskbarApps.take(5)
 
-    Column(
+    var pinnedBuiltInNames by remember { mutableStateOf(getPinnedBuiltInAppNames(context)) }
+    val pinnedBuiltInApps = remember(pinnedBuiltInNames) {
+        builtInApps.filter { it.first in pinnedBuiltInNames }
+    }
+    val pinnedApps = uiState.pinnedTaskbarApps
+
+    fun openApp(app: AppInfo) {
+        incrementMobileHomeOpenCount(context, app.packageName)
+        viewModel.openApp(context, app)
+    }
+
+    LazyColumn(
         modifier = modifier
             .fillMaxWidth()
-            .background(DS.glass(isDark, opacity))
+            .background(DS.glass(isDark, opacity)),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Spacer(Modifier.height(4.dp))
-
-        // ── Paginated, alphabetically-sectioned app grid ──
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.weight(1f).fillMaxWidth()
-        ) { pageIndex ->
-            val pageApps = pages[pageIndex]
-            val grouped = remember(pageApps) { pageApps.groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' } }
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                grouped.forEach { (letter, apps) ->
-                    item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(4) }) {
-                        Text(
-                            letter.toString(),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = DS.accentStart,
-                            modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
-                        )
-                    }
-                    items(apps, key = { it.packageName }) { app ->
-                        MobileAppIcon(
-                            app = app,
-                            isDark = isDark,
-                            onClick = {
-                                incrementMobileHomeOpenCount(context, app.packageName)
-                                viewModel.openApp(context, app)
-                            }
-                        )
-                    }
+        if (pinnedApps.isNotEmpty() || pinnedBuiltInApps.isNotEmpty()) {
+            item { MobileSectionHeader("Pinned", isDark) }
+            items(pinnedApps.chunked(4), key = { "pinned_row_" + it.joinToString { a -> a.packageName } }) { row ->
+                MobileAppRow(row, isDark, onClick = { openApp(it) })
+            }
+            if (pinnedBuiltInApps.isNotEmpty()) {
+                items(pinnedBuiltInApps.chunked(4), key = { "pinned_sys_row_" + it.joinToString { s -> s.first } }) { row ->
+                    MobileBuiltInAppRow(row, isDark, onClick = { viewModel.openWindow(it) })
                 }
             }
+            item { Spacer(Modifier.height(10.dp)) }
         }
 
-        // Page indicator dots (only shown when apps span more than one page)
-        if (pages.size > 1) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                repeat(pages.size) { i ->
-                    val active = pagerState.currentPage == i
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 3.dp)
-                            .size(if (active) 7.dp else 5.dp)
-                            .clip(CircleShape)
-                            .background(if (active) DS.accentStart else textPrimary.copy(alpha = 0.25f))
-                    )
-                }
-            }
+        item { MobileSectionHeader("System", isDark) }
+        items(builtInApps.chunked(4), key = { "sys_row_" + it.joinToString { s -> s.first } }) { row ->
+            MobileBuiltInAppRow(row, isDark, onClick = { viewModel.openWindow(it) })
         }
+        item { Spacer(Modifier.height(10.dp)) }
 
-        // Bottom dock — now uses the same glass surface treatment as the
-        // rest of the app instead of a plain flat-alpha background.
-        if (dockApps.isNotEmpty()) {
-            HorizontalDivider(color = if (isDark) DS.borderDark else DS.borderLight, thickness = 0.5.dp)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(DS.surfaceGlass(isDark, opacity))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                dockApps.forEach { app ->
-                    MobileAppIcon(
-                        app = app,
-                        isDark = isDark,
-                        showLabel = false,
-                        iconSize = 48,
-                        onClick = {
-                            incrementMobileHomeOpenCount(context, app.packageName)
-                            viewModel.openApp(context, app)
-                        }
-                    )
-                }
+        item { MobileSectionHeader("All Apps", isDark) }
+        grouped.forEach { (letter, apps) ->
+            item(key = "letter_$letter") {
+                Text(
+                    letter.toString(),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = DS.accentStart,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                )
+            }
+            items(apps.chunked(4), key = { "all_row_" + it.joinToString { a -> a.packageName } }) { row ->
+                MobileAppRow(row, isDark, onClick = { openApp(it) })
             }
         }
+        item { Spacer(Modifier.height(16.dp)) }
+    }
+}
+
+@Composable
+private fun MobileSectionHeader(title: String, isDark: Boolean) {
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    Text(
+        title,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Bold,
+        color = textPrimary.copy(alpha = 0.7f),
+        letterSpacing = 0.4.sp,
+        modifier = Modifier.padding(top = 6.dp, bottom = 6.dp)
+    )
+}
+
+@Composable
+private fun MobileAppRow(apps: List<AppInfo>, isDark: Boolean, onClick: (AppInfo) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        apps.forEach { app ->
+            Box(modifier = Modifier.weight(1f)) {
+                MobileAppIcon(app = app, isDark = isDark, onClick = { onClick(app) })
+            }
+        }
+        repeat(4 - apps.size) { Spacer(modifier = Modifier.weight(1f)) }
+    }
+}
+
+@Composable
+private fun MobileBuiltInAppRow(
+    apps: List<Triple<String, ImageVector, LauncherScreen>>,
+    isDark: Boolean,
+    onClick: (LauncherScreen) -> Unit
+) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        apps.forEach { (name, icon, screen) ->
+            Box(modifier = Modifier.weight(1f)) {
+                MobileBuiltInAppIcon(name = name, icon = icon, isDark = isDark, onClick = { onClick(screen) })
+            }
+        }
+        repeat(4 - apps.size) { Spacer(modifier = Modifier.weight(1f)) }
     }
 }
 
@@ -196,13 +184,11 @@ private fun MobileAppIcon(
 ) {
     val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     var pressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(targetValue = if (pressed) 0.92f else 1f, label = "mobile_icon_scale")
     val bitmap = rememberAppIconBitmap(app) // off-main-thread cached decode — fixes stutter
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .scale(scale)
             .pointerInput(app.packageName) {
                 detectTapGestures(
                     onPress = { pressed = true; tryAwaitRelease(); pressed = false },
@@ -228,6 +214,7 @@ private fun MobileAppIcon(
             Text(
                 app.name,
                 fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
                 color = textPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -235,6 +222,65 @@ private fun MobileAppIcon(
                 modifier = Modifier.width((iconSize + 16).dp)
             )
         }
+    }
+}
+
+@Composable
+private fun MobileBuiltInAppIcon(
+    name: String,
+    icon: ImageVector,
+    isDark: Boolean,
+    iconSize: Int = 56,
+    onClick: () -> Unit
+) {
+    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    var pressed by remember { mutableStateOf(false) }
+    val customIconResId = rememberBuiltInIconResourceId(name)
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .pointerInput(name) {
+                detectTapGestures(
+                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
+                    onTap = { onClick() }
+                )
+            }
+    ) {
+        if (customIconResId != 0) {
+            Box(
+                modifier = Modifier.size(iconSize.dp).clip(RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                BuiltInAppIcon(
+                    appName = name,
+                    fallback = icon,
+                    tint = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(iconSize.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(DS.accentStart),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, name, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size((iconSize / 2.5).dp))
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            name,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            color = textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width((iconSize + 16).dp)
+        )
     }
 }
 

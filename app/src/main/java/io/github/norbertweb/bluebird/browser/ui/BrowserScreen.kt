@@ -40,7 +40,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -128,7 +127,7 @@ private data class BrowserPersistedState(
 )
 
 @Composable
-fun BrowserScreen() {
+fun BrowserScreen(isDark1: Boolean) {
     val context    = LocalContext.current
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current

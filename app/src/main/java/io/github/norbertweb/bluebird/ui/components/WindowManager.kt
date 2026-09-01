@@ -1,5 +1,9 @@
 package io.github.norbertweb.bluebird.ui.components
 
+// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
+// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
+// Dependency (module build.gradle.kts):
+//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -22,10 +26,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
-// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
-// Dependency (module build.gradle.kts):
-//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,16 +33,14 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,13 +61,12 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.bluebirdlauncher.ui.screens.BrowserScreen
 import io.github.norbertweb.bluebird.CopyJobStatus
 import io.github.norbertweb.bluebird.CopyOpType
 import io.github.norbertweb.bluebird.LauncherScreen
 import io.github.norbertweb.bluebird.LauncherViewModel
-import io.github.norbertweb.bluebird.WindowIconKey
 import io.github.norbertweb.bluebird.WindowState
+import io.github.norbertweb.bluebird.browser.ui.BrowserScreen
 import io.github.norbertweb.bluebird.editor.ui.screens.PremiumTextEditorScreen
 import io.github.norbertweb.bluebird.ui.screens.CalculatorScreen
 import io.github.norbertweb.bluebird.ui.screens.CalendarScreen
@@ -77,11 +74,13 @@ import io.github.norbertweb.bluebird.ui.screens.FileExplorerScreen
 import io.github.norbertweb.bluebird.ui.screens.ImageViewerScreen
 import io.github.norbertweb.bluebird.ui.screens.MediaPlayerScreen
 import io.github.norbertweb.bluebird.ui.screens.MessagesScreen
-import io.github.norbertweb.bluebird.wordprocessor.PhoneScreen
 import io.github.norbertweb.bluebird.ui.screens.RecycleBinScreen
 import io.github.norbertweb.bluebird.ui.screens.SettingsScreen
 import io.github.norbertweb.bluebird.ui.screens.TaskManagerScreen
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
+import io.github.norbertweb.bluebird.wordprocessor.PhoneScreen
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import java.io.File
 
 // ─────────────────────────────────────────────────────────────────────────────

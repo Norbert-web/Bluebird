@@ -214,7 +214,14 @@ fun SearchOverlay(
             // Pushes this panel up above the keyboard instead of letting the IME cover it —
             // this was the main cause of "keyboard blocks most parts".
             .imePadding()
-            .shadow(if (isFullscreen) 0.dp else 32.dp, RoundedCornerShape(cornerRadius)),
+            // Was Modifier.shadow(32.dp, ...) — replaced with the shared soft,
+            // wide, low-opacity shadow (see SoftUI.kt) so this panel reads as
+            // floating above the desktop instead of "card with a dropshadow",
+            // matching the same treatment now on Start Menu.
+            .then(
+                if (isFullscreen) Modifier
+                else Modifier.softShadow(cornerRadius = cornerRadius, blurRadius = 44.dp, alpha = 0.3f, offsetY = 16.dp)
+            ),
         shape = RoundedCornerShape(cornerRadius),
         color = surfaceBg,
         border = BorderStroke(0.5.dp, surfaceBorder)

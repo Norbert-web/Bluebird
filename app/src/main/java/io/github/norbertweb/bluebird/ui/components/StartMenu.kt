@@ -1,5 +1,12 @@
 package io.github.norbertweb.bluebird.ui.components
 
+// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
+// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
+// Dependency (module build.gradle.kts):
+//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
+// All icons used by this file are centralized in the `FluentIcon` object —
+// if a name doesn't exist in the version you pull in, Android Studio's
+// FluentIcons.Regular.… autocomplete will show the closest real name.
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -7,25 +14,14 @@ import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
-import android.os.Build
-import android.provider.MediaStore
 import android.provider.Settings
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,18 +44,9 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
-// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
-// Dependency (module build.gradle.kts):
-//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
-// All icons used by this file are centralized in the `FluentIcon` object —
-// if a name doesn't exist in the version you pull in, Android Studio's
-// FluentIcons.Regular.… autocomplete will show the closest real name.
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -72,23 +59,18 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusEvent
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -104,9 +86,9 @@ import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Calendar
 
@@ -147,8 +129,6 @@ data class LayoutPreferences(
     val mode: LayoutMode = LayoutMode.COMPACT_GRID,
     val columns: Int = 6,
     val showRecentApps: Boolean = true,
-    val showRecommended: Boolean = true,
-    val showQuickActions: Boolean = true,
     val iconSize: Int = 38,
     val showLabels: Boolean = true,
     val compactSpacing: Boolean = false,
@@ -167,6 +147,32 @@ private fun incrementAppOpenCount(context: Context, packageName: String) {
     val prefs = context.getSharedPreferences("start_menu_usage_prefs", Context.MODE_PRIVATE)
     val current = prefs.getInt("open_cnt_$packageName", 0)
     prefs.edit().putInt("open_cnt_$packageName", current + 1).apply()
+}
+
+// ─────────────────────────────────────────────────────────
+// Pinned built-in (system) apps — lets "Add to Start" on a system app
+// (Settings, Terminal, etc.) actually put it in the Pinned tab, the
+// same way pinning a regular installed app does.
+// ─────────────────────────────────────────────────────────
+private const val PINNED_BUILTIN_KEY = "pinned_builtin_apps"
+
+internal fun getPinnedBuiltInAppNames(context: Context): Set<String> {
+    val prefs = context.getSharedPreferences(START_MENU_PREFS, Context.MODE_PRIVATE)
+    return prefs.getStringSet(PINNED_BUILTIN_KEY, emptySet()) ?: emptySet()
+}
+
+internal fun pinBuiltInApp(context: Context, name: String) {
+    val prefs = context.getSharedPreferences(START_MENU_PREFS, Context.MODE_PRIVATE)
+    val updated = (prefs.getStringSet(PINNED_BUILTIN_KEY, emptySet()) ?: emptySet()).toMutableSet()
+    updated.add(name)
+    prefs.edit().putStringSet(PINNED_BUILTIN_KEY, updated).apply()
+}
+
+internal fun unpinBuiltInApp(context: Context, name: String) {
+    val prefs = context.getSharedPreferences(START_MENU_PREFS, Context.MODE_PRIVATE)
+    val updated = (prefs.getStringSet(PINNED_BUILTIN_KEY, emptySet()) ?: emptySet()).toMutableSet()
+    updated.remove(name)
+    prefs.edit().putStringSet(PINNED_BUILTIN_KEY, updated).apply()
 }
 
 // ─────────────────────────────────────────────────────────
@@ -232,7 +238,7 @@ private fun timeGreeting(): String {
 // ─────────────────────────────────────────────────────────
 // Built-In System Apps Definition
 // ─────────────────────────────────────────────────────────
-private val builtInApps = listOf(
+internal val builtInApps = listOf(
     Triple("Settings", FluentIcon.Settings, LauncherScreen.SETTINGS),
     Triple("Calculator", FluentIcon.Calculator, LauncherScreen.CALCULATOR),
     Triple("Calendar", FluentIcon.Calendar, LauncherScreen.CALENDAR),
@@ -324,7 +330,9 @@ fun StartMenu(
     // rounded corners/border in that mode.
     val cornerRadius = if (isFullscreen) 0.dp else DS.cornerRadius
 
-    val isDark       = uiState.isDarkTheme
+    // Bluebird no longer carries its own light/dark toggle — it follows the
+    // device's system theme directly, like every other well-behaved Android app.
+    val isDark       = isSystemInDarkTheme()
     val bgColor      = DS.glass(isDark, opacity) // live opacity setting, not a fixed 0xCC alpha
     val borderColor  = if (isDark) DS.borderDark else DS.borderLight
     val textPrimary  = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
@@ -348,7 +356,14 @@ fun StartMenu(
                 if (isFullscreen) Modifier.fillMaxSize()
                 else Modifier.width(menuWidth).height(menuHeight)
             )
-            .shadow(elevation = if (isFullscreen) 0.dp else 24.dp, shape = RoundedCornerShape(cornerRadius), clip = false)
+            // Was Modifier.shadow(24.dp, ...) — Android's default system shadow
+            // (small blur radius, fairly dark). softShadow() draws a much wider,
+            // lower-opacity blur instead, which reads as "floating" rather than
+            // "card with a dropshadow" — see SoftUI.kt.
+            .then(
+                if (isFullscreen) Modifier
+                else Modifier.softShadow(cornerRadius = cornerRadius, blurRadius = 40.dp, alpha = 0.28f, offsetY = 14.dp)
+            )
             .clip(RoundedCornerShape(cornerRadius))
             .background(bgColor)
             .background(
@@ -615,14 +630,9 @@ fun StartMenu(
                     Spacer(Modifier.height(12.dp))
                 }
 
-                // ── Content with Windows 11 Transitions ──
+                // ── Content — switches instantly, no transition animation ──
                 Box(modifier = Modifier.weight(1f)) {
-                    AnimatedContent(
-                        targetState = activeTab,
-                        transitionSpec = { fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180)) },
-                        label = "tab_switching"
-                    ) { targetTab ->
-                        when (targetTab) {
+                    when (activeTab) {
                             StartMenuTab.PINNED -> PinnedView(
                                 uiState = uiState,
                                 viewModel = viewModel,
@@ -660,14 +670,7 @@ fun StartMenu(
                                 context = context,
                                 layoutPrefs = layoutPrefs
                             )
-                        }
                     }
-                }
-
-                // ── Quick Actions Strip ──
-                if (layoutPrefs.showQuickActions && activeTab != StartMenuTab.SEARCH) {
-                    Spacer(Modifier.height(10.dp))
-                    QuickActionsStrip(isDark = isDark, context = context)
                 }
 
                 // ── Bottom User Bar ──
@@ -703,16 +706,8 @@ private fun PremiumTabRow(
             StartMenuTab.RECENT   to "Recent"
         ).forEach { (tab, label) ->
             val isActive = activeTab == tab
-            val indicatorColor by animateColorAsState(
-                targetValue = if (isActive) DS.accentStart else Color.Transparent,
-                animationSpec = tween(180),
-                label = "tab_indicator_color"
-            )
-            val indicatorWidth by animateDpAsState(
-                targetValue = if (isActive) 40.dp else 16.dp,
-                animationSpec = tween(180),
-                label = "tab_indicator_width"
-            )
+            val indicatorColor = if (isActive) DS.accentStart else Color.Transparent
+            val indicatorWidth = if (isActive) 40.dp else 16.dp
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
@@ -722,8 +717,8 @@ private fun PremiumTabRow(
                 Text(
                     label,
                     fontSize = 12.sp,
-                    fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
-                    color = if (isActive) DS.accentStart else textPrimary.copy(alpha = 0.45f),
+                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Medium,
+                    color = if (isActive) DS.accentStart else textPrimary.copy(alpha = 0.55f),
                     letterSpacing = 0.3.sp
                 )
                 Spacer(Modifier.height(6.dp))
@@ -797,6 +792,21 @@ private fun PinnedView(
     layoutPrefs: LayoutPreferences
 ) {
     val pinnedApps = uiState.pinnedTaskbarApps
+    // Only the "Pinned" tab now exists on this screen — no System tray, no
+    // Recommended (recent files) tray. A system app reaches this list the
+    // same way a regular app does: "Add to Start" from All Apps.
+    var pinnedBuiltInNames by remember { mutableStateOf(getPinnedBuiltInAppNames(context)) }
+    val pinnedBuiltInApps = remember(pinnedBuiltInNames) {
+        builtInApps.filter { it.first in pinnedBuiltInNames }
+    }
+
+    fun addToDesktop(label: String, screen: LauncherScreen) {
+        val dir = File(android.os.Environment.getExternalStorageDirectory(), "Desktop").apply { mkdirs() }
+        var file = File(dir, "$label.desktop")
+        var n = 2
+        while (file.exists()) { file = File(dir, "$label ($n).desktop"); n++ }
+        runCatching { file.writeText("type=app\nlabel=$label\nbluebirdScreen=${screen.name}\n") }
+    }
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
@@ -816,7 +826,7 @@ private fun PinnedView(
         }
 
         item {
-            if (pinnedApps.isEmpty()) {
+            if (pinnedApps.isEmpty() && pinnedBuiltInApps.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -826,70 +836,49 @@ private fun PinnedView(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "No pinned apps — long-press any app to pin",
+                        "No pinned apps — long-press any app and choose Add to Start",
                         color = (if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight).copy(alpha = 0.25f),
                         fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
                         textAlign = TextAlign.Center
                     )
                 }
             } else {
-                AppGridLayout(
-                    apps = pinnedApps,
-                    isDark = isDark,
-                    editMode = editMode,
-                    layoutPrefs = layoutPrefs,
-                    onAppClick = { app ->
-                        incrementAppOpenCount(context, app.packageName)
-                        viewModel.openApp(context, app)
-                    },
-                    onAppUnpin   = { app -> viewModel.unpinAppFromTaskbar(app) },
-                    onAppPin     = { app -> viewModel.pinAppToTaskbar(app) },
-                    isBuiltIn    = false,
-                    category     = AppCategory.PINNED
-                )
+                if (pinnedApps.isNotEmpty()) {
+                    AppGridLayout(
+                        apps = pinnedApps,
+                        isDark = isDark,
+                        editMode = editMode,
+                        layoutPrefs = layoutPrefs,
+                        onAppClick = { app ->
+                            incrementAppOpenCount(context, app.packageName)
+                            viewModel.openApp(context, app)
+                        },
+                        onAppUnpin   = { app -> viewModel.unpinAppFromTaskbar(app) },
+                        onAppPin     = { app -> viewModel.pinAppToTaskbar(app) },
+                        isBuiltIn    = false,
+                        category     = AppCategory.PINNED
+                    )
+                }
+                if (pinnedBuiltInApps.isNotEmpty()) {
+                    if (pinnedApps.isNotEmpty()) Spacer(Modifier.height(6.dp))
+                    BuiltInAppGridLayout(
+                        apps       = pinnedBuiltInApps,
+                        isDark     = isDark,
+                        editMode   = editMode,
+                        layoutPrefs = layoutPrefs,
+                        onAppClick = { screen -> viewModel.openWindow(screen) },
+                        onAddToDesktop = { label, screen -> addToDesktop(label, screen) },
+                        isPinnedToStart = { name -> name in pinnedBuiltInNames },
+                        onTogglePinToStart = { name ->
+                            if (name in pinnedBuiltInNames) unpinBuiltInApp(context, name) else pinBuiltInApp(context, name)
+                            pinnedBuiltInNames = getPinnedBuiltInAppNames(context)
+                        },
+                        category   = AppCategory.SYSTEM
+                    )
+                }
             }
             Spacer(Modifier.height(18.dp))
-        }
-
-        if (builtInApps.isNotEmpty()) {
-            item {
-                SectionHeader(title = "System", isDark = isDark)
-                Spacer(Modifier.height(10.dp))
-            }
-            item {
-                BuiltInAppGridLayout(
-                    apps       = builtInApps,
-                    isDark     = isDark,
-                    editMode   = editMode,
-                    layoutPrefs = layoutPrefs,
-                    onAppClick = { screen -> viewModel.openWindow(screen) },
-                    onAddToDesktop = { label, screen ->
-                        val dir = File(android.os.Environment.getExternalStorageDirectory(), "Desktop").apply { mkdirs() }
-                        var file = File(dir, "$label.desktop")
-                        var n = 2
-                        while (file.exists()) { file = File(dir, "$label ($n).desktop"); n++ }
-                        runCatching { file.writeText("type=app\nlabel=$label\nbluebirdScreen=${screen.name}\n") }
-                    },
-                    category   = AppCategory.SYSTEM
-                )
-                Spacer(Modifier.height(18.dp))
-            }
-        }
-
-        if (layoutPrefs.showRecommended) {
-            item {
-                SectionHeader(title = "Recommended", isDark = isDark)
-                Spacer(Modifier.height(10.dp))
-            }
-            item {
-                RecommendedSection(
-                    isDark = isDark,
-                    viewModel = viewModel,
-                    isExpanded = isExpanded,
-                    context = context
-                )
-                Spacer(Modifier.height(8.dp))
-            }
         }
     }
 }
@@ -917,6 +906,14 @@ private fun AllAppsView(
     val scope       = rememberCoroutineScope()
     val jumpLetters = remember(grouped) { grouped.keys.sorted() }
     var expandedGroups by remember(grouped) { mutableStateOf(grouped.keys.toSet()) }
+    var pinnedBuiltInNames by remember { mutableStateOf(getPinnedBuiltInAppNames(context)) }
+    fun addBuiltInToDesktop(label: String, screen: LauncherScreen) {
+        val dir = File(android.os.Environment.getExternalStorageDirectory(), "Desktop").apply { mkdirs() }
+        var file = File(dir, "$label.desktop")
+        var n = 2
+        while (file.exists()) { file = File(dir, "$label ($n).desktop"); n++ }
+        runCatching { file.writeText("type=app\nlabel=$label\nbluebirdScreen=${screen.name}\n") }
+    }
 
     Row(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -940,7 +937,18 @@ private fun AllAppsView(
             }
             if (!layoutPrefs.enableCollapsibleGroups || '⚙' in expandedGroups) {
                 items(builtInApps, key = { "built_in_" + it.first }) { (name, icon, screen) ->
-                    BuiltInAppListRow(name = name, icon = icon, isDark = isDark, onClick = { viewModel.openWindow(screen) })
+                    BuiltInAppListRow(
+                        name = name,
+                        icon = icon,
+                        isDark = isDark,
+                        onClick = { viewModel.openWindow(screen) },
+                        onAddToDesktop = { addBuiltInToDesktop(name, screen) },
+                        isPinnedToStart = name in pinnedBuiltInNames,
+                        onTogglePinToStart = {
+                            if (name in pinnedBuiltInNames) unpinBuiltInApp(context, name) else pinBuiltInApp(context, name)
+                            pinnedBuiltInNames = getPinnedBuiltInAppNames(context)
+                        }
+                    )
                 }
             }
             item { Spacer(Modifier.height(4.dp)) }
@@ -1429,6 +1437,8 @@ private fun BuiltInAppGridLayout(
     layoutPrefs: LayoutPreferences,
     onAppClick: (LauncherScreen) -> Unit,
     onAddToDesktop: (String, LauncherScreen) -> Unit = { _, _ -> },
+    isPinnedToStart: (String) -> Boolean = { false },
+    onTogglePinToStart: (String) -> Unit = {},
     category: AppCategory = AppCategory.SYSTEM
 ) {
     if (apps.isEmpty()) return
@@ -1449,6 +1459,8 @@ private fun BuiltInAppGridLayout(
                         editMode = editMode,
                         onClick = { onAppClick(screen) },
                         onAddToDesktop = { onAddToDesktop(name, screen) },
+                        isPinnedToStart = isPinnedToStart(name),
+                        onTogglePinToStart = { onTogglePinToStart(name) },
                         iconSize = layoutPrefs.iconSize,
                         showLabel = layoutPrefs.showLabels
                     )
@@ -1458,7 +1470,15 @@ private fun BuiltInAppGridLayout(
         else -> {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 apps.forEach { (name, icon, screen) ->
-                    BuiltInAppListRow(name = name, icon = icon, isDark = isDark, onClick = { onAppClick(screen) })
+                    BuiltInAppListRow(
+                        name = name,
+                        icon = icon,
+                        isDark = isDark,
+                        onClick = { onAppClick(screen) },
+                        onAddToDesktop = { onAddToDesktop(name, screen) },
+                        isPinnedToStart = isPinnedToStart(name),
+                        onTogglePinToStart = { onTogglePinToStart(name) }
+                    )
                 }
             }
         }
@@ -1540,11 +1560,6 @@ fun AnimatedPinnedIcon(
     showLabel: Boolean = true,
     category: AppCategory = AppCategory.PINNED
 ) {
-    val wobble by animateFloatAsState(
-        targetValue = if (editMode) -2.5f else 0f,
-        animationSpec = if (editMode) infiniteRepeatable(tween(300), RepeatMode.Reverse) else tween(150),
-        label = "wobble"
-    )
     var pressed by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
@@ -1556,7 +1571,6 @@ fun AnimatedPinnedIcon(
                 .width(72.dp)
                 .clip(RoundedCornerShape(DS.sectionCorner))
                 .background(if (pressed) (if (isDark) DS.pressedDark else DS.pressedLight) else Color.Transparent)
-                .rotate(wobble)
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onPress = { pressed = true; tryAwaitRelease(); pressed = false },
@@ -1586,9 +1600,9 @@ fun AnimatedPinnedIcon(
             if (showLabel) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    app.name, fontSize = 10.sp, color = textColor.copy(alpha = 0.8f),
+                    app.name, fontSize = 10.sp, color = textColor.copy(alpha = 0.9f),
                     textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    fontWeight = FontWeight.Normal, modifier = Modifier.fillMaxWidth()
+                    fontWeight = FontWeight.Medium, modifier = Modifier.fillMaxWidth()
                 )
             }
         }
@@ -1630,14 +1644,11 @@ fun AnimatedBuiltInIcon(
     editMode: Boolean,
     onClick: () -> Unit,
     onAddToDesktop: () -> Unit = {},
+    isPinnedToStart: Boolean = false,
+    onTogglePinToStart: () -> Unit = {},
     iconSize: Int = 38,
     showLabel: Boolean = true
 ) {
-    val wobble by animateFloatAsState(
-        targetValue = if (editMode) -2f else 0f,
-        animationSpec = if (editMode) infiniteRepeatable(tween(350), RepeatMode.Reverse) else tween(150),
-        label = "wobble2"
-    )
     var pressed by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     Column(
@@ -1646,7 +1657,6 @@ fun AnimatedBuiltInIcon(
             .width(72.dp)
             .clip(RoundedCornerShape(DS.sectionCorner))
             .background(if (pressed) (if (isDark) DS.pressedDark else DS.pressedLight) else Color.Transparent)
-            .rotate(wobble)
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = { pressed = true; tryAwaitRelease(); pressed = false },
@@ -1689,14 +1699,18 @@ fun AnimatedBuiltInIcon(
         if (showLabel) {
             Spacer(Modifier.height(4.dp))
             Text(
-                name, fontSize = 10.sp, color = (if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight).copy(alpha = 0.8f),
+                name, fontSize = 10.sp, color = (if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight).copy(alpha = 0.9f),
                 textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                fontWeight = FontWeight.Normal, modifier = Modifier.fillMaxWidth()
+                fontWeight = FontWeight.Medium, modifier = Modifier.fillMaxWidth()
             )
         }
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
             DropdownMenuItem(text = { Text("Open") }, onClick = { showMenu = false; onClick() })
             DropdownMenuItem(text = { Text("Add to desktop") }, onClick = { showMenu = false; onAddToDesktop() })
+            DropdownMenuItem(
+                text = { Text(if (isPinnedToStart) "Remove from Start" else "Add to Start") },
+                onClick = { showMenu = false; onTogglePinToStart() }
+            )
         }
     }
 }
@@ -1819,216 +1833,85 @@ private fun AllAppsRow(
 }
 
 @Composable
-private fun BuiltInAppListRow(name: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isDark: Boolean, onClick: () -> Unit) {
-    var pressed by remember { mutableStateOf(false) }
-    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(DS.sectionCorner))
-            .background(if (pressed) (if (isDark) DS.pressedDark else DS.pressedLight) else Color.Transparent)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
-                    onTap = { onClick() }
-                )
-            }
-            .padding(horizontal = 8.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Box(
-            modifier = Modifier.size(30.dp).clip(RoundedCornerShape(DS.tileCorner)).background(DS.accentStart),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(imageVector = icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(name, fontSize = 13.sp, color = textPrimary, fontWeight = FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("System Action Component", fontSize = 10.sp, color = textPrimary.copy(alpha = 0.35f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────
-// RECOMMENDED SECTION
-// ─────────────────────────────────────────────────────────
-@Composable
-private fun RecommendedSection(isDark: Boolean, viewModel: LauncherViewModel, isExpanded: Boolean, context: Context) {
-    var recentFiles by remember { mutableStateOf<List<File>>(emptyList()) }
-    var permissionDenied by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        try {
-            recentFiles = getRecentFiles(context)
-            permissionDenied = false
-        } catch (e: SecurityException) {
-            permissionDenied = true
-        }
-    }
-
-    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-
-    if (permissionDenied) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp)
-                .background(DS.badgeRed.copy(alpha = 0.08f), RoundedCornerShape(DS.sectionCorner))
-                .border(0.5.dp, DS.badgeRed.copy(alpha = 0.3f), RoundedCornerShape(DS.sectionCorner))
-                .padding(12.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("Storage Permission required to see Recommended Items", color = DS.badgeRed, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-        }
-        return
-    }
-
-    if (recentFiles.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp)
-                .clip(RoundedCornerShape(DS.sectionCorner))
-                .border(0.5.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("No recent documents found", color = textPrimary.copy(alpha = 0.25f), fontSize = 11.sp, letterSpacing = 0.3.sp)
-        }
-        return
-    }
-
-    val itemRows = recentFiles.chunked(2)
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        itemRows.forEach { rowItems ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                rowItems.forEach { file ->
-                    Box(modifier = Modifier.weight(1f)) {
-                        RecentCard(
-                            title = file.name,
-                            subtitle = formatFileSize(file.length()),
-                            extension = file.extension,
-                            filePath = file.absolutePath,
-                            isDark = isDark,
-                            onClick = {
-                                try {
-                                    val uri = Uri.fromFile(file)
-                                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                                        setDataAndType(uri, "*/*")
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    }
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {}
-                            }
-                        )
-                    }
-                }
-                if (rowItems.size == 1) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────
-// Recent Card
-// ─────────────────────────────────────────────────────────
-@Composable
-private fun RecentCard(
-    title: String,
-    subtitle: String,
-    extension: String,
-    filePath: String,
+private fun BuiltInAppListRow(
+    name: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     isDark: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onAddToDesktop: (() -> Unit)? = null,
+    isPinnedToStart: Boolean = false,
+    onTogglePinToStart: (() -> Unit)? = null
 ) {
     var pressed by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
     val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    val cardBg = if (isDark) DS.surfaceDark else DS.surfaceLight
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(DS.sectionCorner))
-            .background(if (pressed) (if (isDark) DS.pressedDark else DS.pressedLight) else cardBg)
-            .border(0.5.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner))
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = { pressed = true; tryAwaitRelease(); pressed = false },
-                    onTap = { onClick() }
-                )
-            }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        val vectorIcon = remember(filePath) { getFileIcon(extension) }
-        Box(
-            modifier = Modifier.size(28.dp).background(DS.accentStart.copy(alpha = 0.1f), RoundedCornerShape(DS.tileCorner)),
-            contentAlignment = Alignment.Center
+    val hasMenu = onAddToDesktop != null || onTogglePinToStart != null
+    // Custom SVG-derived icons (BuiltInAppIcons.kt) previously weren't
+    // consulted here at all — this row always drew the plain Fluent glyph
+    // on a flat accent tile, which is why system apps' custom icons never
+    // showed up in All Apps. Now it checks for a custom icon the same way
+    // AnimatedBuiltInIcon does.
+    val customIconResId = rememberBuiltInIconResourceId(name)
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(DS.sectionCorner))
+                .background(if (pressed) (if (isDark) DS.pressedDark else DS.pressedLight) else Color.Transparent)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onPress = { pressed = true; tryAwaitRelease(); pressed = false },
+                        onTap = { onClick() },
+                        onLongPress = { if (hasMenu) showMenu = true }
+                    )
+                }
+                .padding(horizontal = 8.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(imageVector = vectorIcon, contentDescription = null, tint = DS.accentStart, modifier = Modifier.size(16.dp))
+            if (customIconResId != 0) {
+                Box(
+                    modifier = Modifier.size(30.dp).clip(RoundedCornerShape(DS.tileCorner)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    BuiltInAppIcon(appName = name, fallback = icon, tint = Color.White, modifier = Modifier.fillMaxSize())
+                }
+            } else {
+                Box(
+                    modifier = Modifier.size(30.dp).clip(RoundedCornerShape(DS.tileCorner)).background(DS.accentStart),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(imageVector = icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(name, fontSize = 13.sp, color = textPrimary, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("System app", fontSize = 10.sp, color = textPrimary.copy(alpha = 0.4f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, fontSize = 11.sp, color = textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-            Text(subtitle, fontSize = 9.sp, color = textPrimary.copy(alpha = 0.38f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────
-// Quick Actions Strip
-// ─────────────────────────────────────────────────────────
-private val QUICK_ACTIONS = listOf(
-    FluentIcon.Wifi to "Wi-Fi",
-    FluentIcon.Bluetooth to "Bluetooth",
-    FluentIcon.Airplane to "Airplane",
-    FluentIcon.Prohibited to "Focus",
-    FluentIcon.BrightnessHigh to "Brightness",
-    FluentIcon.Speaker2 to "Sound"
-)
-
-@Composable
-private fun QuickActionsStrip(isDark: Boolean, context: Context) {
-    val textPrimary = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    val actions = QUICK_ACTIONS
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        actions.forEach { (icon, label) ->
-            var active by remember { mutableStateOf(false) }
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(DS.chipCorner))
-                    .background(if (active) DS.accentStart else if (isDark) DS.surfaceDark else DS.surfaceLight)
-                    .border(0.5.dp, if (active) DS.accentEnd else if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.chipCorner))
-                    .clickable {
-                        active = !active
-                        val targetIntent = when (label) {
-                            "Wi-Fi" -> Intent(Settings.ACTION_WIFI_SETTINGS)
-                            "Bluetooth" -> Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
-                            "Airplane" -> Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS)
-                            "Brightness", "Sound" -> Intent(Settings.ACTION_DISPLAY_SETTINGS)
-                            else -> null
-                        }
-                        targetIntent?.let {
-                            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            try { context.startActivity(it) } catch (e: Exception) {}
-                        }
-                    }
-                    .padding(horizontal = 4.dp, vertical = 7.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(imageVector = icon, contentDescription = label, tint = if (active) Color.White else textPrimary.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
-                Spacer(Modifier.height(2.dp))
-                Text(label, fontSize = 8.sp, color = if (active) Color.White else textPrimary.copy(alpha = 0.45f), maxLines = 1, textAlign = TextAlign.Center, letterSpacing = 0.sp)
+        if (hasMenu) {
+            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                DropdownMenuItem(text = { Text("Open") }, onClick = { showMenu = false; onClick() })
+                onAddToDesktop?.let { addToDesktop ->
+                    DropdownMenuItem(text = { Text("Add to desktop") }, onClick = { showMenu = false; addToDesktop() })
+                }
+                onTogglePinToStart?.let { togglePin ->
+                    DropdownMenuItem(
+                        text = { Text(if (isPinnedToStart) "Remove from Start" else "Add to Start") },
+                        onClick = { showMenu = false; togglePin() }
+                    )
+                }
             }
         }
     }
 }
+
+// ─────────────────────────────────────────────────────────
+// (Recommended / recent-files tray and the Wi-Fi/Bluetooth/etc. Quick
+// Actions strip have been removed entirely — Pinned is the only tray now,
+// and the quick-action toggles were non-functional placeholders that
+// didn't reflect real system state.)
+// ─────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────
 // Compact Action Chip
@@ -2046,7 +1929,7 @@ private fun CompactActionChip(label: String, icon: androidx.compose.ui.graphics.
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Icon(imageVector = icon, contentDescription = null, tint = DS.accentStart.copy(alpha = 0.8f), modifier = Modifier.size(11.dp))
-        Text(label, fontSize = 10.sp, color = textColor.copy(alpha = 0.7f), fontWeight = FontWeight.Normal, letterSpacing = 0.2.sp)
+        Text(label, fontSize = 10.sp, color = textColor.copy(alpha = 0.85f), fontWeight = FontWeight.Medium, letterSpacing = 0.2.sp)
     }
 }
 
@@ -2158,44 +2041,5 @@ fun LegacyBuiltInAppIconCompat(name: String, icon: androidx.compose.ui.graphics.
     AnimatedBuiltInIcon(name = name, icon = icon, isDark = isDark, editMode = false, onClick = onClick)
 }
 
-private fun formatFileSize(size: Long): String {
-    return when {
-        size <= 0              -> "0 B"
-        size < 1024            -> "$size B"
-        size < 1024 * 1024     -> "%.1f KB".format(size / 1024.0)
-        else                   -> "%.1f MB".format(size / (1024.0 * 1024.0))
-    }
-}
-
-private fun getFileIcon(extension: String): androidx.compose.ui.graphics.vector.ImageVector = when (extension.lowercase()) {
-    "pdf"                        -> FluentIcon.DocumentPdf
-    "doc", "docx"                -> FluentIcon.DocumentText
-    "xls", "xlsx"                -> FluentIcon.Table
-    "jpg", "jpeg", "png", "gif"  -> FluentIcon.Image
-    else                         -> FluentIcon.Document
-}
-
-private fun getRecentFiles(context: Context): List<File> {
-    val files = mutableListOf<File>()
-    val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-        MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
-    else
-        MediaStore.Files.getContentUri("external")
-    val projection = arrayOf(MediaStore.Files.FileColumns.DATA)
-    val sortOrder  = "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
-    try {
-        context.contentResolver.query(uri, projection, null, null, sortOrder)?.use { cursor ->
-            val dataIdx = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
-            var count = 0
-            while (cursor.moveToNext() && count < 6) {
-                val path = cursor.getString(dataIdx)
-                val file = File(path)
-                if (file.exists() && file.isFile) {
-                    files.add(file)
-                    count++
-                }
-            }
-        }
-    } catch (e: Exception) {}
-    return files
-}
+// (formatFileSize / getFileIcon / getRecentFiles removed along with the
+// Recommended tray — they had no other caller.)
