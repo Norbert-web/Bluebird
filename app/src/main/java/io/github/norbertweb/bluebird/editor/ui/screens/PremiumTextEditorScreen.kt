@@ -25,9 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -67,7 +65,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.norbertweb.bluebird.editor.core.EditorSettings
 import io.github.norbertweb.bluebird.editor.editor.core.PremiumEditorState
-import io.github.norbertweb.bluebird.editor.editor.highlighting.buildSyntaxHighlight
 import io.github.norbertweb.bluebird.editor.editor.highlighting.findMatchingBracket
 import io.github.norbertweb.bluebird.editor.ui.components.AutocompletePopup
 import io.github.norbertweb.bluebird.editor.ui.components.BookmarksPanel
@@ -80,8 +77,10 @@ import io.github.norbertweb.bluebird.editor.ui.components.IdeShell
 import io.github.norbertweb.bluebird.editor.ui.components.GoToLineDialog
 import io.github.norbertweb.bluebird.editor.ui.components.LineEndingDialog
 import io.github.norbertweb.bluebird.editor.ui.components.MinimapPanel
+import io.github.norbertweb.bluebird.editor.ui.components.LivePreviewPane
 import io.github.norbertweb.bluebird.editor.ui.components.PremiumFindBar
 import io.github.norbertweb.bluebird.editor.ui.components.PremiumGutter
+import io.github.norbertweb.bluebird.editor.ui.components.VirtualizedCodeSurface
 import io.github.norbertweb.bluebird.editor.ui.components.PremiumMenuBar
 import io.github.norbertweb.bluebird.editor.ui.components.PremiumStatusBar
 import io.github.norbertweb.bluebird.editor.ui.components.QuickOpenDialog
@@ -295,22 +294,7 @@ private fun EditorGroupContent(
         } else emptyList()
     }
     val currentMatchRange = remember(s.currentMatchIndex, matches) { matches.getOrNull(s.currentMatchIndex)?.range }
-    val highlightedText = remember(
-        tab.content.text, tab.fileName, s.isDark, s.settings.syntaxHighlight,
-        s.findQuery, s.matchCase, s.useRegex, s.wholeWord, s.currentMatchIndex
-    ) {
-        if (s.settings.syntaxHighlight) buildSyntaxHighlight(
-            text = tab.content.text,
-            ext = tab.fileName.substringAfterLast('.', "txt").lowercase(),
-            colors = c,
-            findQuery = if (s.showFindBar) s.findQuery else "",
-            matchCase = s.matchCase,
-            useRegex = s.useRegex,
-            currentMatchRange = currentMatchRange,
-            allMatchRanges = matches.map { it.range },
-            showWhitespace = s.settings.showWhitespace,
-        ) else buildAnnotatedString { append(tab.content.text) }
-    }
+
 
     Column(modifier.fillMaxSize().background(c.bg)) {
         PremiumTabBar(s, onSave = { s.activateEditorGroup(group); save() }, onNew = { s.activateEditorGroup(group); newTab() }, group = group)
@@ -327,23 +311,33 @@ private fun EditorGroupContent(
             PremiumFindBar(s)
         }
         Row(Modifier.weight(1f)) {
-            if (s.showLineNums) PremiumGutter(s, scrollState, tab)
-            Box(Modifier.weight(1f).fillMaxHeight()) {
-                EditorTextField(
-                    s = s,
-                    group = group,
-                    tab = tab,
-                    highlightedText = highlightedText,
-                    fontFamily = fontFamily,
-                    effectiveFontSize = effectiveFontSize,
-                    scrollState = scrollState,
-                    bracketMatch = bracketMatch,
-                    clipboard = clipboard,
-                    onContentHeightMeasured = { contentHeightPx = it },
-                )
-                if (s.settings.showColumnGuide) {
-                    val guideOffset = effectiveFontSize.value * s.settings.columnLimit * 0.6f
-                    Box(Modifier.fillMaxHeight().width(1.dp).offset(x = guideOffset.dp).background(c.border.copy(0.5f)))
+            if (s.showLineNums) PremiumGutter(s, scrollState, tab, group)
+            if (s.showLivePreview && isWebPreviewSupported(tab.fileName)) {
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    EditorTextField(
+                        s = s, group = group, tab = tab, fontFamily = fontFamily,
+                        effectiveFontSize = effectiveFontSize, scrollState = scrollState,
+                        bracketMatch = bracketMatch, clipboard = clipboard,
+                        onContentHeightMeasured = { contentHeightPx = it },
+                    )
+                    if (s.settings.showColumnGuide) {
+                        val guideOffset = effectiveFontSize.value * s.settings.columnLimit * 0.6f
+                        Box(Modifier.fillMaxHeight().width(1.dp).offset(x = guideOffset.dp).background(c.border.copy(alpha = 0.5f)))
+                    }
+                }
+                LivePreviewPane(tab, c, Modifier.weight(0.9f).fillMaxHeight())
+            } else {
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    EditorTextField(
+                        s = s, group = group, tab = tab, fontFamily = fontFamily,
+                        effectiveFontSize = effectiveFontSize, scrollState = scrollState,
+                        bracketMatch = bracketMatch, clipboard = clipboard,
+                        onContentHeightMeasured = { contentHeightPx = it },
+                    )
+                    if (s.settings.showColumnGuide) {
+                        val guideOffset = effectiveFontSize.value * s.settings.columnLimit * 0.6f
+                        Box(Modifier.fillMaxHeight().width(1.dp).offset(x = guideOffset.dp).background(c.border.copy(alpha = 0.5f)))
+                    }
                 }
             }
             if (s.showMinimap && s.settings.showMinimap) MinimapPanel(s, scrollState, contentHeightPx, tab)
@@ -366,7 +360,6 @@ private fun EditorTextField(
     s: PremiumEditorState,
     group: Int,
     tab: io.github.norbertweb.bluebird.editor.core.TabData,
-    highlightedText: AnnotatedString,
     fontFamily: FontFamily,
     effectiveFontSize: TextUnit,
     scrollState: ScrollState,
@@ -374,86 +367,42 @@ private fun EditorTextField(
     clipboard: ClipboardManager,
     onContentHeightMeasured: (Int) -> Unit,
 ) {
-    val c = s.colors
-    val cursorBefore = tab.content.text.substring(0, tab.content.selection.start.coerceAtMost(tab.content.text.length))
-    val cursorLine = cursorBefore.count { it == '\n' } + 1
+    VirtualizedCodeSurface(
+        s = s,
+        group = group,
+        tab = tab,
+        fontFamily = fontFamily,
+        fontSize = effectiveFontSize,
+        scrollState = scrollState,
+        bracketMatch = bracketMatch,
+        onContentHeightMeasured = onContentHeightMeasured,
+        modifier = Modifier.fillMaxSize(),
+    )
+}
 
-    Box(
-        Modifier.fillMaxSize()
-            .background(c.bg)
-            .verticalScroll(scrollState)
-            .onGloballyPositioned { onContentHeightMeasured(it.size.height) }
-    ) {
-        // Current line highlight
-        if (s.settings.highlightCurrentLine) {
-            CurrentLineHighlight(
-                lineNumber = cursorLine,
-                fontSize = effectiveFontSize,
-                color = c.currentLineBg,
-                fontFamily = fontFamily,
-                text = tab.content.text,
-            )
-        }
-
-        // Bracket match highlights
-        if (bracketMatch != null) {
-            BracketHighlights(bracketMatch, tab.content.text, effectiveFontSize, fontFamily, c.accent)
-        }
-
-        BasicTextField(
-            value = tab.content,
-            onValueChange = { newVal ->
-                s.activateEditorGroup(group)
-                if (!tab.isReadOnly) s.updateContentForTab(tab.id, newVal)
-            },
-            enabled = !tab.isReadOnly,
-            visualTransformation = if (s.settings.showWhitespace) WhitespaceTransformation() else VisualTransformation.None,
-            textStyle = TextStyle(
-                // Use real text color — syntax SpanStyles override per-token.
-                // The old Color.Transparent + overlay approach ate all touch events.
-                color = Color.Transparent,
-                fontSize = effectiveFontSize,
-                fontFamily = fontFamily,
-                lineHeight = effectiveFontSize * 1.6f,
-                letterSpacing = 0.3.sp,
-            ),
-            cursorBrush = SolidColor(c.accent),
-            modifier = Modifier.fillMaxWidth().padding(12.dp).onFocusChanged { if (it.isFocused) s.activateEditorGroup(group) },
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.None,
-                autoCorrect = false,
-                keyboardType = KeyboardType.Ascii,
-                imeAction = ImeAction.Default,
-            ),
-            // Syntax highlighting via decorationBox — correct Compose pattern.
-            // The highlighted AnnotatedString renders underneath; BasicTextField
-            // draws only the cursor and selection highlight on top.
-            decorationBox = { innerTextField ->
-                Box {
-                    Text(
-                        text = highlightedText,
-                        style = TextStyle(
-                            fontSize = effectiveFontSize,
-                            fontFamily = fontFamily,
-                            lineHeight = effectiveFontSize * 1.6f,
-                            letterSpacing = 0.3.sp,
-                        ),
-                        softWrap = s.settings.wordWrap,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    innerTextField()
-                }
-            },
-        )
-
-        // Read-only watermark
-        if (tab.isReadOnly) {
-            Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.TopEnd) {
-                Surface(shape = RoundedCornerShape(4.dp), color = c.gold.copy(0.15f), modifier = Modifier) {
-                    Text("  READ ONLY  ", color = c.gold, fontSize = 9.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                }
+@Composable
+private fun SecondaryCursorOverlay(
+    selections: List<io.github.norbertweb.bluebird.editor.core.EditorSelection>,
+    text: String,
+    fontSize: TextUnit,
+    color: Color,
+) {
+    val lineHeightPx = with(LocalDensity.current) { (fontSize * 1.6f).toPx() }
+    val charWidthPx = with(LocalDensity.current) { (fontSize * 0.6f).toPx() }
+    val paddingPx = with(LocalDensity.current) { 12.dp.toPx() }
+    Canvas(Modifier.fillMaxSize()) {
+        selections.forEach { selection ->
+            val pos = selection.start.coerceIn(0, text.length)
+            val before = text.substring(0, pos)
+            val line = before.count { it == '\n' }
+            val col = before.substringAfterLast('\n').length
+            val x = paddingPx + col * charWidthPx
+            val y = paddingPx + line * lineHeightPx
+            if (!selection.isCaret) {
+                drawRect(color.copy(alpha = 0.14f), Offset(x, y), androidx.compose.ui.geometry.Size(
+                    (selection.end - selection.start).coerceAtLeast(1) * charWidthPx, lineHeightPx))
             }
+            drawRect(color, Offset(x, y), androidx.compose.ui.geometry.Size(1.5f, lineHeightPx))
         }
     }
 }
@@ -570,7 +519,8 @@ fun handleKeyEvent(
         isCtrl && keyCode == KeyEvent.KEYCODE_H -> { s.showFindBar = true; s.showReplace = true; true }
         isCtrl && keyCode == KeyEvent.KEYCODE_G -> { s.showGoToLineDialog = true; true }
         isCtrl && keyCode == KeyEvent.KEYCODE_N -> { s.newTab(); true }
-        isCtrl && keyCode == KeyEvent.KEYCODE_D -> { s.duplicateCurrentLine(); true }
+        isCtrl && keyCode == KeyEvent.KEYCODE_D -> { s.addNextOccurrence(); true }
+        isCtrl && isShift && keyCode == KeyEvent.KEYCODE_D -> { s.duplicateCurrentLine(); true }
         isCtrl && isShift && keyCode == KeyEvent.KEYCODE_K -> { s.deleteCurrentLine(); true }
         isCtrl && keyCode == KeyEvent.KEYCODE_SLASH -> { s.toggleComment(); true }
         isCtrl && keyCode == KeyEvent.KEYCODE_B -> { s.toggleBookmark(s.cursorLine); true }
@@ -581,27 +531,27 @@ fun handleKeyEvent(
             s.updateTab { copy(content = content.copy(selection = TextRange(0, content.text.length))) }; true
         }
         isCtrl && keyCode == KeyEvent.KEYCODE_X -> {
-            val cut = s.cutSelection()
+            val cut = s.cutSelectionText()
             clipboard.setText(AnnotatedString(cut))
             true
         }
         isCtrl && keyCode == KeyEvent.KEYCODE_C -> {
-            val selected = if (s.content.selection.length > 0) s.content.selectedText()
-                           else s.content.text.split('\n').getOrElse(s.cursorLine - 1) { "" }
-            clipboard.setText(AnnotatedString(selected))
+            clipboard.setText(AnnotatedString(s.copySelectionText()))
             true
         }
         isCtrl && keyCode == KeyEvent.KEYCODE_V -> {
             val paste = clipboard.getText()?.text ?: return false
-            val pos = s.content.selection.start
-            val (start, end) = if (s.content.hasSelection()) s.content.selection.start to s.content.selection.end else pos to pos
-            val newText = s.content.text.substring(0, start) + paste + s.content.text.substring(end)
-            s.updateContent(s.content.copy(text = newText, selection = TextRange(start + paste.length)))
+            s.pasteText(paste)
             true
         }
         isCtrl && isShift && keyCode == KeyEvent.KEYCODE_P -> { s.showCommandPalette = true; true }
         isCtrl && !isShift && keyCode == KeyEvent.KEYCODE_P -> { s.showQuickOpen = true; true }
         isCtrl && isShift && keyCode == KeyEvent.KEYCODE_O -> { s.showSymbolPicker = true; true }
+        isCtrl && isShift && keyCode == KeyEvent.KEYCODE_LEFT_BRACKET -> { s.toggleFoldAtCursor(); true }
+        isCtrl && isShift && keyCode == KeyEvent.KEYCODE_RIGHT_BRACKET -> { s.unfoldAll(); true }
+        isCtrl && isAlt && keyCode == KeyEvent.KEYCODE_LEFT_BRACKET -> { s.foldAll(); true }
+        isAlt && isShift && keyCode == KeyEvent.KEYCODE_DPAD_UP -> { s.addCaretOnAdjacentLine(-1); true }
+        isAlt && isShift && keyCode == KeyEvent.KEYCODE_DPAD_DOWN -> { s.addCaretOnAdjacentLine(1); true }
         isCtrl && keyCode == KeyEvent.KEYCODE_EQUALS -> { s.updateSettings { copy(zoom = (zoom + 0.1f).coerceAtMost(4f)) }; true }
         isCtrl && keyCode == KeyEvent.KEYCODE_MINUS -> { s.updateSettings { copy(zoom = (zoom - 0.1f).coerceAtLeast(0.25f)) }; true }
         isCtrl && keyCode == KeyEvent.KEYCODE_0 -> { s.updateSettings { copy(zoom = 1f) }; true }
@@ -609,6 +559,14 @@ fun handleKeyEvent(
         isAlt && keyCode == KeyEvent.KEYCODE_DPAD_DOWN -> { s.moveCurrentLineDown(); true }
         keyCode == KeyEvent.KEYCODE_TAB -> { s.handleTabKey(isShift); true }
         keyCode == KeyEvent.KEYCODE_ENTER -> { s.handleEnterKey(); true }
+        keyCode == KeyEvent.KEYCODE_DPAD_LEFT -> { s.moveLeft(isShift, isCtrl || isAlt); true }
+        keyCode == KeyEvent.KEYCODE_DPAD_RIGHT -> { s.moveRight(isShift, isCtrl || isAlt); true }
+        keyCode == KeyEvent.KEYCODE_MOVE_HOME -> { s.moveHome(isShift, isCtrl); true }
+        keyCode == KeyEvent.KEYCODE_MOVE_END -> { s.moveEnd(isShift, isCtrl); true }
+        keyCode == KeyEvent.KEYCODE_PAGE_UP -> { s.moveByPage(-1, isShift); true }
+        keyCode == KeyEvent.KEYCODE_PAGE_DOWN -> { s.moveByPage(1, isShift); true }
+        keyCode == KeyEvent.KEYCODE_DEL -> { s.deleteBackward(isCtrl || isAlt); true }
+        keyCode == KeyEvent.KEYCODE_FORWARD_DEL -> { s.deleteForward(isCtrl || isAlt); true }
         keyCode == KeyEvent.KEYCODE_ESCAPE -> {
             when {
                 s.showCommandPalette -> s.showCommandPalette = false

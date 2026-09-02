@@ -101,6 +101,54 @@ val DEFAULT_SNIPPETS = listOf(
 
 data class CursorPosition(val line: Int, val col: Int, val offset: Int)
 
+/** A secondary caret/selection used by the multi-cursor editing layer.
+ *  The primary selection continues to be owned by Compose's TextFieldValue.
+ */
+data class EditorSelection(
+    val start: Int,
+    val end: Int = start,
+) {
+    val isCaret: Boolean get() = start == end
+    val min: Int get() = minOf(start, end)
+    val max: Int get() = maxOf(start, end)
+}
+
+/** Fast immutable line index. Offsets are UTF-16 indices, matching TextFieldValue. */
+class LineIndex(text: String) {
+    private val starts: IntArray = buildList {
+        add(0)
+        text.forEachIndexed { index, ch -> if (ch == '\n') add(index + 1) }
+    }.toIntArray()
+
+    val lineCount: Int get() = starts.size
+
+    fun lineForOffset(offset: Int): Int {
+        val target = offset.coerceAtLeast(0)
+        var low = 0
+        var high = starts.lastIndex
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            if (starts[mid] <= target) low = mid + 1 else high = mid - 1
+        }
+        return high.coerceAtLeast(0) + 1
+    }
+
+    fun lineStart(line: Int): Int = starts[(line - 1).coerceIn(0, starts.lastIndex)]
+
+    fun lineEnd(text: String, line: Int): Int {
+        val index = (line - 1).coerceIn(0, starts.lastIndex)
+        return if (index == starts.lastIndex) text.length else (starts[index + 1] - 1).coerceAtMost(text.length)
+    }
+
+    fun offsetAt(line: Int, column: Int, text: String): Int {
+        val start = lineStart(line)
+        return (start + column.coerceAtLeast(0)).coerceIn(start, lineEnd(text, line))
+    }
+}
+
+fun TextFieldValue.selectionAsEditorSelection(): EditorSelection =
+    EditorSelection(selection.start, selection.end)
+
 // ─────────────────────────────────────────────────────────────────
 // Tab Data (per-file state)
 // ─────────────────────────────────────────────────────────────────
@@ -123,6 +171,7 @@ data class TabData(
     val lastSavedContent: String = "",
     val scrollOffset: Int = 0,
     val cursorPosition: CursorPosition = CursorPosition(1, 1, 0),
+    val secondarySelections: List<EditorSelection> = emptyList(),
     val lastAutosaveTime: Long = 0L,
 )
 

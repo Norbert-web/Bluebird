@@ -8,7 +8,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import io.github.norbertweb.bluebird.editor.core.Bookmark
+import io.github.norbertweb.bluebird.editor.core.Diagnostic
+import io.github.norbertweb.bluebird.editor.core.WebLanguageTools
+import io.github.norbertweb.bluebird.editor.core.CompletionEngine
 import io.github.norbertweb.bluebird.editor.core.EditorSettings
+import io.github.norbertweb.bluebird.editor.core.EditorSelection
+import io.github.norbertweb.bluebird.editor.core.LineIndex
 import io.github.norbertweb.bluebird.editor.core.FileEncoding
 import io.github.norbertweb.bluebird.editor.core.FindResult
 import io.github.norbertweb.bluebird.editor.core.HistoryEntry
@@ -39,7 +44,6 @@ import io.github.norbertweb.bluebird.editor.editor.actions.toUpperCase
 import io.github.norbertweb.bluebird.editor.editor.actions.toggleLineComment
 import io.github.norbertweb.bluebird.editor.editor.actions.trimTrailingWhitespace
 import io.github.norbertweb.bluebird.editor.editor.highlighting.extractWords
-import io.github.norbertweb.bluebird.editor.editor.highlighting.getSuggestions
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -51,6 +55,30 @@ import java.util.Locale
 
 fun autosavePath(cacheDir: File, fileName: String): File =
     File(cacheDir, "autosave_${fileName.replace(Regex("[^a-zA-Z0-9._-]"), "_")}")
+
+/** Minimal text diff used to keep secondary carets aligned with primary TextField edits. */
+data class TextEditDelta(val start: Int, val removedLength: Int, val replacement: String) {
+    companion object {
+        fun from(old: String, new: String): TextEditDelta {
+            var start = 0
+            val common = minOf(old.length, new.length)
+            while (start < common && old[start] == new[start]) start++
+            var oldEnd = old.length
+            var newEnd = new.length
+            while (oldEnd > start && newEnd > start && old[oldEnd - 1] == new[newEnd - 1]) { oldEnd--; newEnd-- }
+            return TextEditDelta(start, oldEnd - start, new.substring(start, newEnd))
+        }
+    }
+    fun mapSelection(selection: EditorSelection): EditorSelection {
+        val editEnd = start + removedLength
+        fun map(pos: Int): Int = when {
+            pos <= start -> pos
+            pos >= editEnd -> pos + replacement.length - removedLength
+            else -> start + replacement.length
+        }
+        return EditorSelection(map(selection.start), map(selection.end))
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────
 // PremiumEditorState
@@ -163,29 +191,48 @@ class PremiumEditorState(
     fun updateContentForTab(tabId: String, new: TextFieldValue) {
         val tab = tabs.firstOrNull { it.id == tabId } ?: return
         val shouldPushHistory = true
+        val delta = TextEditDelta.from(tab.content.text, new.text)
+        val mappedSecondary = tab.secondarySelections.map { delta.mapSelection(it) }
+        val (editedSecondaryText, finalSecondary) = applySecondaryEdits(new.text, mappedSecondary, delta.replacement)
         updateTabById(tabId) {
             val newUndo = if (shouldPushHistory) (undoStack + HistoryEntry(content)).takeLast(500) else undoStack
             copy(
-                content = new,
-                isModified = new.text != lastSavedContent,
-                isSaved = new.text == lastSavedContent,
+                content = new.copy(text = editedSecondaryText),
+                isModified = editedSecondaryText != lastSavedContent,
+                isSaved = editedSecondaryText == lastSavedContent,
                 undoStack = newUndo,
                 redoStack = if (shouldPushHistory) emptyList() else redoStack,
+                secondarySelections = finalSecondary,
             )
         }
         if (settings.snippetsEnabled) {
             val allWords = extractWords(new.text)
-            autocompleteSuggestions = getSuggestions(new.text, new.selection.start, allWords)
+            autocompleteSuggestions = CompletionEngine.suggest(new.text, new.selection.start, tab.fileName, allWords).map { it.label }
+            showAutocomplete = autocompleteSuggestions.isNotEmpty()
         }
     }
 
-    fun goToLineForTab(tabId: String, line: Int) {
-        updateTabById(tabId) {
-            val lines = content.text.split('\n')
-            val target = line.coerceIn(1, lines.size)
-            val offset = lines.take(target - 1).sumOf { it.length + 1 }.coerceAtMost(content.text.length)
-            copy(content = content.copy(selection = TextRange(offset)))
+    private fun applySecondaryEdits(
+        text: String,
+        selections: List<EditorSelection>,
+        replacement: String,
+    ): Pair<String, List<EditorSelection>> {
+        if (selections.isEmpty()) return text to emptyList()
+        var result = text
+        val ordered = selections.sortedByDescending { it.min }
+        ordered.forEach { sel ->
+            val start = sel.min.coerceIn(0, result.length)
+            val end = sel.max.coerceIn(start, result.length)
+            result = result.substring(0, start) + replacement + result.substring(end)
         }
+        val finalSelections = selections.map { sel ->
+            val shiftFromLeft = selections
+                .filter { it.min < sel.min }
+                .sumOf { replacement.length - (it.max - it.min) }
+            val caret = (sel.min + replacement.length + shiftFromLeft).coerceIn(0, result.length)
+            EditorSelection(caret, caret)
+        }.sortedBy { it.start }
+        return result to finalSelections
     }
 
     // ── Content Updates (with debounced undo) ─────────────────────
@@ -217,8 +264,9 @@ class PremiumEditorState(
         // Autocomplete
         if (settings.snippetsEnabled) {
             val allWords = extractWords(new.text)
-            val suggestions = getSuggestions(new.text, new.selection.start, allWords)
+            val suggestions = CompletionEngine.suggest(new.text, new.selection.start, fileName, allWords).map { it.label }
             autocompleteSuggestions = suggestions
+            showAutocomplete = suggestions.isNotEmpty()
         }
     }
 
@@ -573,11 +621,125 @@ class PremiumEditorState(
         goToLine(prev.line)
     }
 
+    // ── Multi-cursor editing ──────────────────────────────────────
+    val secondarySelections get() = activeTab.secondarySelections
+
+    fun clearSecondarySelections() {
+        updateTab { copy(secondarySelections = emptyList()) }
+    }
+
+    /** Add a caret at the same column on the next/previous line. */
+    fun addCaretOnAdjacentLine(direction: Int) {
+        val text = content.text
+        val index = LineIndex(text)
+        val primaryLine = index.lineForOffset(content.selection.start)
+        val primaryStart = index.lineStart(primaryLine)
+        val column = content.selection.start - primaryStart
+        val targetLine = primaryLine + direction
+        if (targetLine !in 1..index.lineCount) return
+        val offset = index.offsetAt(targetLine, column, text)
+        if (offset == content.selection.start || secondarySelections.any { it.start == offset && it.end == offset }) return
+        updateTab { copy(secondarySelections = (secondarySelections + EditorSelection(offset)).distinctBy { it.start to it.end }.sortedBy { it.start }) }
+    }
+
+    /** Ctrl/Cmd+D-style next-occurrence caret. */
+    fun addNextOccurrence() {
+        val selection = content.selection
+        if (!selection.collapsed) return
+        val tokenStart = content.text.lastIndexOfAny(charArrayOf(' ', '\n', '\t', '(', ')', '[', ']', '{', '}', '.', ',', ';', ':'), selection.start - 1) + 1
+        val tokenEnd = content.text.indexOfAny(charArrayOf(' ', '\n', '\t', '(', ')', '[', ']', '{', '}', '.', ',', ';', ':'), selection.start).let { if (it < 0) content.text.length else it }
+        if (tokenEnd <= tokenStart) return
+        val token = content.text.substring(tokenStart, tokenEnd)
+        val occupied = (secondarySelections + EditorSelection(selection.start)).map { it.start }.toSet()
+        val next = Regex.escape(token).toRegex().findAll(content.text, tokenEnd).firstOrNull { it.range.first !in occupied } ?: return
+        updateTab { copy(secondarySelections = (secondarySelections + EditorSelection(next.range.first, next.range.last + 1)).distinctBy { it.start to it.end }.sortedBy { it.start }) }
+    }
+
+    /** Applies an insertion/replacement to all secondary carets after the primary edit. */
+    fun applyMultiCursorEdit(delta: TextEditDelta) {
+        if (secondarySelections.isEmpty() || delta.replacement.isEmpty() && delta.removedLength == 0) return
+        val current = content.text
+        var result = current
+        var shift = 0
+        val ordered = secondarySelections.sortedByDescending { it.min }
+        for (sel in ordered) {
+            val start = (sel.min + shift).coerceIn(0, result.length)
+            val end = (sel.max + shift).coerceIn(start, result.length)
+            result = result.substring(0, start) + delta.replacement + result.substring(end)
+            shift += delta.replacement.length - (end - start)
+        }
+        val newSelections = ordered.map {
+            val p = (it.min + shift).coerceIn(0, result.length)
+            EditorSelection(p + delta.replacement.length, p + delta.replacement.length)
+        }.sortedBy { it.start }
+        updateContent(content.copy(text = result))
+        updateTab { copy(secondarySelections = newSelections) }
+    }
+
     // ── Folding ───────────────────────────────────────────────────
+    fun foldableRegions(tabId: String = activeTab.id): List<FoldRegion> {
+        val tab = tabs.firstOrNull { it.id == tabId } ?: return emptyList()
+        return FoldingModel.regions(tab.content.text)
+    }
+
+    fun isFoldableLine(tabId: String = activeTab.id, line: Int): Boolean =
+        foldableRegions(tabId).any { it.startLine == line }
+
     fun toggleFold(line: Int) {
+        if (!isFoldableLine(activeTab.id, line)) return
         updateTab {
             copy(foldedLines = if (line in foldedLines) foldedLines - line else foldedLines + line)
         }
+    }
+
+    fun foldAll() {
+        val starts = foldableRegions().map { it.startLine }.toSet()
+        updateTab { copy(foldedLines = starts) }
+    }
+
+    fun unfoldAll() {
+        updateTab { copy(foldedLines = emptySet()) }
+    }
+
+    fun toggleFoldAtCursor() = toggleFold(cursorLine)
+
+    fun setCursorOffset(offset: Int, extendSelection: Boolean = false) {
+        val tab = activeTab
+        val safe = offset.coerceIn(0, tab.content.text.length)
+        val selection = if (extendSelection) {
+            TextRange(tab.content.selection.start, safe)
+        } else TextRange(safe, safe)
+        updateTab { copy(content = content.copy(selection = selection)) }
+    }
+
+    fun setSelectionRange(start: Int, end: Int) {
+        val tab = activeTab
+        val a = start.coerceIn(0, tab.content.text.length)
+        val b = end.coerceIn(0, tab.content.text.length)
+        updateTab { copy(content = content.copy(selection = TextRange(a, b))) }
+    }
+
+    fun selectWordAtOffset(offset: Int) {
+        val tab = activeTab
+        val text = tab.content.text
+        if (text.isEmpty()) return setSelectionRange(0, 0)
+        val pos = offset.coerceIn(0, text.length)
+        var start = pos
+        var end = pos
+        while (start > 0 && (text[start - 1].isLetterOrDigit() || text[start - 1] == '_')) start--
+        while (end < text.length && (text[end].isLetterOrDigit() || text[end] == '_')) end++
+        if (start == end && pos < text.length) {
+            start = pos
+            end = pos + 1
+        }
+        setSelectionRange(start, end)
+    }
+
+    fun selectLineAtOffset(offset: Int) {
+        val tab = activeTab
+        val index = LineIndex(tab.content.text)
+        val line = index.lineForOffset(offset.coerceIn(0, tab.content.text.length))
+        setSelectionRange(index.lineStart(line), index.lineEnd(tab.content.text, line))
     }
 
     // ── Text Actions ──────────────────────────────────────────────
@@ -587,6 +749,21 @@ class PremiumEditorState(
 
     fun handleEnterKey() = applyAction(handleEnter(content, indentStyle, settings.autoCloseBrackets))
     fun handleTabKey(shift: Boolean = false) = applyAction(handleTab(content, indentStyle, shift))
+    fun moveLeft(extend: Boolean = false, byWord: Boolean = false) = applyAction(io.github.norbertweb.bluebird.editor.editor.actions.moveLeft(content, extend, byWord))
+    fun moveRight(extend: Boolean = false, byWord: Boolean = false) = applyAction(io.github.norbertweb.bluebird.editor.editor.actions.moveRight(content, extend, byWord))
+    fun moveHome(extend: Boolean = false, document: Boolean = false) = applyAction(io.github.norbertweb.bluebird.editor.editor.actions.moveHome(content, extend, document))
+    fun moveEnd(extend: Boolean = false, document: Boolean = false) = applyAction(io.github.norbertweb.bluebird.editor.editor.actions.moveEnd(content, extend, document))
+    fun moveByPage(direction: Int, extend: Boolean = false) {
+        val lineHeight = 1
+        val currentLine = LineIndex(content.text).lineForOffset(content.selection.start)
+        val targetLine = (currentLine + direction * 30).coerceIn(1, LineIndex(content.text).lineCount)
+        val index = LineIndex(content.text)
+        val column = content.selection.start - index.lineStart(currentLine)
+        val target = index.offsetAt(targetLine, column, content.text)
+        applyAction(ActionResult(content.copy(selection = if (extend) TextRange(content.selection.start, target) else TextRange(target)), shouldRecord = false))
+    }
+    fun deleteBackward(byWord: Boolean = false) = applyAction(io.github.norbertweb.bluebird.editor.editor.actions.deleteBackward(content, byWord))
+    fun deleteForward(byWord: Boolean = false) = applyAction(io.github.norbertweb.bluebird.editor.editor.actions.deleteForward(content, byWord))
     fun handleChar(char: Char) {
         val result = handleCharInput(char, content, settings.autoCloseBrackets)
         if (result != null) applyAction(result)
@@ -617,10 +794,82 @@ class PremiumEditorState(
     }
     fun insertSnippet(body: String) = applyAction(insertText(content, body))
 
-    fun cutSelection(): String {
-        val (result, cut) = cutText(content)
-        applyAction(result)
-        return cut
+    /** Clipboard-aware copy semantics for primary + secondary selections.
+     * Multiple selections are exported in document order, separated by newlines.
+     * With no selection, the current line is copied (without its line ending).
+     */
+    fun copySelectionText(): String {
+        val selections = (listOf(content.selectionAsEditorSelection()) + secondarySelections)
+            .filter { !it.isCaret }
+            .sortedBy { it.min }
+        if (selections.isEmpty()) {
+            val line = content.currentLine()
+            val start = content.lineStartOffset(line)
+            val end = content.lineEndOffset(line)
+            return content.text.substring(start, end)
+        }
+        return selections.joinToString("\n") {
+            content.text.substring(it.min.coerceAtLeast(0), it.max.coerceAtMost(content.text.length))
+        }
+    }
+
+    /** Cut all active selections atomically. If nothing is selected, cuts the current line. */
+    fun cutSelectionText(): String {
+        val selections = (listOf(content.selectionAsEditorSelection()) + secondarySelections)
+            .filter { !it.isCaret }
+            .distinctBy { it.min to it.max }
+            .sortedByDescending { it.min }
+        if (selections.isEmpty()) {
+            val (result, cut) = cutText(content)
+            applyAction(result)
+            clearSecondarySelections()
+            return cut
+        }
+        var result = content.text
+        val copied = selections.sortedBy { it.min }.joinToString("\n") {
+            content.text.substring(it.min.coerceAtLeast(0), it.max.coerceAtMost(content.text.length))
+        }
+        selections.forEach { sel ->
+            val start = sel.min.coerceIn(0, result.length)
+            val end = sel.max.coerceIn(start, result.length)
+            result = result.removeRange(start, end)
+        }
+        val anchor = selections.minOf { it.min }.coerceIn(0, result.length)
+        updateContent(content.copy(text = result, selection = TextRange(anchor)))
+        clearSecondarySelections()
+        return copied
+    }
+
+    /** Paste into all carets/selections. If clipboard has multiple lines and there are
+     * multiple targets, matching lines are distributed one-per-target; otherwise the
+     * complete clipboard text is inserted into every target. */
+    fun pasteText(paste: String) {
+        val targets = (listOf(content.selectionAsEditorSelection()) + secondarySelections)
+            .distinctBy { it.min to it.max }
+            .sortedBy { it.min }
+        if (targets.size <= 1) {
+            val target = targets.firstOrNull() ?: EditorSelection(content.selection.start)
+            val start = target.min.coerceIn(0, content.text.length)
+            val end = target.max.coerceIn(start, content.text.length)
+            val newText = content.text.substring(0, start) + paste + content.text.substring(end)
+            updateContent(content.copy(text = newText, selection = TextRange(start + paste.length)))
+            clearSecondarySelections()
+            return
+        }
+        val chunks = paste.split("\n")
+        var result = content.text
+        val inserted = mutableListOf<EditorSelection>()
+        targets.sortedByDescending { it.min }.forEachIndexed { reverseIndex, target ->
+            val start = target.min.coerceIn(0, result.length)
+            val end = target.max.coerceIn(start, result.length)
+            val chunkIndex = targets.lastIndex - reverseIndex
+            val value = if (chunks.size == targets.size) chunks[chunkIndex] else paste
+            result = result.substring(0, start) + value + result.substring(end)
+            inserted += EditorSelection(start + value.length)
+        }
+        val primaryOffset = inserted.lastOrNull()?.start?.coerceIn(0, result.length) ?: content.selection.start
+        updateContent(content.copy(text = result, selection = TextRange(primaryOffset)))
+        clearSecondarySelections()
     }
 
     // ── Encoding / Line Endings ───────────────────────────────────
@@ -644,26 +893,40 @@ class PremiumEditorState(
     val bookmarks get() = activeTab.bookmarks
     val foldedLines get() = activeTab.foldedLines
 
-    val lineCount get() = content.text.count { it == '\n' } + 1
+    private val currentLineIndex get() = LineIndex(content.text)
+    val lineCount get() = currentLineIndex.lineCount
     val wordCount get() = content.text.trim().split(Regex("\\s+")).count { it.isNotEmpty() }
     val charCount get() = content.text.length
     val selCount get() = if (content.selection.length > 0) content.selection.length else 0
-    val cursorLine get() = content.text.substring(0, content.selection.start.coerceAtMost(content.text.length)).count { it == '\n' } + 1
-    val cursorCol get() = content.text.substring(0, content.selection.start.coerceAtMost(content.text.length)).substringAfterLast('\n').length + 1
+    val cursorLine get() = currentLineIndex.lineForOffset(content.selection.start)
+    fun cursorLineForTab(tabId: String): Int {
+        val tab = tabs.firstOrNull { it.id == tabId } ?: return 1
+        return LineIndex(tab.content.text).lineForOffset(tab.content.selection.start)
+    }
+    val cursorCol get() = content.selection.start.coerceAtLeast(0) - currentLineIndex.lineStart(cursorLine) + 1
     val fileExt get() = fileName.substringAfterLast('.', "txt").lowercase()
 
     // ── Autocomplete ──────────────────────────────────────────────
     var autocompleteSuggestions by mutableStateOf<List<String>>(emptyList())
     var showAutocomplete by mutableStateOf(false)
+    var showLivePreview by mutableStateOf(false)
 
     fun acceptSuggestion(word: String) {
         val text = content.text
         val pos = content.selection.start
-        val wordStart = text.lastIndexOfAny(charArrayOf(' ', '\n', '\t', '(', ')', '[', ']', '{', '}', '.', ',', ';', ':'), pos - 1) + 1
+        val wordStart = CompletionEngine.findPrefixStart(text, pos)
         val newText = text.substring(0, wordStart) + word + text.substring(pos)
         updateContent(content.copy(text = newText, selection = TextRange(wordStart + word.length)))
         showAutocomplete = false
     }
+
+    // ── Diagnostics ───────────────────────────────────────────────
+    /** Lightweight structural diagnostics; replaced by language services in Phase 5. */
+    fun diagnosticsForTab(tabId: String): List<Diagnostic> =
+        tabs.firstOrNull { it.id == tabId }?.let { WebLanguageTools.diagnostics(it.content.text, it.fileName) } ?: emptyList()
+
+    val diagnostics: List<Diagnostic>
+        get() = diagnosticsForTab(activeTab.id)
 
     // ── Dialogs / UI State ────────────────────────────────────────
     var showSaveAsDialog by mutableStateOf(false)

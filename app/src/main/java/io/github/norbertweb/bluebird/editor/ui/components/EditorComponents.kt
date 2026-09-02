@@ -53,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,10 +74,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.norbertweb.bluebird.editor.core.DEFAULT_SNIPPETS
+import io.github.norbertweb.bluebird.editor.core.DiagnosticSeverity
 import io.github.norbertweb.bluebird.editor.core.FileEncoding
 import io.github.norbertweb.bluebird.editor.core.IndentStyle
 import io.github.norbertweb.bluebird.editor.core.LineEnding
 import io.github.norbertweb.bluebird.editor.core.TabData
+import io.github.norbertweb.bluebird.editor.core.DocumentLineModel
 import io.github.norbertweb.bluebird.editor.editor.core.PremiumEditorState
 import io.github.norbertweb.bluebird.editor.ui.theme.EditorColors
 import io.github.norbertweb.bluebird.ui.components.FluentIcon
@@ -328,7 +331,7 @@ fun PremiumMenuBar(
             DdItem(FluentIcon.VerticalAlignCenter, "Go to Line…", "Ctrl+G", c) { s.activateEditorGroup(group); s.showGoToLineDialog = true; closeAll() }
             DdDivider(c.border)
             DdItem(FluentIcon.Comment, "Toggle Comment", "Ctrl+/", c) { s.activateEditorGroup(group); s.toggleComment(); closeAll() }
-            DdItem(FluentIcon.ContentCopy, "Duplicate Line", "Ctrl+D", c) { s.activateEditorGroup(group); s.duplicateCurrentLine(); closeAll() }
+            DdItem(FluentIcon.ContentCopy, "Duplicate Line", "Ctrl+Shift+D", c) { s.activateEditorGroup(group); s.duplicateCurrentLine(); closeAll() }
             DdItem(FluentIcon.DeleteForever, "Delete Line", "Ctrl+Shift+K", c) { s.activateEditorGroup(group); s.deleteCurrentLine(); closeAll() }
             DdItem(FluentIcon.ArrowUpward, "Move Line Up", "Alt+↑", c) { s.activateEditorGroup(group); s.moveCurrentLineUp(); closeAll() }
             DdItem(FluentIcon.ArrowDownward, "Move Line Down", "Alt+↓", c) { s.activateEditorGroup(group); s.moveCurrentLineDown(); closeAll() }
@@ -571,55 +574,62 @@ fun FindField(
 // ─────────────────────────────────────────────────────────────────
 
 @Composable
-fun PremiumGutter(s: PremiumEditorState, scrollState: ScrollState, tab: TabData = s.activeTab) {
+fun PremiumGutter(s: PremiumEditorState, scrollState: ScrollState, tab: TabData = s.activeTab, group: Int = 0) {
     val c = s.colors
     val effectiveFontSize = (s.fontSize * s.zoom).sp
+    val density = LocalDensity.current
+    val lineHeightPx = with(density) { (effectiveFontSize * 1.6f).toPx() }
+    var viewportHeightPx by remember { mutableIntStateOf(0) }
+    val model = remember(tab.content.text) { DocumentLineModel(tab.content.text) }
+    val viewport = remember(scrollState.value, viewportHeightPx, model.lineCount, lineHeightPx) {
+        model.viewport(scrollState.value, viewportHeightPx, lineHeightPx)
+    }
 
     Column(
         Modifier.width(56.dp).fillMaxHeight()
             .background(c.lineNumBg)
-            .verticalScroll(scrollState)
+            .onSizeChanged { viewportHeightPx = it.height }
             .padding(top = 12.dp, bottom = 12.dp),
         horizontalAlignment = Alignment.End
     ) {
-        val lineCount = tab.content.text.count { it == '\n' } + 1
-        val cursorBefore = tab.content.text.substring(0, tab.content.selection.start.coerceAtMost(tab.content.text.length))
-        val cursorLine = cursorBefore.count { it == '\n' } + 1
-        repeat(lineCount) { i ->
-            val lineNo = i + 1
-            val isCurrent = lineNo == cursorLine
+        Spacer(Modifier.height(with(density) { viewport.topSpacerPx.toDp() }))
+        model.visibleLines(viewport.firstLine, viewport.lastLine, tab.foldedLines).forEach { visible ->
+            val lineNo = visible.lineNumber
+            val isCurrent = lineNo == s.cursorLineForTab(tab.id)
             val hasBookmark = tab.bookmarks.any { it.line == lineNo }
-            val isModified = false // would track line-level changes with git diff
-
+            val lineDiagnostics = s.diagnosticsForTab(tab.id).filter { it.line == lineNo }
+            val hasError = lineDiagnostics.any { it.severity == DiagnosticSeverity.ERROR }
+            val hasWarning = lineDiagnostics.any { it.severity == DiagnosticSeverity.WARNING }
             Row(
-                Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+                Modifier.fillMaxWidth().height(with(density) { lineHeightPx.toDp() })
                     .clickable { s.activateEditorGroup(group); s.goToLineForTab(tab.id, lineNo) },
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Git gutter indicator (left 3px)
-                if (s.settings.showGitGutter) {
-                    Box(Modifier.width(3.dp).fillMaxHeight()
-                        .background(if (isModified) c.gutterModified else Color.Transparent))
+                val foldable = s.isFoldableLine(tab.id, lineNo)
+                Box(Modifier.size(18.dp).clickable(enabled = foldable) { s.activateEditorGroup(group); s.toggleFold(lineNo) }, contentAlignment = Alignment.Center) {
+                    if (foldable) {
+                        Text(if (lineNo in tab.foldedLines) "▸" else "⌄", color = c.textMuted, fontSize = 11.sp)
+                    }
                 }
-
-                // Bookmark indicator
-                if (hasBookmark) {
-                    Box(Modifier.size(8.dp).background(c.gold, CircleShape))
-                } else {
-                    Spacer(Modifier.width(8.dp))
+                if (s.settings.showGitGutter) Box(Modifier.width(3.dp).fillMaxHeight().background(Color.Transparent))
+                when {
+                    hasError -> Box(Modifier.size(7.dp).background(c.danger, CircleShape))
+                    hasWarning -> Box(Modifier.size(7.dp).background(c.warning, CircleShape))
+                    else -> Spacer(Modifier.width(7.dp))
                 }
-
-                // Line number
+                if (hasBookmark) Box(Modifier.size(8.dp).background(c.gold, CircleShape))
+                else Spacer(Modifier.width(8.dp))
                 Text(
                     "$lineNo",
                     color = if (isCurrent) c.accent else c.textMuted,
                     fontSize = (effectiveFontSize.value * 0.85f).sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                    modifier = Modifier.padding(end = 8.dp, top = 0.5.dp, bottom = 0.5.dp)
+                    modifier = Modifier.padding(end = 8.dp)
                 )
             }
         }
+        Spacer(Modifier.height(with(density) { viewport.bottomSpacerPx.toDp() }))
     }
     Box(Modifier.fillMaxHeight().width(1.dp).background(c.border))
 }
@@ -643,7 +653,11 @@ fun MinimapPanel(s: PremiumEditorState, scrollState: ScrollState, totalContentHe
         val lineHeight = size.height / totalLines.coerceAtLeast(1)
         val charWidth = size.width / 80f
 
-        text.split('\n').forEachIndexed { lineIdx, line ->
+        val lines = text.lineSequence().toList()
+        val stride = (lines.size / 600).coerceAtLeast(1)
+        lines.asSequence().withIndex().filter { it.index % stride == 0 }.forEach { indexed ->
+            val lineIdx = indexed.index
+            val line = indexed.value
             val y = lineIdx * lineHeight
             line.take(80).forEachIndexed { charIdx, ch ->
                 if (!ch.isWhitespace()) {

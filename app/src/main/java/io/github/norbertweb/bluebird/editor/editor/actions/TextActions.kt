@@ -38,6 +38,90 @@ fun TextFieldValue.selectionLines(): IntRange {
     return startLine..endLine
 }
 
+
+// ─────────────────────────────────────────────────────────────────
+// Keyboard navigation & selection
+// ─────────────────────────────────────────────────────────────────
+
+private fun clampOffset(tfv: TextFieldValue, offset: Int) = offset.coerceIn(0, tfv.text.length)
+
+private fun previousWordBoundary(text: String, offset: Int): Int {
+    var i = offset.coerceIn(0, text.length)
+    while (i > 0 && text[i - 1].isWhitespace()) i--
+    while (i > 0 && !text[i - 1].isLetterOrDigit() && text[i - 1] != '_') i--
+    while (i > 0 && (text[i - 1].isLetterOrDigit() || text[i - 1] == '_')) i--
+    return i
+}
+
+private fun nextWordBoundary(text: String, offset: Int): Int {
+    var i = offset.coerceIn(0, text.length)
+    while (i < text.length && text[i].isWhitespace()) i++
+    while (i < text.length && !text[i].isLetterOrDigit() && text[i] != '_') i++
+    while (i < text.length && (text[i].isLetterOrDigit() || text[i] == '_')) i++
+    return i
+}
+
+private fun moveSelection(tfv: TextFieldValue, target: Int, extend: Boolean): TextFieldValue {
+    val targetOffset = clampOffset(tfv, target)
+    return if (extend) {
+        tfv.copy(selection = TextRange(tfv.selection.start, targetOffset))
+    } else {
+        val sel = tfv.selection
+        if (!sel.collapsed && targetOffset == sel.min) tfv.copy(selection = TextRange(sel.min))
+        else if (!sel.collapsed && targetOffset == sel.max) tfv.copy(selection = TextRange(sel.max))
+        else tfv.copy(selection = TextRange(targetOffset))
+    }
+}
+
+fun moveLeft(tfv: TextFieldValue, extend: Boolean, byWord: Boolean): ActionResult {
+    val sel = tfv.selection
+    val target = if (!extend && !sel.collapsed) sel.min else if (byWord) previousWordBoundary(tfv.text, sel.start) else (sel.start - 1)
+    return ActionResult(moveSelection(tfv, target, extend), shouldRecord = false)
+}
+
+fun moveRight(tfv: TextFieldValue, extend: Boolean, byWord: Boolean): ActionResult {
+    val sel = tfv.selection
+    val target = if (!extend && !sel.collapsed) sel.max else if (byWord) nextWordBoundary(tfv.text, sel.end) else (sel.end + 1)
+    return ActionResult(moveSelection(tfv, target, extend), shouldRecord = false)
+}
+
+fun moveHome(tfv: TextFieldValue, extend: Boolean, document: Boolean = false): ActionResult {
+    val target = if (document) 0 else tfv.lineStartOffset(tfv.currentLine())
+    return ActionResult(moveSelection(tfv, target, extend), shouldRecord = false)
+}
+
+fun moveEnd(tfv: TextFieldValue, extend: Boolean, document: Boolean = false): ActionResult {
+    val target = if (document) tfv.text.length else tfv.lineEndOffset(tfv.currentLine())
+    return ActionResult(moveSelection(tfv, target, extend), shouldRecord = false)
+}
+
+fun deleteBackward(tfv: TextFieldValue, byWord: Boolean): ActionResult {
+    val sel = tfv.selection
+    if (!sel.collapsed) {
+        val newText = tfv.text.removeRange(sel.min, sel.max)
+        return ActionResult(tfv.copy(text = newText, selection = TextRange(sel.min)))
+    }
+    if (sel.start == 0) return ActionResult(tfv, shouldRecord = false)
+    val start = if (byWord) previousWordBoundary(tfv.text, sel.start) else sel.start - 1
+    val newText = tfv.text.removeRange(start, sel.start)
+    return ActionResult(tfv.copy(text = newText, selection = TextRange(start)))
+}
+
+fun deleteForward(tfv: TextFieldValue, byWord: Boolean): ActionResult {
+    val sel = tfv.selection
+    if (!sel.collapsed) {
+        val newText = tfv.text.removeRange(sel.min, sel.max)
+        return ActionResult(tfv.copy(text = newText, selection = TextRange(sel.min)))
+    }
+    if (sel.start >= tfv.text.length) return ActionResult(tfv, shouldRecord = false)
+    val end = if (byWord) nextWordBoundary(tfv.text, sel.start) else sel.start + 1
+    val newText = tfv.text.removeRange(sel.start, end)
+    return ActionResult(tfv.copy(text = newText, selection = TextRange(sel.start)))
+}
+
+fun selectWordAt(tfv: TextFieldValue): ActionResult = ActionResult(selectWord(tfv).newValue, shouldRecord = false)
+fun selectLineAt(tfv: TextFieldValue): ActionResult = ActionResult(selectLine(tfv).newValue, shouldRecord = false)
+
 // ─────────────────────────────────────────────────────────────────
 // Auto-Indent on Enter
 // ─────────────────────────────────────────────────────────────────
