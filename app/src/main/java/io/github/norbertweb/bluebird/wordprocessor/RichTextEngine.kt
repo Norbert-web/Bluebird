@@ -160,25 +160,67 @@ class RichTextTransformation(
         TransformedText(buildStyledText(text.text, spans, highlightRange), OffsetMapping.Identity)
 }
 
-/** Splits `para` at every newline in [newValue]: `para` keeps the first line, the rest come back as new blocks. */
-fun applyEnterSplit(para: ParagraphBlock, newValue: TextFieldValue): List<ParagraphBlock> {
-    val parts = newValue.text.split("\n")
+/** Returns the character style that should be used for typing at [cursor]. */
+fun typingStyleAtCursor(para: ParagraphBlock, cursor: Int): StyleAttrs {
     val base = BuiltInStyles.byId(para.styleId).baseAttrs()
-    para.field = TextFieldValue(parts[0])
-    para.spans = normalizeAndMerge(emptyList(), parts[0].length, base)
-    // A new paragraph after a heading/title/subtitle drops back to Normal, matching desktop word processors.
-    val nextStyleId = if (para.styleId in BuiltInStyles.HEADING_IDS) "normal" else para.styleId
-    return parts.drop(1).map { t ->
-        ParagraphBlock().apply {
-            styleId = nextStyleId
-            listType = para.listType
-            listLevel = para.listLevel
-            val b2 = BuiltInStyles.byId(nextStyleId).baseAttrs()
-            field = TextFieldValue(t, TextRange(t.length))
-            spans = normalizeAndMerge(emptyList(), t.length, b2)
-            typingStyle = b2
+    if (para.field.text.isEmpty()) return para.typingStyle
+    val pos = cursor.coerceIn(0, para.field.text.length)
+    val probe = if (pos > 0) pos - 1 else pos
+    return styleAt(para.spans, probe, base)
+}
+
+/**
+ * Applies an edited TextFieldValue and, when it contains newlines, splits it into paragraphs
+ * while preserving the character runs around the edit.  This is closer to desktop Word than
+ * rebuilding every new paragraph from an empty style.
+ */
+fun splitParagraphFromEditedValue(para: ParagraphBlock, newValue: TextFieldValue): List<ParagraphBlock> {
+    val old = para.field.text
+    val base = BuiltInStyles.byId(para.styleId).baseAttrs()
+    val (changeStart, changeOldEnd, changeNewEnd) = diffRegion(old, newValue.text)
+    val adjusted = adjustSpansForEdit(
+        para.spans, newValue.text.length,
+        changeStart, changeOldEnd, changeNewEnd,
+        para.typingStyle, base
+    )
+
+    val parts = newValue.text.split('\n')
+    val result = mutableListOf<ParagraphBlock>()
+    var offset = 0
+    parts.forEachIndexed { partIndex, text ->
+        val partStart = offset
+        val partEnd = offset + text.length
+        val partSpans = adjusted.mapNotNull { sp ->
+            val s = maxOf(sp.start, partStart)
+            val e = minOf(sp.end, partEnd)
+            if (e > s) FormatRange(s - partStart, e - partStart, sp.style) else null
         }
+        val target = if (partIndex == 0) para else ParagraphBlock()
+        if (partIndex > 0) {
+            // Enter keeps paragraph/list formatting. A new paragraph after a heading returns to Normal.
+            target.styleId = if (para.styleId in BuiltInStyles.HEADING_IDS) "normal" else para.styleId
+            target.alignmentOverride = para.alignmentOverride
+            target.listType = para.listType
+            target.listLevel = para.listLevel
+            target.spacingBeforeOverride = para.spacingBeforeOverride
+            target.spacingAfterOverride = para.spacingAfterOverride
+            target.lineSpacing = para.lineSpacing
+            target.leftIndentPt = para.leftIndentPt
+            target.rightIndentPt = para.rightIndentPt
+            target.firstLineIndentPt = para.firstLineIndentPt
+            val nextBase = BuiltInStyles.byId(target.styleId).baseAttrs()
+            target.typingStyle = nextBase
+        }
+        val targetBase = BuiltInStyles.byId(target.styleId).baseAttrs()
+        target.field = TextFieldValue(text, TextRange(if (partIndex == parts.lastIndex) newValue.selection.end.coerceIn(0, text.length) else text.length))
+        target.spans = normalizeAndMerge(partSpans, text.length, targetBase)
+        if (partIndex == 0) {
+            target.typingStyle = if (text.isEmpty()) para.typingStyle else typingStyleAtCursor(target, target.field.selection.end)
+        }
+        result.add(target)
+        offset = partEnd + 1
     }
+    return result.drop(1)
 }
 
 /** Computes the display number for every NUMBER-list paragraph in [blocks], restarting per indent level. */

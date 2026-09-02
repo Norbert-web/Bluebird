@@ -19,15 +19,22 @@ data class DocPage(val entries: List<IndexedBlock>)
 
 private fun estimateParagraphHeightPt(p: ParagraphBlock, contentWidthPt: Float): Float {
     val style = BuiltInStyles.byId(p.styleId)
-    val fontSize = style.fontSize.toFloat()
-    val avgCharWidth = fontSize * 0.52f
-    val charsPerLine = max(1, (contentWidthPt / avgCharWidth).toInt())
+    // Use direct character formatting when present; this prevents pagination from being
+    // visibly wrong when a paragraph contains a much larger/smaller run than its base style.
+    val base = style.baseAttrs()
+    val normalized = if (p.field.text.isEmpty()) emptyList() else normalizeAndMerge(p.spans, p.field.text.length, base)
+    val maxFontSize = maxOf(base.fontSize, normalized.maxOfOrNull { it.style.fontSize } ?: base.fontSize).toFloat()
+    val avgCharWidth = maxFontSize * 0.52f
+    val availableWidth = (contentWidthPt - p.leftIndentPt - p.rightIndentPt - if (p.listType != null) (p.listLevel + 1) * 20f else 0f).coerceAtLeast(36f)
+    val charsPerLine = max(1, (availableWidth / avgCharWidth).toInt())
     val text = p.field.text
     val textLines = if (text.isEmpty()) 1 else text.split("\n").sumOf { line ->
         max(1, ceil(line.length / charsPerLine.toFloat()).toInt())
     }
-    val lineHeight = fontSize * 1.4f
-    return style.spacingBefore + textLines * lineHeight + style.spacingAfter
+    val lineHeight = maxFontSize * p.lineSpacing
+    val before = p.spacingBeforeOverride ?: style.spacingBefore
+    val after = p.spacingAfterOverride ?: style.spacingAfter
+    return before + textLines * lineHeight + after
 }
 
 private fun estimateImageHeightPt(img: ImageBlock): Float {
@@ -36,7 +43,14 @@ private fun estimateImageHeightPt(img: ImageBlock): Float {
     return h + 40f // + the small align/resize/delete toolbar row under it
 }
 
-private fun estimateTableHeightPt(t: TableBlock): Float = t.rows.size * 30f + 30f
+private fun estimateTableHeightPt(t: TableBlock): Float {
+    val rows = t.rows.sumOf { row ->
+        maxOf(1, row.cells.maxOfOrNull { cell ->
+            cell.blocks.sumOf { p -> estimateParagraphHeightPt(p, 180f).toInt().coerceAtLeast(24) }
+        } ?: 24)
+    }
+    return rows.toFloat() + 30f
+}
 
 private fun estimateTocHeightPt(t: TocBlock): Float = 30f + t.entries.size * 22f
 
