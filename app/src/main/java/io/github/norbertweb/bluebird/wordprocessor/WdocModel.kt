@@ -97,6 +97,13 @@ class ParagraphBlock(override val id: String = UUID.randomUUID().toString()) : B
     var alignmentOverride by mutableStateOf<TextAlign?>(null)
     var listType by mutableStateOf<ListType?>(null)
     var listLevel by mutableStateOf(0)
+    // Direct paragraph layout controls (Word-like). Null means use the named style default.
+    var spacingBeforeOverride by mutableStateOf<Int?>(null)
+    var spacingAfterOverride by mutableStateOf<Int?>(null)
+    var lineSpacing by mutableStateOf(1.4f)
+    var leftIndentPt by mutableStateOf(0f)
+    var rightIndentPt by mutableStateOf(0f)
+    var firstLineIndentPt by mutableStateOf(0f)
     var field by mutableStateOf(TextFieldValue(""))
     var spans by mutableStateOf<List<FormatRange>>(emptyList())
     var typingStyle by mutableStateOf(StyleAttrs())
@@ -108,6 +115,12 @@ fun ParagraphBlock.copyFrom(other: ParagraphBlock) {
     alignmentOverride = other.alignmentOverride
     listType = other.listType
     listLevel = other.listLevel
+    spacingBeforeOverride = other.spacingBeforeOverride
+    spacingAfterOverride = other.spacingAfterOverride
+    lineSpacing = other.lineSpacing
+    leftIndentPt = other.leftIndentPt
+    rightIndentPt = other.rightIndentPt
+    firstLineIndentPt = other.firstLineIndentPt
     field = other.field
     spans = other.spans
     typingStyle = other.typingStyle
@@ -188,6 +201,23 @@ data class PageSettings(
 
 data class Bookmark(val id: String = UUID.randomUUID().toString(), var name: String, var blockId: String)
 
+data class DocumentComment(
+    val id: String = UUID.randomUUID().toString(),
+    var author: String = "Author",
+    var text: String,
+    var blockId: String = "",
+    var quotedText: String = "",
+    var resolved: Boolean = false
+)
+
+data class DocumentNote(
+    val id: String = UUID.randomUUID().toString(),
+    var text: String,
+    var isEndnote: Boolean = false,
+    var blockId: String = "",
+    var marker: Int = 0
+)
+
 /** App-wide preferences (defaults for new documents, autosave behavior). Lives for the process lifetime. */
 class AppSettings {
     var autosaveEnabled by mutableStateOf(true)
@@ -219,6 +249,8 @@ class WordDocument(title: String, pageDefaults: PageSettings = PageSettings()) {
     val footerParagraph = ParagraphBlock()
 
     val bookmarks = mutableStateListOf<Bookmark>()
+    val comments = mutableStateListOf<DocumentComment>()
+    val notes = mutableStateListOf<DocumentNote>()
 
     // Bounded undo/redo history — each entry is a serialized snapshot of `blocks` (see WdocIO.kt).
     val undoStack = mutableStateListOf<String>()

@@ -90,6 +90,12 @@ fun paragraphToJson(p: ParagraphBlock): JSONObject = JSONObject().apply {
     put("style", p.styleId)
     p.alignmentOverride?.let { put("alignment", textAlignToString(it)) }
     p.listType?.let { put("list", JSONObject().apply { put("type", it.name); put("level", p.listLevel) }) }
+    p.spacingBeforeOverride?.let { put("spacingBefore", it) }
+    p.spacingAfterOverride?.let { put("spacingAfter", it) }
+    put("lineSpacing", p.lineSpacing.toDouble())
+    put("leftIndentPt", p.leftIndentPt.toDouble())
+    put("rightIndentPt", p.rightIndentPt.toDouble())
+    put("firstLineIndentPt", p.firstLineIndentPt.toDouble())
     val base = BuiltInStyles.byId(p.styleId).baseAttrs()
     val text = p.field.text
     val spans = normalizeAndMerge(p.spans, text.length, base)
@@ -112,6 +118,12 @@ fun paragraphFromJson(o: JSONObject): ParagraphBlock {
         p.listType = ListType.entries.firstOrNull { it.name == l.optString("type") }
         p.listLevel = l.optInt("level", 0)
     }
+    if (o.has("spacingBefore")) p.spacingBeforeOverride = o.optInt("spacingBefore")
+    if (o.has("spacingAfter")) p.spacingAfterOverride = o.optInt("spacingAfter")
+    p.lineSpacing = o.optDouble("lineSpacing", 1.4).toFloat().coerceIn(0.8f, 3f)
+    p.leftIndentPt = o.optDouble("leftIndentPt", 0.0).toFloat().coerceIn(0f, 360f)
+    p.rightIndentPt = o.optDouble("rightIndentPt", 0.0).toFloat().coerceIn(0f, 360f)
+    p.firstLineIndentPt = o.optDouble("firstLineIndentPt", 0.0).toFloat().coerceIn(-180f, 180f)
     val runsArr = o.optJSONArray("runs") ?: JSONArray()
     val sb = StringBuilder()
     val spans = mutableListOf<FormatRange>()
@@ -229,7 +241,7 @@ fun serializeDocumentZip(doc: WordDocument): ByteArray {
     val bos = ByteArrayOutputStream()
     ZipOutputStream(bos).use { zos ->
         val metadata = JSONObject().apply {
-            put("format", "wdoc"); put("version", 2)
+            put("format", "wdoc"); put("version", 3)
             put("title", doc.title); put("author", doc.author)
             put("created", doc.created); put("modified", doc.lastModified)
         }
@@ -271,9 +283,20 @@ fun serializeDocumentZip(doc: WordDocument): ByteArray {
 
         val blocksArr = JSONArray()
         for (b in doc.blocks) blocksArr.put(blockToJson(b, mediaNames))
+        val commentsArr = JSONArray()
+        doc.comments.forEach { c -> commentsArr.put(JSONObject().apply {
+            put("id", c.id); put("author", c.author); put("text", c.text); put("blockId", c.blockId)
+            put("quotedText", c.quotedText); put("resolved", c.resolved)
+        }) }
+        val notesArr = JSONArray()
+        doc.notes.forEach { n -> notesArr.put(JSONObject().apply {
+            put("id", n.id); put("text", n.text); put("endnote", n.isEndnote); put("blockId", n.blockId); put("marker", n.marker)
+        }) }
         val document = JSONObject().apply {
             put("header", paragraphToJson(doc.headerParagraph))
             put("footer", paragraphToJson(doc.footerParagraph))
+            put("comments", commentsArr)
+            put("notes", notesArr)
             put("sections", JSONArray().put(JSONObject().apply { put("blocks", blocksArr) }))
         }
         zos.putNextEntry(ZipEntry("document.json")); zos.write(document.toString().toByteArray()); zos.closeEntry()
@@ -313,6 +336,27 @@ private fun parseDocumentZip(bytes: ByteArray, fallbackTitle: String): WordDocum
         val d = JSONObject(String(it))
         d.optJSONObject("header")?.let { h -> doc.headerParagraph.copyFrom(paragraphFromJson(h)) }
         d.optJSONObject("footer")?.let { f -> doc.footerParagraph.copyFrom(paragraphFromJson(f)) }
+        d.optJSONArray("comments")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val c = arr.getJSONObject(i)
+                doc.comments.add(DocumentComment(
+                    id = c.optString("id", java.util.UUID.randomUUID().toString()),
+                    author = c.optString("author", "Author"), text = c.optString("text", ""),
+                    blockId = c.optString("blockId", ""), quotedText = c.optString("quotedText", ""),
+                    resolved = c.optBoolean("resolved", false)
+                ))
+            }
+        }
+        d.optJSONArray("notes")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val n = arr.getJSONObject(i)
+                doc.notes.add(DocumentNote(
+                    id = n.optString("id", java.util.UUID.randomUUID().toString()),
+                    text = n.optString("text", ""), isEndnote = n.optBoolean("endnote", false),
+                    blockId = n.optString("blockId", ""), marker = n.optInt("marker", i + 1)
+                ))
+            }
+        }
         val blocksArr = d.optJSONArray("sections")?.optJSONObject(0)?.optJSONArray("blocks")
         if (blocksArr != null && blocksArr.length() > 0) {
             doc.blocks.clear()
@@ -361,6 +405,8 @@ fun plainTextOf(doc: WordDocument): String = doc.blocks.joinToString("\n\n") { b
 private fun deepCopyParagraph(p: ParagraphBlock): ParagraphBlock = ParagraphBlock().apply {
     styleId = p.styleId; alignmentOverride = p.alignmentOverride
     listType = p.listType; listLevel = p.listLevel
+    spacingBeforeOverride = p.spacingBeforeOverride; spacingAfterOverride = p.spacingAfterOverride
+    lineSpacing = p.lineSpacing; leftIndentPt = p.leftIndentPt; rightIndentPt = p.rightIndentPt; firstLineIndentPt = p.firstLineIndentPt
     field = TextFieldValue(p.field.text, TextRange(p.field.text.length))
     spans = p.spans
     typingStyle = p.typingStyle
@@ -396,6 +442,8 @@ fun duplicateDocument(source: WordDocument): WordDocument {
     clone.footerParagraph.copyFrom(deepCopyParagraph(source.footerParagraph))
     clone.showHeader = source.showHeader
     clone.showFooter = source.showFooter
+    source.comments.forEach { c -> clone.comments.add(c.copy(id = java.util.UUID.randomUUID().toString())) }
+    source.notes.forEach { n -> clone.notes.add(n.copy(id = java.util.UUID.randomUUID().toString())) }
     return clone
 }
 
@@ -420,6 +468,7 @@ private fun restoreBlocksFromJson(doc: WordDocument, json: String) {
 /** Call before any meaningfully distinct edit (a formatting toggle, insert, delete, ...). */
 fun WordDocument.pushUndoSnapshot() {
     undoStack.add(snapshotBlocksJson(this))
+    lastEditSnapshotAt = 0L
     if (undoStack.size > MAX_UNDO_DEPTH) undoStack.removeAt(0)
     redoStack.clear()
 }
