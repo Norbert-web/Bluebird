@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -16,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -30,6 +32,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
@@ -43,7 +46,7 @@ import io.github.norbertweb.bluebird.editor.core.DocumentLineModel
 import io.github.norbertweb.bluebird.editor.core.LineIndex
 import io.github.norbertweb.bluebird.editor.editor.core.PremiumEditorState
 import io.github.norbertweb.bluebird.editor.editor.highlighting.BracketMatch
-import io.github.norbertweb.bluebird.editor.highlighting.buildSyntaxHighlight
+import io.github.norbertweb.bluebird.editor.editor.highlighting.buildSyntaxHighlight
 import io.github.norbertweb.bluebird.editor.ui.theme.EditorColors
 
 /**
@@ -78,7 +81,7 @@ fun VirtualizedCodeSurface(
         tab.content.text.lineSequence().maxOfOrNull { it.length } ?: 0
     }
     val minWidthPx = with(density) { 320.dp.toPx() }
-    val contentWidthPx = maxOf(minWidthPx, 24.dp.toPx() + maxLineLength * charWidthPx)
+    val contentWidthPx = maxOf(minWidthPx, with(density) { 24.dp.toPx() } + maxLineLength * charWidthPx)
     var viewportHeightPx by remember { mutableIntStateOf(0) }
     val viewport = remember(scrollState.value, viewportHeightPx, totalLines, lineHeightPx) {
         model.viewport(scrollState.value, viewportHeightPx, lineHeightPx, overscan = 10)
@@ -140,7 +143,7 @@ fun VirtualizedCodeSurface(
         val line = model.visibleLines(viewport.firstLine, viewport.lastLine, tab.foldedLines)
             .getOrNull(visualIndex.coerceAtLeast(0))?.lineNumber
             ?: index.lineForOffset(tab.content.selection.start)
-        val col = ((position.x - pad + horizontalScroll.value) / charWidthPx)
+        val col = ((position.x - pad + horizontalScroll.value.toFloat()) / charWidthPx)
             .toInt().coerceAtLeast(0)
         return index.offsetAt(line, col, tab.content.text)
     }
@@ -239,8 +242,8 @@ fun VirtualizedCodeSurface(
                         imeAction = ImeAction.Default,
                     ),
                     modifier = Modifier
-                        .matchParentSize()
-                        .onFocusChanged { if (it.isFocused) s.activateEditorGroup(group) }
+                        .fillMaxSize()
+                        .onFocusChanged { if (it.isFocused) s.activateEditorGroup(group) },
                     decorationBox = { inner -> inner() },
                 )
             }

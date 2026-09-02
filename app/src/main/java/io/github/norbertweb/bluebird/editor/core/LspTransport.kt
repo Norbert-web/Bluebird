@@ -2,6 +2,7 @@ package io.github.norbertweb.bluebird.editor.core
 
 import android.net.Uri
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.BufferedInputStream
 import java.io.BufferedWriter
 import java.io.InputStream

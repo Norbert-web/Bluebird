@@ -39,9 +39,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.norbertweb.bluebird.editor.core.BottomPanel
+import io.github.norbertweb.bluebird.editor.editor.core.BottomPanel
 import io.github.norbertweb.bluebird.editor.core.SplitOrientation
-import io.github.norbertweb.bluebird.editor.core.ShellActivity
+import io.github.norbertweb.bluebird.editor.editor.core.ShellActivity
 import io.github.norbertweb.bluebird.editor.editor.core.PremiumEditorState
 import io.github.norbertweb.bluebird.ui.components.FluentIcon
 import java.io.File

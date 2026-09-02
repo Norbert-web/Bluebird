@@ -9,6 +9,7 @@ import android.os.Looper
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -88,7 +89,7 @@ fun LivePreviewPane(tab: TabData, colors: EditorColors, modifier: Modifier = Mod
                     settings.domStorageEnabled = true
                     settings.allowFileAccess = false
                     settings.allowContentAccess = false
-                    setBackgroundColor(Color.TRANSPARENT.hashCode())
+                    setBackgroundColor(Color.Transparent.hashCode())
                     webView = this
                     loadDataWithBaseURL("https://bluebird.local/", previewHtml, "text/html", "UTF-8", null)
                 }
@@ -111,7 +112,7 @@ fun LivePreviewPane(tab: TabData, colors: EditorColors, modifier: Modifier = Mod
 private fun buildPreviewDocument(source: String, ext: String): String = when (ext) {
     "html", "htm" -> source
     "css" -> """
-        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${source.replace("</style>", "<\/style>")}</style></head>
+        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${source.replace("</style>", "</style>")}</style></head>
         <body><main class="preview-card"><h1>Bluebird CSS Preview</h1><p>Style the preview to see your CSS changes live.</p><button>Button</button><a href="#">Link</a><input placeholder="Input"><div class="sample">Sample container</div></main></body></html>
     """.trimIndent()
     "js", "jsx", "mjs" -> """
@@ -132,7 +133,7 @@ private fun buildPreviewDocument(source: String, ext: String): String = when (ex
           console.error = (...a) => { send('error', a); originalError(...a); };
           window.addEventListener('error', e => send('error', [e.message + ' @ ' + e.lineno + ':' + e.colno]));
         })();
-        ${source.replace("</script>", "<\/script>")}
+        ${source.replace("</script>", "</script>")}
         </script></body></html>
     """.trimIndent()
     else -> "<html><body></body></html>"

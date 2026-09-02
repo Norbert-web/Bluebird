@@ -26,7 +26,21 @@ import io.github.norbertweb.bluebird.editor.core.WorkspaceSymbolIndex
 import io.github.norbertweb.bluebird.editor.core.WorkspaceSearchResult
 import io.github.norbertweb.bluebird.editor.core.LineEnding
 import io.github.norbertweb.bluebird.editor.core.TabData
+import io.github.norbertweb.bluebird.editor.core.LanguageIntelligence
+import io.github.norbertweb.bluebird.editor.core.DocumentSymbol
+import io.github.norbertweb.bluebird.editor.core.DefinitionLocation
+import io.github.norbertweb.bluebird.editor.core.ReferenceLocation
+import io.github.norbertweb.bluebird.editor.core.HoverInfo
+import io.github.norbertweb.bluebird.editor.core.FoldRegion
+import io.github.norbertweb.bluebird.editor.core.FoldingModel
+import io.github.norbertweb.bluebird.editor.core.WorkspaceLayout
+import io.github.norbertweb.bluebird.editor.core.SplitOrientation
+import io.github.norbertweb.bluebird.editor.core.selectionAsEditorSelection
+import io.github.norbertweb.bluebird.editor.core.ProductionHardening
 import io.github.norbertweb.bluebird.editor.editor.actions.ActionResult
+import io.github.norbertweb.bluebird.editor.editor.actions.currentLine
+import io.github.norbertweb.bluebird.editor.editor.actions.lineStartOffset
+import io.github.norbertweb.bluebird.editor.editor.actions.lineEndOffset
 import io.github.norbertweb.bluebird.editor.editor.actions.computeStats
 import io.github.norbertweb.bluebird.editor.editor.actions.convertLineEndings
 import io.github.norbertweb.bluebird.editor.editor.actions.cutText
@@ -263,6 +277,7 @@ class PremiumEditorState(
                 Math.abs(new.text.length - prev.text.length) > 20 ||
                 (prev.text.isNotEmpty() && new.text.isNotEmpty() && prev.text.last() == '\n')
 
+        val tab = activeTab
         updateTab {
             val newUndo = if (shouldPushHistory)
                 (undoStack + HistoryEntry(prev)).takeLast(500)
@@ -287,7 +302,6 @@ class PremiumEditorState(
             autocompleteSuggestions = suggestions
             showAutocomplete = suggestions.isNotEmpty()
         }
-        if (tab.filePath.isNotBlank()) workspaceIndex.updateDocument(tab.filePath, new.text)
     }
 
     // ── Undo / Redo ───────────────────────────────────────────────
@@ -595,6 +609,12 @@ class PremiumEditorState(
     }
 
     // ── Go To Line ────────────────────────────────────────────────
+    fun goToLineForTab(tabId: String, line: Int) {
+        val group = if (workspaceLayout.primaryTabIds.contains(tabId)) 0 else 1
+        selectTabIdInGroup(group, tabId)
+        goToLine(line)
+    }
+
     fun goToLine(line: Int) {
         val text = content.text
         val lines = text.split('\n')

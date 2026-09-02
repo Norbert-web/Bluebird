@@ -15,20 +15,24 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.norbertweb.bluebird.editor.editor.core.PremiumEditorState
-import io.github.norbertweb.bluebird.editor.core.ShellActivity
+import io.github.norbertweb.bluebird.editor.editor.core.ShellActivity
 import io.github.norbertweb.bluebird.ui.components.FluentIcon
 import java.io.File
 
 @Composable
 fun WorkspaceSymbolsDialog(s: PremiumEditorState) {
+    val context = LocalContext.current
     val c = s.colors
     var query by remember { mutableStateOf("") }
     val symbols = remember(s.workspaceIndex.indexedSymbolCount, query) {
@@ -62,7 +66,7 @@ fun WorkspaceSymbolsDialog(s: PremiumEditorState) {
                             s.updateTabById(s.tabs[open].id) { copy(content = content.copy(selection = androidx.compose.ui.text.TextRange(symbol.offset))) }
                             s.showWorkspaceSymbols = false
                         } else {
-                            runCatching { s.loadFile(LocalContext.current, symbol.filePath) }
+                            runCatching { s.loadFile(context, symbol.filePath) }
                             s.showWorkspaceSymbols = false
                         }
                     }.padding(horizontal = 8.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -103,6 +107,7 @@ fun RenameSymbolDialog(s: PremiumEditorState) {
 
 @Composable
 fun WorkspaceOutlineDialog(s: PremiumEditorState) {
+    val context = LocalContext.current
     val c = s.colors
     val files = s.workspaceIndex.indexedFiles
     val symbols = s.workspaceIndex.indexedSymbols
@@ -135,7 +140,7 @@ fun WorkspaceOutlineDialog(s: PremiumEditorState) {
                                     if (index >= 0) {
                                         s.selectTabIdInGroup(s.activeEditorGroup, s.tabs[index].id)
                                         s.updateTabById(s.tabs[index].id) { copy(content = content.copy(selection = androidx.compose.ui.text.TextRange(symbol.offset))) }
-                                    } else runCatching { s.loadFile(LocalContext.current, symbol.filePath) }
+                                    } else runCatching { s.loadFile(context, symbol.filePath) }
                                     s.showWorkspaceOutline = false
                                 }.padding(start = 24.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Icon(FluentIcon.Code, null, tint = c.accent, modifier = Modifier.size(12.dp))

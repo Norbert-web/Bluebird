@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,11 +64,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -426,7 +429,7 @@ private fun MenuEntry(
 ) {
     Box {
         MenuBtn(label, c, isOpen, onToggle)
-        DropdownMenu(expanded = isOpen, onDismissRequest = onToggle) { content() }
+        DropdownMenu(expanded = isOpen, onDismissRequest = onToggle) { content(this) }
     }
 }
 
@@ -478,7 +481,7 @@ fun DdDivider(color: Color) = Divider(Modifier.padding(vertical = 3.dp), color =
 // ─────────────────────────────────────────────────────────────────
 
 @Composable
-fun PremiumFindBar(s: PremiumEditorState) {
+fun PremiumFindBar(s: PremiumEditorState, group: Int = s.activeEditorGroup) {
     val c = s.colors
     val inputBg = c.surfaceHover
     val matches = remember(s.findQuery, s.content.text, s.matchCase, s.useRegex, s.wholeWord) { s.activateEditorGroup(group); s.findMatches() }
@@ -735,7 +738,7 @@ fun PremiumStatusBar(s: PremiumEditorState, onEncodingClick: () -> Unit, onLineE
             StatusChip("${(s.zoom * 100).toInt()}%", Color.White.copy(0.7f))
             val problemCount = s.diagnosticCount()
             StatusChip(if (problemCount > 0) "PROBLEMS $problemCount" else "PROBLEMS", Color.White.copy(0.78f), clickable = true, onClick = {
-                s.bottomPanel = io.github.norbertweb.bluebird.editor.core.BottomPanel.PROBLEMS
+                s.bottomPanel = io.github.norbertweb.bluebird.editor.editor.core.BottomPanel.PROBLEMS
                 s.showBottomPanel = true
             })
             StatusChip(s.lspStatus, if (s.languageServerManager.isConnected()) Color.White else Color.White.copy(0.62f), clickable = true, onClick = { s.refreshLspState() })
@@ -1371,7 +1374,7 @@ fun CodeActionsDialog(s: PremiumEditorState) {
     val c = s.colors
     AlertDialog(
         onDismissRequest = { s.showCodeActions = false },
-        containerColor = c.panel,
+        containerColor = c.surface,
         title = { Text("Quick Fixes & Code Actions", color = c.text) },
         text = {
             if (s.pendingCodeActions.isEmpty()) {
@@ -1404,6 +1407,7 @@ fun CodeActionsDialog(s: PremiumEditorState) {
 
 @Composable
 fun ReferencesDialog(s: PremiumEditorState) {
+    val context = LocalContext.current
     val c = s.colors
     val refs = s.referenceLocations
     AlertDialog(
@@ -1427,7 +1431,7 @@ fun ReferencesDialog(s: PremiumEditorState) {
                                 s.updateTabById(s.tabs[open].id) { copy(content = content.copy(selection = TextRange(ref.offset, ref.offset + ref.length))) }
                                 s.showReferencesPanel = false
                             } else {
-                            runCatching { s.loadFile(LocalContext.current, ref.fileName) }
+                            runCatching { s.loadFile(context, ref.fileName) }
                             s.showReferencesPanel = false
                         }
                         }.padding(horizontal = 10.dp, vertical = 7.dp),
@@ -1453,6 +1457,7 @@ fun ReferencesDialog(s: PremiumEditorState) {
 
 @Composable
 fun WorkspaceSearchDialog(s: PremiumEditorState) {
+    val context = LocalContext.current
     val c = s.colors
     var query by remember { mutableStateOf("") }
     var caseSensitive by remember { mutableStateOf(false) }
@@ -1508,7 +1513,7 @@ fun WorkspaceSearchDialog(s: PremiumEditorState) {
                                     s.updateTabById(s.tabs[open].id) { copy(content = content.copy(selection = TextRange(result.offset, result.offset + result.matchText.length))) }
                                     s.showWorkspaceSearch = false
                                 } else {
-                                    runCatching { s.loadFile(LocalContext.current, result.filePath) }
+                                    runCatching { s.loadFile(context, result.filePath) }
                                     s.showWorkspaceSearch = false
                                 }
                             }.padding(horizontal = 10.dp, vertical = 7.dp),
@@ -1535,6 +1540,7 @@ fun WorkspaceSearchDialog(s: PremiumEditorState) {
 
 @Composable
 fun QuickOpenDialog(s: PremiumEditorState) {
+    val context = LocalContext.current
     val c = s.colors
     var query by remember { mutableStateOf("") }
     val focusReq = remember { FocusRequester() }
@@ -1581,7 +1587,7 @@ fun QuickOpenDialog(s: PremiumEditorState) {
                                 val open = s.tabs.indexOfFirst { it.filePath == path }
                                 if (open >= 0) s.selectTabIdInGroup(group, s.tabs[open].id)
                                 else if (path.isNotEmpty()) {
-                                    runCatching { s.loadFile(LocalContext.current, path) }
+                                    runCatching { s.loadFile(context, path) }
                                         .onFailure { s.toast("Unable to open ${java.io.File(path).name}") }
                                 }
                                 s.showQuickOpen = false

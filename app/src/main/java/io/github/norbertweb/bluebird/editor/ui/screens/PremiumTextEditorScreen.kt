@@ -1,6 +1,7 @@
 package io.github.norbertweb.bluebird.editor.ui.screens
 
 import android.content.Intent
+import android.content.Context
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -63,6 +64,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.io.File
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import io.github.norbertweb.bluebird.editor.core.EditorSettings
 import io.github.norbertweb.bluebird.editor.editor.core.PremiumEditorState
 import io.github.norbertweb.bluebird.editor.editor.highlighting.findMatchingBracket
@@ -86,6 +90,7 @@ import io.github.norbertweb.bluebird.editor.ui.components.GoToLineDialog
 import io.github.norbertweb.bluebird.editor.ui.components.LineEndingDialog
 import io.github.norbertweb.bluebird.editor.ui.components.MinimapPanel
 import io.github.norbertweb.bluebird.editor.ui.components.LivePreviewPane
+import io.github.norbertweb.bluebird.editor.ui.components.isWebPreviewSupported
 import io.github.norbertweb.bluebird.editor.ui.components.PremiumFindBar
 import io.github.norbertweb.bluebird.editor.ui.components.PremiumGutter
 import io.github.norbertweb.bluebird.editor.ui.components.VirtualizedCodeSurface
@@ -103,7 +108,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 // ─────────────────────────────────────────────────────────────────
 // PremiumTextEditorScreen
