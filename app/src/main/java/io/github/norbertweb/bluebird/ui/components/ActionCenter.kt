@@ -3,12 +3,9 @@ package io.github.norbertweb.bluebird.ui.components
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings as AndroidSettings
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,13 +18,11 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -38,6 +33,7 @@ import androidx.compose.ui.unit.*
 import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
 import io.github.norbertweb.bluebird.RealNotification
+import io.github.norbertweb.bluebird.ui.theme.LocalIsDarkTheme
 import io.github.norbertweb.bluebird.ui.theme.LocalTextScale
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 
@@ -53,7 +49,7 @@ data class BluebirdRemoteNotification(
     val expiresAt: String?,
     val actionLabel: String?,
     val actionUrl: String?,
-    val badgeColor: String = "#0078D4"
+    val badgeColor: String = "#4C63D9"
 )
 
 // ─── Text Scale Steps ─────────────────────────────────────────────────────────
@@ -90,10 +86,10 @@ fun ActionCenter(
     val remoteNotifications = uiState.remoteNotifications
     val dismissedRemoteIds  = uiState.dismissedRemoteNotificationIds
 
-    val isDark     = uiState.isDarkTheme
+    val isDark     = LocalIsDarkTheme.current
     val textColor  = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val subColor   = textColor.copy(alpha = 0.55f)
-    val divColor   = if (isDark) Color(0xFF3A3A3A) else Color(0xFFDEDEDE)
+    val divColor   = if (isDark) DS.borderDark else DS.borderLight
 
     // Local, self-contained state for toggles that aren't (yet) modeled in
     // LauncherUiState/LauncherViewModel. Wire each of these to real
@@ -202,11 +198,22 @@ fun ActionCenter(
                     onClick  = { viewModel.toggleAirplaneMode() }
                 ),
                 ToggleData(
-                    label    = if (uiState.isDarkTheme) "Dark Mode" else "Light Mode",
-                    subLabel = "Active",
-                    icon     = if (uiState.isDarkTheme) FluentIcon.Moon else FluentIcon.WeatherSunny,
+                    label    = if (isDark) "Dark Mode" else "Light Mode",
+                    subLabel = "System setting",
+                    icon     = if (isDark) FluentIcon.Moon else FluentIcon.WeatherSunny,
                     active   = true,
-                    onClick  = { viewModel.toggleTheme() }
+                    // Bluebird follows the system theme now (see Theme.kt /
+                    // LocalIsDarkTheme) — there's no in-app toggle to flip
+                    // anymore, so this tile does what the Wi-Fi/Bluetooth
+                    // tiles already do: hand off to the real system setting.
+                    onClick  = {
+                        try {
+                            context.startActivity(
+                                Intent(AndroidSettings.ACTION_DISPLAY_SETTINGS)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        } catch (e: Exception) { e.printStackTrace() }
+                    }
                 ),
                 ToggleData(
                     label    = "Focus Assist",
@@ -326,11 +333,8 @@ fun ActionCenter(
                 textScale = textScale
             )
 
-            AnimatedVisibility(
-                visible = expanded,
-                enter   = fadeIn(tween(180)) + expandVertically(spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)),
-                exit    = fadeOut(tween(120)) + shrinkVertically(tween(160))
-            ) {
+            // ── Second page — shown/hidden instantly, no expand/fade animation ──
+            if (expanded) {
                 Column {
                     Spacer(modifier = Modifier.height(8.dp))
                     QuickToggleGrid(
@@ -538,27 +542,16 @@ private fun DndPill(
     onClick: () -> Unit,
     textScale: Float
 ) {
-    val bg by animateColorAsState(
-        targetValue   = if (enabled) bluebirdColors.AccentBlue else
-            if (isDark) Color(0xFF3A3A3A) else Color(0xFFE0E0E0),
-        animationSpec = tween(160),
-        label         = "dndBg"
-    )
+    val bg = if (enabled) bluebirdColors.AccentBlue else
+        (if (isDark) DS.surfaceDark else DS.surfaceLight)
     val fg = if (enabled) Color.White else
         if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue   = if (isPressed) 0.93f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh),
-        label         = "dndPress"
-    )
     val haptics = LocalHapticFeedback.current
 
     Row(
         modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(20.dp))
             .background(bg)
             .clickable(
@@ -566,8 +559,6 @@ private fun DndPill(
                 // No ripple indication here — avoids the deprecated
                 // rememberRipple API (this project's Material3 version
                 // doesn't ship the newer ripple() replacement either).
-                // The scale-based press animation above already gives
-                // tactile feedback on tap.
                 indication        = null,
                 onClick           = {
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -600,19 +591,12 @@ private fun SmallIconButton(
     content: @Composable () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue   = if (isPressed) 0.88f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh),
-        label         = "iconBtnPress"
-    )
 
     Box(
         modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
             .size(28.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isDark) Color(0xFF2E2E2E) else Color(0xFFE8E8E8))
+            .background(if (isDark) DS.surfaceDark else DS.surfaceLight)
             .clickable(
                 interactionSource = interactionSource,
                 indication        = null,
@@ -678,7 +662,7 @@ private fun QuickToggleTile(
     modifier: Modifier = Modifier
 ) {
     val activeBg   = bluebirdColors.AccentBlue.copy(alpha = 0.18f)
-    val inactiveBg = if (isDark) Color(0xFF2C2C2C) else Color(0xFFEBEBEB)
+    val inactiveBg = if (isDark) DS.surfaceDark else DS.surfaceLight
     val bg         = if (data.active) activeBg else inactiveBg
     val iconTint   = if (data.active) bluebirdColors.AccentBlue else
         if (isDark) bluebirdColors.TextSecondary else bluebirdColors.TextSecondaryLight
@@ -687,40 +671,12 @@ private fun QuickToggleTile(
     val haptics    = LocalHapticFeedback.current
 
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-
-    // Two-stage motion: a quick, snappy press-down (Win11's fast fluent
-    // "compress" feel) then a soft bouncy settle on release/toggle — instead
-    // of one generic spring driving everything.
-    val pressScale by animateFloatAsState(
-        targetValue   = if (isPressed) 0.94f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh),
-        label         = "tilePress"
-    )
-    val settleScale by animateFloatAsState(
-        targetValue   = if (data.active) 1f else 0.985f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label         = "tileSettle"
-    )
-    val borderAlpha by animateFloatAsState(
-        targetValue   = if (data.active) 0.4f else 0f,
-        animationSpec = tween(180),
-        label         = "tileBorder"
-    )
-    val bgColor by animateColorAsState(
-        targetValue   = bg,
-        animationSpec = tween(180),
-        label         = "tileBg"
-    )
+    val borderAlpha = if (data.active) 0.4f else 0f
 
     Column(
         modifier = modifier
-            .graphicsLayer {
-                scaleX = pressScale * settleScale
-                scaleY = pressScale * settleScale
-            }
             .clip(RoundedCornerShape(12.dp))
-            .background(bgColor)
+            .background(bg)
             .border(
                 width = 1.dp,
                 color = bluebirdColors.AccentBlue.copy(alpha = borderAlpha),
@@ -777,11 +733,6 @@ private fun ExpandChevronRow(
     textScale: Float,
     onClick: () -> Unit
 ) {
-    val rotation by animateFloatAsState(
-        targetValue   = if (expanded) 180f else 0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-        label         = "chevronRotate"
-    )
     val tint = if (isDark) bluebirdColors.TextSecondary else bluebirdColors.TextSecondaryLight
 
     Box(
@@ -797,12 +748,10 @@ private fun ExpandChevronRow(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = FluentIcon.ChevronDown,
+                imageVector = if (expanded) FluentIcon.ChevronUp else FluentIcon.ChevronDown,
                 contentDescription = if (expanded) "Show fewer quick actions" else "Show more quick actions",
                 tint     = tint,
-                modifier = Modifier
-                    .size(16.dp)
-                    .graphicsLayer { rotationZ = rotation }
+                modifier = Modifier.size(16.dp)
             )
         }
     }
@@ -846,7 +795,7 @@ private fun SliderSection(
                 colors        = SliderDefaults.colors(
                     thumbColor            = bluebirdColors.AccentBlue,
                     activeTrackColor      = bluebirdColors.AccentBlue,
-                    inactiveTrackColor    = if (isDark) Color(0xFF444444) else Color(0xFFCCCCCC)
+                    inactiveTrackColor    = if (isDark) DS.borderDark else DS.borderLight
                 )
             )
         }
@@ -905,7 +854,7 @@ private fun TextScaleSection(
             steps.forEach { (scale, label) ->
                 val selected = kotlin.math.abs(scale - currentScale) < 0.05f
                 val bg       = if (selected) bluebirdColors.AccentBlue
-                else if (isDark) Color(0xFF2C2C2C) else Color(0xFFEBEBEB)
+                else if (isDark) DS.surfaceDark else DS.surfaceLight
                 val fg       = if (selected) Color.White
                 else if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
@@ -916,7 +865,7 @@ private fun TextScaleSection(
                         .background(bg)
                         .border(
                             width = if (selected) 0.dp else 0.5.dp,
-                            color = if (isDark) Color(0xFF444444) else Color(0xFFCCCCCC),
+                            color = if (isDark) DS.borderDark else DS.borderLight,
                             shape = RoundedCornerShape(8.dp)
                         )
                         .clickable { onScaleChange(scale) }
@@ -934,7 +883,7 @@ private fun TextScaleSection(
         }
 
         // Preview text
-        val previewBg = if (isDark) Color(0xFF1E1E1E) else Color(0xFFF5F5F5)
+        val previewBg = if (isDark) DS.surfaceDark else DS.surfaceLight
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -967,26 +916,7 @@ private fun BatterySection(
         level > 20 -> bluebirdColors.Success
         else       -> bluebirdColors.Error
     }
-    val animatedColor by animateColorAsState(
-        targetValue   = batteryColor,
-        animationSpec = tween(300),
-        label         = "batteryColor"
-    )
-    val animatedLevel by animateFloatAsState(
-        targetValue   = level / 100f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
-        label         = "batteryLevel"
-    )
-
-    // Gentle charging pulse on the bolt icon — a small nod to the subtle
-    // motion Windows 11 uses to signal an active/live state.
-    val infinite = rememberInfiniteTransition(label = "chargePulse")
-    val boltAlpha by infinite.animateFloat(
-        initialValue  = 0.55f,
-        targetValue   = 1f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label         = "boltAlpha"
-    )
+    val levelFraction = level / 100f
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1002,7 +932,7 @@ private fun BatterySection(
                         else       -> FluentIcon.Battery0
                     },
             contentDescription = "Battery",
-            tint     = animatedColor,
+            tint     = batteryColor,
             modifier = Modifier.size(22.dp)
         )
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1020,19 +950,19 @@ private fun BatterySection(
                     Icon(
                         imageVector = FluentIcon.Flash,
                         contentDescription = null,
-                        tint     = bluebirdColors.AccentBlue.copy(alpha = boltAlpha),
+                        tint     = bluebirdColors.AccentBlue,
                         modifier = Modifier.size(14.dp)
                     )
                 }
             }
             LinearProgressIndicator(
-                progress = { animatedLevel },
+                progress = { levelFraction },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(5.dp)
                     .clip(RoundedCornerShape(3.dp)),
-                color      = animatedColor,
-                trackColor = if (isDark) Color(0xFF3C3C3C) else Color(0xFFE0E0E0)
+                color      = batteryColor,
+                trackColor = if (isDark) DS.borderDark else DS.borderLight
             )
         }
     }
@@ -1051,7 +981,7 @@ private fun NotificationGroup(
     onOpen: (String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(true) }
-    val headerBg = if (isDark) Color(0xFF252525) else Color(0xFFE8E8E8)
+    val headerBg = if (isDark) DS.surfaceDark else DS.surfaceLight
 
     Column {
         // Group header
@@ -1098,7 +1028,8 @@ private fun NotificationGroup(
             )
         }
 
-        AnimatedVisibility(visible = expanded) {
+        // ── Notification list — shown/hidden instantly, no expand animation ──
+        if (expanded) {
             Column {
                 notifs.forEach { notif ->
                     SwipeToDismissNotifCard(
@@ -1129,17 +1060,9 @@ private fun SwipeToDismissNotifCard(
     var offsetX       by remember { mutableStateOf(0f) }
     var isDismissed   by remember { mutableStateOf(false) }
     val threshold     = 300f
-    val cardBg        = if (isDark) Color(0xFF2A2A2A) else Color(0xFFF0F0F0)
+    val cardBg        = if (isDark) DS.surfaceDark else DS.surfaceLight
     val haptics       = LocalHapticFeedback.current
     var thresholdCrossed by remember { mutableStateOf(false) }
-
-    // Snappier settle spring than a flat tween — matches the fluent
-    // "flick and stick" feel Windows 11 lists use.
-    val animOffset by animateFloatAsState(
-        targetValue   = if (isDismissed) 1000f else offsetX,
-        animationSpec = if (isDismissed) tween(180) else spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium),
-        label         = "swipe"
-    )
 
     if (isDismissed) {
         LaunchedEffect(Unit) { onDismiss() }
@@ -1178,7 +1101,7 @@ private fun SwipeToDismissNotifCard(
 
         Row(
             modifier = Modifier
-                .offset { IntOffset(animOffset.toInt(), 0) }
+                .offset { IntOffset(offsetX.toInt(), 0) }
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp))
                 .background(cardBg)
@@ -1270,18 +1193,11 @@ private fun NotifActionButton(
     textScale: Float,
     onClick: () -> Unit
 ) {
-    val bg = if (isDark) Color(0xFF3A3A3A) else Color(0xFFDDDDDD)
+    val bg = if (isDark) DS.surfaceDark else DS.surfaceLight
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue   = if (isPressed) 0.92f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessHigh),
-        label         = "notifActionPress"
-    )
 
     Box(
         modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(6.dp))
             .background(bg)
             .clickable(
@@ -1393,19 +1309,10 @@ private fun EmptyNotificationsPlaceholder(
     textColor: Color,
     textScale: Float
 ) {
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { visible = true }
-    val alpha by animateFloatAsState(
-        targetValue   = if (visible) 1f else 0f,
-        animationSpec = tween(260),
-        label         = "emptyFadeIn"
-    )
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(72.dp)
-            .alpha(alpha),
+            .height(72.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(

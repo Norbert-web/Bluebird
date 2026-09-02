@@ -4,10 +4,6 @@ package io.github.norbertweb.bluebird.ui.components
 // the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
 // Dependency (module build.gradle.kts):
 //     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -77,6 +73,7 @@ import io.github.norbertweb.bluebird.ui.screens.MessagesScreen
 import io.github.norbertweb.bluebird.ui.screens.RecycleBinScreen
 import io.github.norbertweb.bluebird.ui.screens.SettingsScreen
 import io.github.norbertweb.bluebird.ui.screens.TaskManagerScreen
+import io.github.norbertweb.bluebird.ui.theme.LocalIsDarkTheme
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import io.github.norbertweb.bluebird.wordprocessor.PhoneScreen
 import kotlinx.coroutines.flow.debounce
@@ -195,25 +192,18 @@ data class WindowGeometry(
 fun WindowManager(
     windows: List<WindowState>,
     activeWindowId: String?,
-    isDark: Boolean,
+    isDark: Boolean, // kept for source compatibility with existing call sites; ignored — see below
     viewModel: LauncherViewModel,
     modifier: Modifier = Modifier
 ) {
+    // Single source of truth for light/dark (see Theme.kt / LocalIsDarkTheme)
+    // instead of trusting whatever the caller passes in — this is the one
+    // place WindowManager decides, and every window below inherits it.
+    val effectiveIsDark = LocalIsDarkTheme.current
     Box(modifier = modifier) {
         windows.forEach { window ->
             key(window.id) {
                 val isMinimized = window.isMinimized
-
-                val animatedAlpha by animateFloatAsState(
-                    targetValue   = if (isMinimized) 0f else 1f,
-                    animationSpec = tween(180, easing = FastOutSlowInEasing),
-                    label         = "windowAlpha_${window.id}"
-                )
-                val animatedScaleY by animateFloatAsState(
-                    targetValue   = if (isMinimized) 0.92f else 1f,
-                    animationSpec = tween(180, easing = FastOutSlowInEasing),
-                    label         = "windowScaleY_${window.id}"
-                )
 
                 // ── Minimized window touch fix ────────────────────────────────
                 // graphicsLayer(alpha=0) hides the window visually but the Box
@@ -232,16 +222,14 @@ fun WindowManager(
                 ) {
                     Box(
                         modifier = Modifier.graphicsLayer {
-                            alpha           = animatedAlpha
-                            scaleY          = animatedScaleY
-                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
+                            alpha           = if (isMinimized) 0f else 1f
                             clip            = false
                         }
                     ) {
                         FloatingWindow(
                             windowState = window,
                             isActive    = window.id == activeWindowId,
-                            isDark      = isDark,
+                            isDark      = effectiveIsDark,
                             viewModel   = viewModel,
                             onClose     = { viewModel.closeWindow(window.id) },
                             onMinimize  = { viewModel.minimizeWindow(window.id) },
@@ -322,15 +310,12 @@ fun FloatingWindow(
     // ── Context menu ──────────────────────────────────────────────────────────
     var showContextMenu by remember { mutableStateOf(false) }
 
-    val elevation by animateDpAsState(
-        targetValue   = if (isActive) 24.dp else 8.dp,
-        label         = "elevation"
-    )
-    val windowBg = if (isDark) Color(0xFF1C1C1C) else Color(0xFFF5F5F5)
+    val elevation = if (isActive) 24.dp else 8.dp
+    val windowBg = if (isDark) DS.surfaceDark else DS.surfaceLight
     val borderColor = if (isActive)
         bluebirdColors.AccentBlue.copy(alpha = if (isSnapping) 0.9f else 0.45f)
     else
-        Color.White.copy(alpha = 0.1f)
+        (if (isDark) DS.borderDark else DS.borderLight)
     val borderWidth = if (isActive) (if (isSnapping) 2.dp else 1.dp) else 0.5.dp
 
     // ── Effective size: PiP shrinks window to thumbnail ───────────────────────
@@ -339,32 +324,15 @@ fun FloatingWindow(
     val effectiveH = if (isPip) pipH else if (windowState.isMaximized)
         with(density) { canvasHeightPx.toDp().value } else windowHeightDp
 
-    val animOffsetX by animateFloatAsState(
-        targetValue   = if (windowState.isMaximized && !isPip) 0f else offsetX,
-        animationSpec = tween(200, easing = FastOutSlowInEasing),
-        label         = "winOffsetX_${windowState.id}"
-    )
-    val animOffsetY by animateFloatAsState(
-        targetValue   = if (windowState.isMaximized && !isPip) 0f else offsetY,
-        animationSpec = tween(200, easing = FastOutSlowInEasing),
-        label         = "winOffsetY_${windowState.id}"
-    )
-    val animW by animateFloatAsState(
-        targetValue   = effectiveW,
-        animationSpec = tween(200, easing = FastOutSlowInEasing),
-        label         = "winW_${windowState.id}"
-    )
-    val animH by animateFloatAsState(
-        targetValue   = effectiveH,
-        animationSpec = tween(200, easing = FastOutSlowInEasing),
-        label         = "winH_${windowState.id}"
-    )
-    val cornerRadius = if (windowState.isMaximized && !isPip) 0.dp else 10.dp
-    val animCorner by animateDpAsState(
-        targetValue   = cornerRadius,
-        animationSpec = tween(200),
-        label         = "winCorner_${windowState.id}"
-    )
+    // Position, size, and corner radius now track state directly — no
+    // per-frame tween interpolation. Maximize/restore and drag are instant
+    // and 1:1 with input instead of animating over ~200ms each, which adds
+    // up fast with several windows open at once.
+    val animOffsetX = if (windowState.isMaximized && !isPip) 0f else offsetX
+    val animOffsetY = if (windowState.isMaximized && !isPip) 0f else offsetY
+    val animW = effectiveW
+    val animH = effectiveH
+    val animCorner = if (windowState.isMaximized && !isPip) 0.dp else 10.dp
 
     // ── Canvas size clamp: re-clamp window position if canvas shrinks ──────────
     LaunchedEffect(canvasWidthPx, canvasHeightPx) {
@@ -602,9 +570,9 @@ private fun SnapLayoutPicker(
     onDismiss: () -> Unit,
     onLayoutSelected: (SnapLayout) -> Unit
 ) {
-    val bg     = if (isDark) Color(0xFF2C2C2C) else Color(0xFFFFFFFF)
+    val bg     = if (isDark) DS.surfaceDark else DS.surfaceLight
     val accent = bluebirdColors.AccentBlue
-    val cell   = if (isDark) Color(0xFF3A3A3A) else Color(0xFFE0E0E0)
+    val cell   = if (isDark) bluebirdColors.SurfaceContainer else bluebirdColors.SurfaceContainerLight
     val hover  = accent.copy(alpha = 0.7f)
 
     // Dismiss on outside tap
@@ -620,14 +588,14 @@ private fun SnapLayoutPicker(
             .shadow(12.dp, RoundedCornerShape(10.dp))
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
-            .border(1.dp, if (isDark) Color(0xFF444444) else Color(0xFFDDDDDD), RoundedCornerShape(10.dp))
+            .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(10.dp))
             .padding(10.dp)
             .pointerInput(Unit) { detectTapGestures { /* absorb */ } }
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
                 text       = "Snap Layout",
-                color      = if (isDark) Color.White.copy(0.7f) else Color(0xFF333333),
+                color      = if (isDark) bluebirdColors.TextPrimary.copy(0.7f) else bluebirdColors.TextPrimaryLight,
                 fontSize   = 11.sp,
                 fontWeight = FontWeight.Medium,
                 modifier   = Modifier.padding(bottom = 2.dp)
@@ -708,9 +676,9 @@ private fun WindowContextMenu(
     onOpacityChange: (Float) -> Unit,
     onPip: () -> Unit
 ) {
-    val bg      = if (isDark) Color(0xFF2C2C2C) else Color.White
-    val itemCol = if (isDark) Color.White else Color(0xFF1A1A1A)
-    val divider = if (isDark) Color(0xFF3F3F3F) else Color(0xFFE0E0E0)
+    val bg      = if (isDark) DS.surfaceDark else DS.surfaceLight
+    val itemCol = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val divider = if (isDark) DS.borderDark else DS.borderLight
 
     Box(modifier = Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { onDismiss() } })
 
@@ -721,7 +689,7 @@ private fun WindowContextMenu(
             .shadow(16.dp, RoundedCornerShape(10.dp))
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
-            .border(1.dp, if (isDark) Color(0xFF444444) else Color(0xFFDDDDDD), RoundedCornerShape(10.dp))
+            .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(10.dp))
             .padding(6.dp)
             .pointerInput(Unit) { detectTapGestures { /* absorb */ } }
     ) {
@@ -759,7 +727,7 @@ private fun WindowContextMenu(
                 }
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(divider).padding(vertical = 2.dp))
-            ContextMenuItem("Close",          Color(0xFFE74C3C), onClick = onClose)
+            ContextMenuItem("Close",          DS.badgeRed, onClick = onClose)
         }
     }
 }
@@ -800,7 +768,7 @@ private fun PipThumbnail(
     onExpand: () -> Unit,
     onDrag: (Float, Float) -> Unit
 ) {
-    val bg   = if (isDark) Color(0xFF2A2A2A) else Color(0xFFEEEEEE)
+    val bg   = if (isDark) DS.surfaceDark else DS.surfaceLight
 
     Box(
         modifier = Modifier
@@ -819,12 +787,12 @@ private fun PipThumbnail(
             // falling back to iconForKey()'s Fluent glyph.
             WindowKeyIcon(
                 key = windowState.iconKey,
-                tint = if (isDark) Color.White.copy(0.7f) else Color(0xFF444444),
+                tint = if (isDark) bluebirdColors.TextPrimary.copy(0.7f) else bluebirdColors.TextPrimaryLight.copy(0.7f),
                 modifier = Modifier.size(28.dp)
             )
             Spacer(Modifier.height(4.dp))
             Text(windowState.title, fontSize = 10.sp,
-                color = if (isDark) Color.White.copy(0.6f) else Color(0xFF555555),
+                color = if (isDark) bluebirdColors.TextPrimary.copy(0.6f) else bluebirdColors.TextPrimaryLight.copy(0.6f),
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(6.dp))
             Box(
@@ -1051,7 +1019,7 @@ fun WindowContent(
                             url         = extras["webAppUrl"] ?: "https://example.com",
                             iconEmoji   = extras["webAppEmoji"] ?: "🌐",
                             iconPath    = extras["webAppIcon"] ?: "",
-                            accentColor = extras["webAppAccent"]?.toLongOrNull() ?: 0xFF0078D4L,
+                            accentColor = extras["webAppAccent"]?.toLongOrNull() ?: 0xFF4C63D9L,
                             isCustom    = extras["webAppCustom"] == "true",
                             htmlContent = extras["webAppHtml"] ?: ""
                         )
@@ -1088,8 +1056,8 @@ fun WindowTitleBar(
     onSnapPickerToggle: () -> Unit,
     onClose: () -> Unit
 ) {
-    val barBg   = if (isDark) Color(0xFF2A2A2A) else Color(0xFFE8E8E8)
-    val textCol = if (isDark) Color.White else Color(0xFF1C1C1C)
+    val barBg   = if (isDark) DS.surfaceDark else DS.surfaceLight
+    val textCol = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val bmpIcon = rememberWindowBitmapIcon(customIconPath)
 
     // Show dimensions in compact mode
@@ -1117,7 +1085,7 @@ fun WindowTitleBar(
             // falling back to iconForKey()'s Fluent glyph.
             WindowKeyIcon(
                 key = iconKey,
-                tint = if (isDark) Color.White.copy(0.75f) else Color(0xFF444444),
+                tint = if (isDark) bluebirdColors.TextPrimary.copy(0.75f) else bluebirdColors.TextPrimaryLight.copy(0.75f),
                 modifier = Modifier.size(14.dp)
             )
         }
@@ -1143,7 +1111,7 @@ fun WindowTitleBar(
         // Minimize —
         bluebirdTitleButton(
             label   = "—",
-            hoverBg = if (isDark) Color(0xFF3A3A3A) else Color(0xFFD0D0D0),
+            hoverBg = if (isDark) DS.pressedDark else DS.pressedLight,
             onClick = onMinimize
         )
 
@@ -1153,7 +1121,7 @@ fun WindowTitleBar(
         if (canMaximize) {
             bluebirdTitleButton(
                 label        = if (isMaximized) "❐" else "□",
-                hoverBg      = if (isDark) Color(0xFF3A3A3A) else Color(0xFFD0D0D0),
+                hoverBg      = if (isDark) DS.pressedDark else DS.pressedLight,
                 onClick      = onMaximize,
                 onLongPress  = onSnapPickerToggle   // touch-friendly snap picker
             )
@@ -1162,7 +1130,7 @@ fun WindowTitleBar(
         // Close ✕ — red hover
         bluebirdTitleButton(
             label        = "✕",
-            hoverBg      = Color(0xFFC42B1C),
+            hoverBg      = DS.badgeRed,
             hoverTextCol = Color.White,
             onClick      = onClose
         )
@@ -1255,9 +1223,9 @@ private fun formatEta(bytesRemaining: Long, bytesPerSec: Long): String {
 fun CopyProgressScreen(isDark: Boolean, viewModel: LauncherViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val jobs = uiState.copyJobs
-    val bg   = if (isDark) Color(0xFF1C1C1C) else Color(0xFFF5F5F5)
-    val tc   = if (isDark) Color(0xFFE8E8E8) else Color(0xFF1A1A1A)
-    val tcDim = if (isDark) Color(0xFF9A9A9A) else Color(0xFF6B6B6B)
+    val bg   = if (isDark) DS.surfaceDark else DS.surfaceLight
+    val tc   = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val tcDim = tc.copy(alpha = 0.55f)
 
     Column(
         modifier = Modifier
@@ -1283,7 +1251,7 @@ fun CopyProgressScreen(isDark: Boolean, viewModel: LauncherViewModel) {
                         Icon(
                             imageVector = FluentIcon.Copy,
                             contentDescription = null,
-                            tint = Color(0xFF0078D4),
+                            tint = DS.accentStart,
                             modifier = Modifier.size(22.dp)
                         )
                         Spacer(Modifier.width(10.dp))
@@ -1320,13 +1288,13 @@ fun CopyProgressScreen(isDark: Boolean, viewModel: LauncherViewModel) {
                     when (job.status) {
                         CopyJobStatus.SCANNING -> LinearProgressIndicator(
                             modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                            color = Color(0xFF0078D4)
+                            color = DS.accentStart
                         )
                         CopyJobStatus.RUNNING -> {
                             LinearProgressIndicator(
                                 progress = { progress },
                                 modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                                color = Color(0xFF0078D4)
+                                color = DS.accentStart
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),

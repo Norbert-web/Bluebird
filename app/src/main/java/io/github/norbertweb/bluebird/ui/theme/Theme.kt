@@ -1,8 +1,11 @@
 package io.github.norbertweb.bluebird.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -24,6 +27,17 @@ val SelawikFontFamily = FontFamily(
     Font(R.font.selawksb, FontWeight.SemiBold),    // selawksb.ttf — Semibold
     Font(R.font.selawkb,  FontWeight.Bold),        // selawkb.ttf  — Bold
 )
+
+// ─── Single source of truth for light/dark ─────────────────────────────────
+// Every screen (Start Menu, Taskbar, Action Center, Window Manager, Mobile
+// Home, …) used to decide light/dark for itself — some called
+// isSystemInDarkTheme() directly, others read a separate uiState.isDarkTheme
+// flag that no longer exists. That's how they drifted out of sync. Now
+// there's exactly one place that decides: bluebirdTheme() below computes it
+// once and every other Composable reads LocalIsDarkTheme.current instead of
+// deciding on its own. Want a manual override again later (e.g. a
+// Settings toggle)? Change it here — nowhere else.
+val LocalIsDarkTheme = staticCompositionLocalOf { true }
 
 object bluebirdColors {
     val GlassLight = Color(0xFF4C63D9)
@@ -149,19 +163,25 @@ private fun scaledTypography(scale: Float): Typography {
 
 @Composable
 fun bluebirdTheme(
-    darkTheme: Boolean = true,
+    darkTheme: Boolean = true, // kept for source compatibility with existing call sites; ignored — see below
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    // Bluebird follows the device's system theme everywhere now, not a
+    // custom in-app toggle. This is the only place that reads
+    // isSystemInDarkTheme() — everything downstream reads LocalIsDarkTheme.
+    val isDark = isSystemInDarkTheme()
+    val colorScheme = if (isDark) DarkColorScheme else LightColorScheme
     // LocalTextScale is provided by MainActivity's CompositionLocalProvider.
     // bluebirdTheme reads it here so the scaled Typography flows into every
     // Composable in the tree via MaterialTheme.typography.
     val scale      = LocalTextScale.current
     val typography = scaledTypography(scale)
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography  = typography,
-        content     = content
-    )
+    CompositionLocalProvider(LocalIsDarkTheme provides isDark) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography  = typography,
+            content     = content
+        )
+    }
 }

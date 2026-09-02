@@ -1,24 +1,10 @@
 package io.github.norbertweb.bluebird.ui.components
 
-// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
-// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
-// Dependency (module build.gradle.kts):
-//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
+import io.github.norbertweb.bluebird.R
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,6 +34,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+// Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
+// the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
+// Dependency (module build.gradle.kts):
+//     implementation("io.github.niyajali:fluentui-system-icons:1.0.1")
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -68,12 +58,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -89,8 +79,9 @@ import androidx.compose.ui.window.PopupProperties
 import io.github.norbertweb.bluebird.AppInfo
 import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
-import io.github.norbertweb.bluebird.R
+import io.github.norbertweb.bluebird.WindowIconKey
 import io.github.norbertweb.bluebird.WindowState
+import io.github.norbertweb.bluebird.ui.theme.LocalIsDarkTheme
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -247,6 +238,10 @@ fun bluebirdTaskbar(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
+    // Follows the system theme via the single source of truth in Theme.kt
+    // (bluebirdTheme() → LocalIsDarkTheme) — Bluebird no longer carries its
+    // own light/dark toggle, and no screen decides this independently.
+    val isDark = LocalIsDarkTheme.current
 
     // Load persisted settings once on first composition.
     // TaskbarPrefs.load() reads from SharedPreferences synchronously — it is
@@ -282,7 +277,10 @@ fun bluebirdTaskbar(
     val popupOffsetXEnd = with(density) { (-8).dp.roundToPx() }
 
     val taskbarShape = if (settings.roundedTaskbar) RoundedCornerShape(14.dp) else RectangleShape
-    val taskbarBg = bluebirdColors.TaskbarBg.copy(alpha = settings.taskbarOpacity)
+    val taskbarBgBase = if (isDark) bluebirdColors.TaskbarBg else bluebirdColors.TaskbarBgLight
+    val taskbarBg = taskbarBgBase.copy(alpha = settings.taskbarOpacity)
+    val taskbarEdgeColor = if (isDark) Color(0x1FFFFFFF) else Color(0x1F171A21)
+    val taskbarBorderColor = if (isDark) DS.borderDark else DS.borderLight
 
     // Outer box is ONLY the taskbar strip itself — popups escape via Popup()
     Box(modifier = modifier.fillMaxWidth()) {
@@ -300,12 +298,8 @@ fun bluebirdTaskbar(
             )
         }
 
-        // ── Main Taskbar body ────────────────────────────────────────────────
-        AnimatedVisibility(
-            visible = !isTaskbarHidden,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit  = slideOutVertically(targetOffsetY = { it }) + fadeOut()
-        ) {
+        // ── Main Taskbar body — shown/hidden instantly, no slide/fade animation ──
+        if (!isTaskbarHidden) {
             val outerPadding = if (settings.roundedTaskbar)
                 PaddingValues(horizontal = 8.dp, vertical = 4.dp) else PaddingValues(0.dp)
 
@@ -322,12 +316,12 @@ fun bluebirdTaskbar(
                     // 0.5dp border before, which read flat rather than glassy.
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color(0x1FFFFFFF), Color.Transparent),
+                            colors = listOf(taskbarEdgeColor, Color.Transparent),
                             endY = with(density) { 10.dp.toPx() }
                         ),
                         taskbarShape
                     )
-                    .border(0.5.dp, Color(0x1FFFFFFF), taskbarShape)
+                    .border(0.5.dp, taskbarBorderColor, taskbarShape)
                     .pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = { offset ->
@@ -361,6 +355,7 @@ fun bluebirdTaskbar(
                         viewModel = viewModel,
                         settings = settings,
                         iconSize = iconSize,
+                        isDark = isDark,
                         overflowMenuOpen = overflowMenuOpen,
                         onToggleOverflow = { overflowMenuOpen = !overflowMenuOpen },
                         onToggleHiddenTray = {
@@ -376,6 +371,7 @@ fun bluebirdTaskbar(
                         viewModel = viewModel,
                         settings = settings,
                         iconSize = iconSize,
+                        isDark = isDark,
                         overflowMenuOpen = overflowMenuOpen,
                         onToggleOverflow = { overflowMenuOpen = !overflowMenuOpen },
                         onToggleHiddenTray = {
@@ -402,18 +398,13 @@ fun bluebirdTaskbar(
                 onDismissRequest = { hiddenTrayOpen = false },
                 properties = PopupProperties(focusable = true, dismissOnBackPress = true)
             ) {
-                AnimatedVisibility(
-                    visible = true,
-                    enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn() +
-                            scaleIn(initialScale = 0.92f, transformOrigin = TransformOrigin(0.85f, 1f))
-                ) {
-                    HiddenIconsTray(
-                        onOpenSettings = {
-                            hiddenTrayOpen = false
-                            settingsPanelOpen = true
-                        }
-                    )
-                }
+                HiddenIconsTray(
+                    isDark = isDark,
+                    onOpenSettings = {
+                        hiddenTrayOpen = false
+                        settingsPanelOpen = true
+                    }
+                )
             }
         }
 
@@ -425,18 +416,13 @@ fun bluebirdTaskbar(
                 onDismissRequest = { settingsPanelOpen = false },
                 properties = PopupProperties(focusable = true, dismissOnBackPress = true)
             ) {
-                AnimatedVisibility(
-                    visible = true,
-                    enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn() +
-                            scaleIn(initialScale = 0.93f, transformOrigin = TransformOrigin(0.9f, 1f))
-                ) {
-                    TaskbarSettingsPanel(
-                        settings = settings,
-                        onSettingsChange = { settings = it },
-                        onDismiss = { settingsPanelOpen = false },
-                        onHideTaskbar = { isTaskbarHidden = true; settingsPanelOpen = false }
-                    )
-                }
+                TaskbarSettingsPanel(
+                    settings = settings,
+                    isDark = isDark,
+                    onSettingsChange = { settings = it },
+                    onDismiss = { settingsPanelOpen = false },
+                    onHideTaskbar = { isTaskbarHidden = true; settingsPanelOpen = false }
+                )
             }
         }
 
@@ -448,25 +434,18 @@ fun bluebirdTaskbar(
                 onDismissRequest = { overflowMenuOpen = false },
                 properties = PopupProperties(focusable = true, dismissOnBackPress = true)
             ) {
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn() + scaleIn(
-                        initialScale = 0.9f,
-                        transformOrigin = TransformOrigin(0.5f, 1f)
-                    )
-                ) {
-                    OverflowIconsPopup(
-                        windows = uiState.openWindows.drop(settings.maxVisibleIcons),
-                        activeWindowId = uiState.activeWindowId,
-                        onWindowClick = { window ->
-                            if (window.isMinimized) viewModel.restoreWindow(window.id)
-                            else if (window.id == uiState.activeWindowId) viewModel.minimizeWindow(window.id)
-                            else viewModel.setActiveWindow(window.id)
-                            overflowMenuOpen = false
-                        },
-                        onDismiss = { overflowMenuOpen = false }
-                    )
-                }
+                OverflowIconsPopup(
+                    windows = uiState.openWindows.drop(settings.maxVisibleIcons),
+                    activeWindowId = uiState.activeWindowId,
+                    isDark = isDark,
+                    onWindowClick = { window ->
+                        if (window.isMinimized) viewModel.restoreWindow(window.id)
+                        else if (window.id == uiState.activeWindowId) viewModel.minimizeWindow(window.id)
+                        else viewModel.setActiveWindow(window.id)
+                        overflowMenuOpen = false
+                    },
+                    onDismiss = { overflowMenuOpen = false }
+                )
             }
         }
     }
@@ -481,6 +460,7 @@ private fun ClassicTaskbarLayout(
     viewModel: LauncherViewModel,
     settings: TaskbarSettings,
     iconSize: Dp,
+    isDark: Boolean,
     overflowMenuOpen: Boolean,
     onToggleOverflow: () -> Unit,
     onToggleHiddenTray: () -> Unit,
@@ -494,6 +474,7 @@ private fun ClassicTaskbarLayout(
                     icon = FluentIcon.Widget,
                     contentDescription = "Widgets (or swipe right)",
                     isActive = uiState.isWidgetsOpen,
+                    isDark = isDark,
                     onClick = { viewModel.toggleWidgets() },
                     iconSize = iconSize
                 )
@@ -521,6 +502,7 @@ private fun ClassicTaskbarLayout(
             viewModel = viewModel,
             settings = settings,
             iconSize = iconSize,
+            isDark = isDark,
             overflowMenuOpen = overflowMenuOpen,
             onToggleOverflow = onToggleOverflow,
             context = context
@@ -534,13 +516,15 @@ private fun ClassicTaskbarLayout(
             TaskbarIconButton(
                 icon = FluentIcon.Desktop,
                 contentDescription = "Show Desktop",
+                isDark = isDark,
                 onClick = { viewModel.dismissAllOverlays() },
                 iconSize = iconSize
             )
-            HiddenIconsChevron(isOpen = hiddenTrayOpen, onClick = onToggleHiddenTray)
+            HiddenIconsChevron(isOpen = hiddenTrayOpen, isDark = isDark, onClick = onToggleHiddenTray)
             SystemTray(
                 uiState = uiState,
                 settings = settings,
+                isDark = isDark,
                 onClickActionCenter = { viewModel.toggleActionCenter() }
             )
         }
@@ -556,6 +540,7 @@ private fun SeparatedTaskbarLayout(
     viewModel: LauncherViewModel,
     settings: TaskbarSettings,
     iconSize: Dp,
+    isDark: Boolean,
     overflowMenuOpen: Boolean,
     onToggleOverflow: () -> Unit,
     onToggleHiddenTray: () -> Unit,
@@ -563,8 +548,9 @@ private fun SeparatedTaskbarLayout(
     context: android.content.Context
 ) {
     val pillShape = RoundedCornerShape(10.dp)
-    val pillBg = bluebirdColors.TaskbarBg.copy(alpha = (settings.taskbarOpacity + 0.05f).coerceAtMost(1f))
-    val pillBorder = BorderStroke(0.5.dp, Color(0x22FFFFFF))
+    val pillBgBase = if (isDark) bluebirdColors.TaskbarBg else bluebirdColors.TaskbarBgLight
+    val pillBg = pillBgBase.copy(alpha = (settings.taskbarOpacity + 0.05f).coerceAtMost(1f))
+    val pillBorder = BorderStroke(0.5.dp, if (isDark) DS.borderDark else DS.borderLight)
 
     Row(
         modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
@@ -578,6 +564,7 @@ private fun SeparatedTaskbarLayout(
                     icon = FluentIcon.Widget,
                     contentDescription = "Widgets",
                     isActive = uiState.isWidgetsOpen,
+                    isDark = isDark,
                     onClick = { viewModel.toggleWidgets() },
                     iconSize = iconSize,
                     modifier = Modifier.padding(horizontal = 4.dp)
@@ -594,6 +581,7 @@ private fun SeparatedTaskbarLayout(
                     viewModel = viewModel,
                     settings = settings,
                     iconSize = iconSize,
+                    isDark = isDark,
                     overflowMenuOpen = overflowMenuOpen,
                     onToggleOverflow = onToggleOverflow,
                     context = context
@@ -611,13 +599,15 @@ private fun SeparatedTaskbarLayout(
                 TaskbarIconButton(
                     icon = FluentIcon.Desktop,
                     contentDescription = "Show Desktop",
+                    isDark = isDark,
                     onClick = { viewModel.dismissAllOverlays() },
                     iconSize = iconSize
                 )
-                HiddenIconsChevron(isOpen = hiddenTrayOpen, onClick = onToggleHiddenTray)
+                HiddenIconsChevron(isOpen = hiddenTrayOpen, isDark = isDark, onClick = onToggleHiddenTray)
                 SystemTray(
                     uiState = uiState,
                     settings = settings,
+                    isDark = isDark,
                     onClickActionCenter = { viewModel.toggleActionCenter() }
                 )
             }
@@ -635,6 +625,7 @@ private fun TaskbarCenterCluster(
     viewModel: LauncherViewModel,
     settings: TaskbarSettings,
     iconSize: Dp,
+    isDark: Boolean,
     overflowMenuOpen: Boolean,
     onToggleOverflow: () -> Unit,
     context: android.content.Context
@@ -662,11 +653,11 @@ private fun TaskbarCenterCluster(
     val scrollState = rememberScrollState()
 
     val rowContent: @Composable RowScope.() -> Unit = {
-        StartButton(isActive = uiState.isStartMenuOpen, onClick = { viewModel.toggleStartMenu() })
+        StartButton(isActive = uiState.isStartMenuOpen, isDark = isDark, onClick = { viewModel.toggleStartMenu() })
         Spacer(Modifier.width(4.dp))
 
         if (settings.showSearchPill) {
-            SearchPill(onClick = { viewModel.toggleSearch() })
+            SearchPill(isDark = isDark, onClick = { viewModel.toggleSearch() })
             Spacer(Modifier.width(4.dp))
         }
 
@@ -674,6 +665,7 @@ private fun TaskbarCenterCluster(
             TaskbarIconButton(
                 icon = FluentIcon.DesktopMultiple,
                 contentDescription = "Task View",
+                isDark = isDark,
                 onClick = {},
                 iconSize = iconSize
             )
@@ -681,7 +673,7 @@ private fun TaskbarCenterCluster(
 
         if (pinnedApps.isNotEmpty() || uiState.openWindows.isNotEmpty()) {
             Spacer(Modifier.width(4.dp))
-            Box(Modifier.width(1.dp).height(18.dp).background(Color(0x22FFFFFF)))
+            Box(Modifier.width(1.dp).height(18.dp).background(if (isDark) DS.borderDark else DS.borderLight))
             Spacer(Modifier.width(4.dp))
         }
 
@@ -697,6 +689,7 @@ private fun TaskbarCenterCluster(
                 showLabel = settings.showLabels,
                 isRunning = isRunning,
                 isActive = isActive,
+                isDark = isDark,
                 onClick = {
                     val existing = uiState.openWindows.firstOrNull { it.title.contains(app.name, true) }
                     if (existing != null) {
@@ -721,6 +714,7 @@ private fun TaskbarCenterCluster(
                             showLabel = settings.showLabels,
                             isActive = windows.any { it.id == uiState.activeWindowId },
                             windowCount = windows.size,
+                            isDark = isDark,
                             onClick = {
                                 val w = if (windows.size == 1) windows[0] else primary
                                 if (w.isMinimized) viewModel.restoreWindow(w.id)
@@ -737,6 +731,7 @@ private fun TaskbarCenterCluster(
                         windowState = window,
                         showLabel = settings.showLabels,
                         isActive = window.id == uiState.activeWindowId,
+                        isDark = isDark,
                         onClick = {
                             if (window.isMinimized) viewModel.restoreWindow(window.id)
                             else if (window.id == uiState.activeWindowId) viewModel.minimizeWindow(window.id)
@@ -748,6 +743,7 @@ private fun TaskbarCenterCluster(
                     OverflowBadgeButton(
                         count = overflowWindows.size,
                         isOpen = overflowMenuOpen,
+                        isDark = isDark,
                         onClick = onToggleOverflow
                     )
                 }
@@ -758,6 +754,7 @@ private fun TaskbarCenterCluster(
                         windowState = window,
                         showLabel = settings.showLabels,
                         isActive = window.id == uiState.activeWindowId,
+                        isDark = isDark,
                         onClick = {
                             if (window.isMinimized) viewModel.restoreWindow(window.id)
                             else if (window.id == uiState.activeWindowId) viewModel.minimizeWindow(window.id)
@@ -790,17 +787,18 @@ private fun TaskbarCenterCluster(
 // Overflow badge button (+N)
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-private fun OverflowBadgeButton(count: Int, isOpen: Boolean, onClick: () -> Unit) {
+private fun OverflowBadgeButton(count: Int, isOpen: Boolean, isDark: Boolean, onClick: () -> Unit) {
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     Box(
         modifier = Modifier
             .height(32.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isOpen) bluebirdColors.AccentBlue.copy(0.25f) else Color(0x14FFFFFF))
+            .background(if (isOpen) bluebirdColors.AccentBlue.copy(0.25f) else (if (isDark) DS.hoverDark else DS.hoverLight))
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text("+$count", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text("+$count", color = textColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -811,14 +809,17 @@ private fun OverflowBadgeButton(count: Int, isOpen: Boolean, onClick: () -> Unit
 private fun OverflowIconsPopup(
     windows: List<WindowState>,
     activeWindowId: String?,
+    isDark: Boolean,
     onWindowClick: (WindowState) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val bg = if (isDark) bluebirdColors.TaskbarBg else bluebirdColors.TaskbarBgLight
     Surface(
         modifier = Modifier.widthIn(max = 320.dp).shadow(20.dp, RoundedCornerShape(8.dp)),
         shape = RoundedCornerShape(8.dp),
-        color = bluebirdColors.TaskbarBg,
-        border = BorderStroke(0.5.dp, Color(0x25FFFFFF))
+        color = bg,
+        border = BorderStroke(0.5.dp, if (isDark) DS.borderDark else DS.borderLight)
     ) {
         Column(
             modifier = Modifier
@@ -827,7 +828,7 @@ private fun OverflowIconsPopup(
                 .verticalScroll(rememberScrollState())
                 .padding(8.dp)
         ) {
-            Text("More windows", color = Color.White.copy(0.6f), fontSize = 10.sp,
+            Text("More windows", color = textColor.copy(0.6f), fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
             windows.forEach { window ->
@@ -849,14 +850,14 @@ private fun OverflowIconsPopup(
                         // Now checks for the same custom SVG Start Menu/Desktop use before
                         // falling back to iconForKey()'s Fluent glyph — was a plain
                         // Icon(imageVector = iconForKey(...)) call.
-                        WindowKeyIcon(key = window.iconKey, tint = Color.White, modifier = Modifier.size(16.dp))
+                        WindowKeyIcon(key = window.iconKey, tint = textColor, modifier = Modifier.size(16.dp))
                     }
-                    Text(window.title, color = Color.White, fontSize = 12.sp,
+                    Text(window.title, color = textColor, fontSize = 12.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f))
                     if (window.isMinimized) {
                         Icon(imageVector = FluentIcon.Subtract, contentDescription = null,
-                            tint = Color.White.copy(0.4f), modifier = Modifier.size(11.dp))
+                            tint = textColor.copy(0.4f), modifier = Modifier.size(11.dp))
                     }
                 }
             }
@@ -868,25 +869,21 @@ private fun OverflowIconsPopup(
 // Hidden Icons Chevron
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-private fun HiddenIconsChevron(isOpen: Boolean, onClick: () -> Unit) {
-    val rotation by animateFloatAsState(
-        targetValue = if (isOpen) 180f else 0f,
-        animationSpec = tween(200),
-        label = "chevronRotation"
-    )
+private fun HiddenIconsChevron(isOpen: Boolean, isDark: Boolean, onClick: () -> Unit) {
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     Box(
         modifier = Modifier
             .size(26.dp)
             .clip(RoundedCornerShape(5.dp))
-            .background(if (isOpen) bluebirdColors.HoverBg else Color.Transparent)
+            .background(if (isOpen) (if (isDark) bluebirdColors.HoverBg else bluebirdColors.HoverBgLight) else Color.Transparent)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = FluentIcon.ChevronUp,
+            imageVector = if (isOpen) FluentIcon.ChevronDown else FluentIcon.ChevronUp,
             contentDescription = "Show hidden icons",
-            tint = Color.White,
-            modifier = Modifier.size(13.dp).graphicsLayer { rotationZ = rotation }
+            tint = textColor,
+            modifier = Modifier.size(13.dp)
         )
     }
 }
@@ -907,15 +904,18 @@ private val HIDDEN_TRAY_ICONS = listOf(
 )
 
 @Composable
-private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
+private fun HiddenIconsTray(isDark: Boolean, onOpenSettings: () -> Unit) {
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val bg = if (isDark) bluebirdColors.TaskbarBg else bluebirdColors.TaskbarBgLight
+    val hoverBg = if (isDark) bluebirdColors.HoverBg else bluebirdColors.HoverBgLight
     Surface(
         modifier = Modifier
             .width(220.dp)
             .wrapContentHeight()
             .shadow(20.dp, RoundedCornerShape(8.dp)),
         shape = RoundedCornerShape(8.dp),
-        color = bluebirdColors.TaskbarBg,
-        border = BorderStroke(0.5.dp, Color(0x25FFFFFF))
+        color = bg,
+        border = BorderStroke(0.5.dp, if (isDark) DS.borderDark else DS.borderLight)
     ) {
         Column(
             modifier = Modifier
@@ -929,7 +929,7 @@ private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Notification area", color = Color.White.copy(alpha = 0.7f),
+                Text("Notification area", color = textColor.copy(alpha = 0.7f),
                     fontSize = 11.sp, fontWeight = FontWeight.Medium)
                 Box(
                     modifier = Modifier.size(24.dp).clip(RoundedCornerShape(5.dp))
@@ -937,7 +937,7 @@ private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(imageVector = FluentIcon.Settings, contentDescription = "Taskbar Settings",
-                        tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
+                        tint = textColor.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
                 }
             }
 
@@ -956,7 +956,7 @@ private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(if (showTooltip) bluebirdColors.HoverBg else Color.Transparent)
+                                .background(if (showTooltip) hoverBg else Color.Transparent)
                                 .pointerInput(Unit) {
                                     detectTapGestures(
                                         onLongPress = { showTooltip = true },
@@ -965,17 +965,17 @@ private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
                                 },
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(imageVector = icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(imageVector = icon, contentDescription = label, tint = textColor, modifier = Modifier.size(18.dp))
                             if (showTooltip) {
                                 Box(
                                     Modifier
                                         .align(Alignment.TopCenter)
                                         .offset(y = (-22).dp)
                                         .clip(RoundedCornerShape(4.dp))
-                                        .background(Color(0xFF333333))
+                                        .background(if (isDark) Color(0xFF333333) else Color(0xFFE4E7EC))
                                         .padding(horizontal = 6.dp, vertical = 3.dp)
                                 ) {
-                                    Text(label, color = Color.White, fontSize = 9.sp)
+                                    Text(label, color = textColor, fontSize = 9.sp)
                                 }
                             }
                         }
@@ -986,7 +986,7 @@ private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
             }
 
             Spacer(Modifier.height(6.dp))
-            HorizontalDivider(color = Color(0x18FFFFFF))
+            HorizontalDivider(color = if (isDark) DS.borderDark else DS.borderLight)
             Spacer(Modifier.height(8.dp))
 
             Row(
@@ -1000,7 +1000,7 @@ private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
             ) {
                 Icon(imageVector = FluentIcon.Options, contentDescription = null, tint = bluebirdColors.AccentBlue,
                     modifier = Modifier.size(14.dp))
-                Text("Taskbar settings", color = Color.White, fontSize = 12.sp)
+                Text("Taskbar settings", color = textColor, fontSize = 12.sp)
             }
         }
     }
@@ -1013,18 +1013,23 @@ private fun HiddenIconsTray(onOpenSettings: () -> Unit) {
 @Composable
 private fun TaskbarSettingsPanel(
     settings: TaskbarSettings,
+    isDark: Boolean,
     onSettingsChange: (TaskbarSettings) -> Unit,
     onDismiss: () -> Unit,
     onHideTaskbar: () -> Unit
 ) {
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val bg = if (isDark) bluebirdColors.TaskbarBg else bluebirdColors.TaskbarBgLight
+    val borderColor = if (isDark) DS.borderDark else DS.borderLight
+    val chipBg = if (isDark) DS.hoverDark else DS.hoverLight
     Surface(
         modifier = Modifier
             .width(280.dp)
             .wrapContentHeight()
             .shadow(24.dp, RoundedCornerShape(8.dp)),
         shape = RoundedCornerShape(8.dp),
-        color = bluebirdColors.TaskbarBg,
-        border = BorderStroke(0.5.dp, Color(0x28FFFFFF))
+        color = bg,
+        border = BorderStroke(0.5.dp, borderColor)
     ) {
         Column(
             modifier = Modifier
@@ -1039,13 +1044,13 @@ private fun TaskbarSettingsPanel(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Taskbar settings", color = Color.White, fontSize = 13.sp,
+                Text("Taskbar settings", color = textColor, fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold)
                 Box(
                     modifier = Modifier.size(22.dp).clip(CircleShape).clickable(onClick = onDismiss),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(imageVector = FluentIcon.Dismiss, contentDescription = null, tint = Color.White.copy(0.6f),
+                    Icon(imageVector = FluentIcon.Dismiss, contentDescription = null, tint = textColor.copy(0.6f),
                         modifier = Modifier.size(13.dp))
                 }
             }
@@ -1054,18 +1059,18 @@ private fun TaskbarSettingsPanel(
 
             // ── Items ────────────────────────────────────────────────────────
             SettingsSectionHeader("Items")
-            SettingsToggle("Search pill",      settings.showSearchPill) { onSettingsChange(settings.copy(showSearchPill = it)) }
-            SettingsToggle("Task View button", settings.showTaskView)   { onSettingsChange(settings.copy(showTaskView = it)) }
-            SettingsToggle("Widgets button",   settings.showWidgets)    { onSettingsChange(settings.copy(showWidgets = it)) }
-            SettingsToggle("Center icons",     settings.centerIcons)    { onSettingsChange(settings.copy(centerIcons = it)) }
-            SettingsToggle("Show app labels",  settings.showLabels)     { onSettingsChange(settings.copy(showLabels = it)) }
+            SettingsToggle("Search pill",      settings.showSearchPill, isDark) { onSettingsChange(settings.copy(showSearchPill = it)) }
+            SettingsToggle("Task View button", settings.showTaskView,   isDark) { onSettingsChange(settings.copy(showTaskView = it)) }
+            SettingsToggle("Widgets button",   settings.showWidgets,    isDark) { onSettingsChange(settings.copy(showWidgets = it)) }
+            SettingsToggle("Center icons",     settings.centerIcons,    isDark) { onSettingsChange(settings.copy(centerIcons = it)) }
+            SettingsToggle("Show app labels",  settings.showLabels,     isDark) { onSettingsChange(settings.copy(showLabels = it)) }
 
-            SettingsDivider()
+            SettingsDivider(isDark)
 
             // ── Appearance ───────────────────────────────────────────────────
             SettingsSectionHeader("Appearance")
-            SettingsToggle("Rounded taskbar",  settings.roundedTaskbar) { onSettingsChange(settings.copy(roundedTaskbar = it)) }
-            SettingsToggle("Separated parts",  settings.separatedParts) { onSettingsChange(settings.copy(separatedParts = it)) }
+            SettingsToggle("Rounded taskbar",  settings.roundedTaskbar, isDark) { onSettingsChange(settings.copy(roundedTaskbar = it)) }
+            SettingsToggle("Separated parts",  settings.separatedParts, isDark) { onSettingsChange(settings.copy(separatedParts = it)) }
 
             Spacer(Modifier.height(4.dp))
             Row(
@@ -1073,9 +1078,9 @@ private fun TaskbarSettingsPanel(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Opacity", color = Color.White.copy(0.85f), fontSize = 12.sp)
+                Text("Opacity", color = textColor.copy(0.85f), fontSize = 12.sp)
                 Text("${(settings.taskbarOpacity * 100).toInt()}%",
-                    color = Color.White.copy(0.5f), fontSize = 11.sp)
+                    color = textColor.copy(0.5f), fontSize = 11.sp)
             }
             Slider(
                 value = settings.taskbarOpacity,
@@ -1087,7 +1092,7 @@ private fun TaskbarSettingsPanel(
             )
 
             Spacer(Modifier.height(4.dp))
-            Text("Height", color = Color.White.copy(0.85f), fontSize = 12.sp,
+            Text("Height", color = textColor.copy(0.85f), fontSize = 12.sp,
                 modifier = Modifier.padding(horizontal = 4.dp))
             Spacer(Modifier.height(6.dp))
             Row(
@@ -1100,20 +1105,20 @@ private fun TaskbarSettingsPanel(
                         modifier = Modifier
                             .weight(1f).height(30.dp)
                             .clip(RoundedCornerShape(6.dp))
-                            .background(if (sel) bluebirdColors.AccentBlue else Color(0x18FFFFFF))
+                            .background(if (sel) bluebirdColors.AccentBlue else chipBg)
                             .clickable { onSettingsChange(settings.copy(taskbarHeight = h)) },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(h.label, color = Color.White, fontSize = 11.sp)
+                        Text(h.label, color = if (sel) Color.White else textColor, fontSize = 11.sp)
                     }
                 }
             }
 
-            SettingsDivider()
+            SettingsDivider(isDark)
 
             // ── Icon Overflow ────────────────────────────────────────────────
             SettingsSectionHeader("Icon Overflow")
-            Text("When too many apps are open:", color = Color.White.copy(0.5f), fontSize = 10.sp,
+            Text("When too many apps are open:", color = textColor.copy(0.5f), fontSize = 10.sp,
                 modifier = Modifier.padding(horizontal = 4.dp))
             Spacer(Modifier.height(6.dp))
 
@@ -1140,12 +1145,12 @@ private fun TaskbarSettingsPanel(
                         IconOverflowMode.GROUPED       -> "Collapse same-app windows"
                     }
                     Icon(imageVector = icon, contentDescription = null,
-                        tint = if (sel) bluebirdColors.AccentBlue else Color.White.copy(0.6f),
+                        tint = if (sel) bluebirdColors.AccentBlue else textColor.copy(0.6f),
                         modifier = Modifier.size(15.dp))
                     Column {
-                        Text(mode.label, color = Color.White, fontSize = 12.sp,
+                        Text(mode.label, color = textColor, fontSize = 12.sp,
                             fontWeight = if (sel) FontWeight.Medium else FontWeight.Normal)
-                        Text(desc, color = Color.White.copy(0.45f), fontSize = 10.sp)
+                        Text(desc, color = textColor.copy(0.45f), fontSize = 10.sp)
                     }
                     Spacer(Modifier.weight(1f))
                     if (sel) {
@@ -1155,55 +1160,53 @@ private fun TaskbarSettingsPanel(
                 }
             }
 
-            AnimatedVisibility(settings.iconOverflowMode == IconOverflowMode.OVERFLOW_MENU) {
-                Column {
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Max visible icons", color = Color.White.copy(0.85f), fontSize = 12.sp)
-                        Text("${settings.maxVisibleIcons}", color = bluebirdColors.AccentBlue,
-                            fontSize = 12.sp)
-                    }
-                    Slider(
-                        value = settings.maxVisibleIcons.toFloat(),
-                        onValueChange = { onSettingsChange(settings.copy(maxVisibleIcons = it.toInt())) },
-                        valueRange = 4f..20f,
-                        steps = 15,
-                        colors = SliderDefaults.colors(thumbColor = bluebirdColors.AccentBlue,
-                            activeTrackColor = bluebirdColors.AccentBlue),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
-                    )
+            if (settings.iconOverflowMode == IconOverflowMode.OVERFLOW_MENU) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Max visible icons", color = textColor.copy(0.85f), fontSize = 12.sp)
+                    Text("${settings.maxVisibleIcons}", color = bluebirdColors.AccentBlue,
+                        fontSize = 12.sp)
                 }
+                Slider(
+                    value = settings.maxVisibleIcons.toFloat(),
+                    onValueChange = { onSettingsChange(settings.copy(maxVisibleIcons = it.toInt())) },
+                    valueRange = 4f..20f,
+                    steps = 15,
+                    colors = SliderDefaults.colors(thumbColor = bluebirdColors.AccentBlue,
+                        activeTrackColor = bluebirdColors.AccentBlue),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+                )
             }
 
-            SettingsDivider()
+            SettingsDivider(isDark)
 
             // ── System Tray ──────────────────────────────────────────────────
             SettingsSectionHeader("System Tray")
-            SettingsToggle("Clock & date", settings.showClock)   { onSettingsChange(settings.copy(showClock = it)) }
-            SettingsToggle("Battery",      settings.showBattery) { onSettingsChange(settings.copy(showBattery = it)) }
-            SettingsToggle("Volume",       settings.showVolume)  { onSettingsChange(settings.copy(showVolume = it)) }
-            SettingsToggle("Network",      settings.showNetwork) { onSettingsChange(settings.copy(showNetwork = it)) }
+            SettingsToggle("Clock & date", settings.showClock,   isDark) { onSettingsChange(settings.copy(showClock = it)) }
+            SettingsToggle("Battery",      settings.showBattery, isDark) { onSettingsChange(settings.copy(showBattery = it)) }
+            SettingsToggle("Volume",       settings.showVolume,  isDark) { onSettingsChange(settings.copy(showVolume = it)) }
+            SettingsToggle("Network",      settings.showNetwork, isDark) { onSettingsChange(settings.copy(showNetwork = it)) }
 
-            SettingsDivider()
+            SettingsDivider(isDark)
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0x14FFFFFF))
+                    .background(chipBg)
                     .clickable(onClick = onHideTaskbar)
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(imageVector = FluentIcon.EyeOff, contentDescription = null, tint = Color(0xFFFF7070),
+                Icon(imageVector = FluentIcon.EyeOff, contentDescription = null, tint = DS.badgeRed,
                     modifier = Modifier.size(14.dp))
-                Text("Hide taskbar", color = Color(0xFFFF7070), fontSize = 12.sp)
+                Text("Hide taskbar", color = DS.badgeRed, fontSize = 12.sp)
                 Spacer(Modifier.weight(1f))
-                Text("2×tap", color = Color.White.copy(0.35f), fontSize = 10.sp)
+                Text("2×tap", color = textColor.copy(0.35f), fontSize = 10.sp)
             }
         }
     }
@@ -1218,12 +1221,13 @@ private fun SettingsSectionHeader(title: String) {
 }
 
 @Composable
-private fun SettingsDivider() {
-    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color(0x18FFFFFF))
+private fun SettingsDivider(isDark: Boolean) {
+    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = if (isDark) DS.borderDark else DS.borderLight)
 }
 
 @Composable
-private fun SettingsToggle(label: String, value: Boolean, onToggle: (Boolean) -> Unit) {
+private fun SettingsToggle(label: String, value: Boolean, isDark: Boolean, onToggle: (Boolean) -> Unit) {
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1233,17 +1237,13 @@ private fun SettingsToggle(label: String, value: Boolean, onToggle: (Boolean) ->
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(label, color = Color.White.copy(0.85f), fontSize = 12.sp)
-        val thumbOffset by animateDpAsState(
-            targetValue = if (value) 16.dp else 2.dp,
-            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            label = "toggleThumb"
-        )
+        Text(label, color = textColor.copy(0.85f), fontSize = 12.sp)
+        val thumbOffset = if (value) 16.dp else 2.dp
         Box(
             modifier = Modifier
                 .width(34.dp).height(18.dp)
                 .clip(RoundedCornerShape(9.dp))
-                .background(if (value) bluebirdColors.AccentBlue else Color(0xFF444444))
+                .background(if (value) bluebirdColors.AccentBlue else (if (isDark) DS.borderDark else DS.borderLight))
         ) {
             Box(
                 Modifier
@@ -1260,26 +1260,20 @@ private fun SettingsToggle(label: String, value: Boolean, onToggle: (Boolean) ->
 // Start Button
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-private fun StartButton(isActive: Boolean, onClick: () -> Unit) {
-    val scale by animateFloatAsState(
-        targetValue = if (isActive) 0.9f else 1f,
-        animationSpec = Motion.micro(), // shared spring "personality" — see SoftUI.kt
-        label = "startScale"
-    )
+private fun StartButton(isActive: Boolean, isDark: Boolean, onClick: () -> Unit) {
     var pressed by remember { mutableStateOf(false) }
     // Windows 11 gives the Start button a soft accent glow while the menu is
-    // open, plus a lighter press flash — was just a flat HoverBg fill before.
-    val bgAlpha by animateFloatAsState(
-        targetValue = if (isActive) 1f else if (pressed) 0.6f else 0f,
-        animationSpec = tween(120), label = "startBg"
-    )
+    // open, plus a lighter press flash — now an instant state switch instead
+    // of a spring/tween animation.
+    val bgAlpha = if (isActive) 1f else if (pressed) 0.6f else 0f
+    val hoverBg = if (isDark) bluebirdColors.HoverBg else bluebirdColors.HoverBgLight
     Box(
         modifier = Modifier
-            .size(36.dp).scale(scale)
+            .size(36.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(
                 if (isActive) DS.accentStart.copy(alpha = 0.22f * bgAlpha)
-                else bluebirdColors.HoverBg.copy(alpha = bgAlpha)
+                else hoverBg.copy(alpha = bgAlpha)
             )
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -1304,18 +1298,22 @@ private fun StartButton(isActive: Boolean, onClick: () -> Unit) {
 // Search Pill
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-private fun SearchPill(onClick: () -> Unit) {
+private fun SearchPill(isDark: Boolean, onClick: () -> Unit) {
     var pressed by remember { mutableStateOf(false) }
-    val bgColor by animateColorAsState(
-        targetValue = if (pressed) Color(0x1FFFFFFF) else Color(0x14FFFFFF),
-        animationSpec = tween(120), label = "searchBg"
-    )
+    val bgColor = if (isDark) {
+        if (pressed) Color(0x1FFFFFFF) else Color(0x14FFFFFF)
+    } else {
+        if (pressed) Color(0x14171A21) else Color(0x0A171A21)
+    }
+    val borderColor = if (isDark) DS.borderDark else DS.borderLight
+    val mutedText = if (isDark) Color(0xFFAAAAAA) else Color(0xFF6B7280)
+    val mutedIcon = if (isDark) Color(0xFFBBBBBB) else Color(0xFF6B7280)
     Row(
         modifier = Modifier
             .width(180.dp).height(30.dp)
             .clip(RoundedCornerShape(DS.chipCorner + 8.dp))
             .background(bgColor)
-            .border(0.5.dp, Color(0x22FFFFFF), RoundedCornerShape(DS.chipCorner + 8.dp))
+            .border(0.5.dp, borderColor, RoundedCornerShape(DS.chipCorner + 8.dp))
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = { pressed = true; tryAwaitRelease(); pressed = false },
@@ -1326,8 +1324,8 @@ private fun SearchPill(onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        Icon(imageVector = FluentIcon.Search, contentDescription = "Search", tint = Color(0xFFBBBBBB), modifier = Modifier.size(14.dp))
-        Text("Search", color = Color(0xFFAAAAAA), fontSize = 12.sp)
+        Icon(imageVector = FluentIcon.Search, contentDescription = "Search", tint = mutedIcon, modifier = Modifier.size(14.dp))
+        Text("Search", color = mutedText, fontSize = 12.sp)
         Spacer(Modifier.weight(1f))
         Icon(imageVector = FluentIcon.Sparkle, contentDescription = null, tint = DS.accentStart.copy(alpha = 0.75f),
             modifier = Modifier.size(12.dp))
@@ -1342,22 +1340,21 @@ internal fun TaskbarIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
     isActive: Boolean = false,
+    isDark: Boolean = true,
     onClick: () -> Unit,
     iconSize: Dp = 15.dp,
     modifier: Modifier = Modifier
 ) {
     var pressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.88f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessHigh),
-        label = "iconScale"
-    )
+    val scale = if (pressed) 0.88f else 1f
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val hoverBg = if (isDark) bluebirdColors.HoverBg else bluebirdColors.HoverBgLight
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = modifier
                 .size(32.dp).scale(scale)
                 .clip(RoundedCornerShape(6.dp))
-                .background(if (isActive) bluebirdColors.HoverBg else Color.Transparent)
+                .background(if (isActive) hoverBg else Color.Transparent)
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onPress = { pressed = true; tryAwaitRelease(); pressed = false },
@@ -1366,7 +1363,7 @@ internal fun TaskbarIconButton(
                 },
             contentAlignment = Alignment.Center
         ) {
-            Icon(imageVector = icon, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(iconSize))
+            Icon(imageVector = icon, contentDescription = contentDescription, tint = textColor, modifier = Modifier.size(iconSize))
         }
         if (isActive) {
             Box(Modifier.width(12.dp).height(2.dp)
@@ -1384,16 +1381,16 @@ private fun TaskbarAppIcon(
     showLabel: Boolean,
     isRunning: Boolean,
     isActive: Boolean,
+    isDark: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var pressed  by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.85f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "appIconScale"
-    )
+    val scale = if (pressed) 0.85f else 1f
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val hoverBg = if (isDark) Color(0x12FFFFFF) else Color(0x0A171A21)
+    val menuBg = if (isDark) bluebirdColors.ContextMenuBg else bluebirdColors.ContextMenuBgLight
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
@@ -1403,7 +1400,7 @@ private fun TaskbarAppIcon(
                 .clip(RoundedCornerShape(6.dp))
                 .background(when {
                     isActive  -> bluebirdColors.AccentBlue.copy(alpha = 0.18f)
-                    isRunning -> Color(0x12FFFFFF)
+                    isRunning -> hoverBg
                     else      -> Color.Transparent
                 })
                 .pointerInput(Unit) {
@@ -1423,7 +1420,7 @@ private fun TaskbarAppIcon(
                 ) {
                     AppIconSmall(drawable = appInfo.icon, contentDescription = appInfo.name,
                         modifier = Modifier.size(18.dp).clip(RoundedCornerShape(3.dp)))
-                    Text(appInfo.name, color = Color.White, fontSize = 10.sp,
+                    Text(appInfo.name, color = textColor, fontSize = 10.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             } else {
@@ -1434,24 +1431,24 @@ private fun TaskbarAppIcon(
             DropdownMenu(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
-                modifier = Modifier.background(bluebirdColors.ContextMenuBg)
+                modifier = Modifier.background(menuBg)
             ) {
                 DropdownMenuItem(
-                    text = { Text("Open", color = Color.White, fontSize = 12.sp) },
+                    text = { Text("Open", color = textColor, fontSize = 12.sp) },
                     onClick = { showMenu = false; onClick() },
-                    leadingIcon = { Icon(imageVector = FluentIcon.Open, contentDescription = null, tint = Color.White,
+                    leadingIcon = { Icon(imageVector = FluentIcon.Open, contentDescription = null, tint = textColor,
                         modifier = Modifier.size(13.dp)) }
                 )
                 DropdownMenuItem(
-                    text = { Text("Unpin from taskbar", color = Color.White, fontSize = 12.sp) },
+                    text = { Text("Unpin from taskbar", color = textColor, fontSize = 12.sp) },
                     onClick = { showMenu = false; onLongClick() },
-                    leadingIcon = { Icon(imageVector = FluentIcon.Pin, contentDescription = null, tint = Color.White,
+                    leadingIcon = { Icon(imageVector = FluentIcon.Pin, contentDescription = null, tint = textColor,
                         modifier = Modifier.size(13.dp)) }
                 )
                 DropdownMenuItem(
-                    text = { Text("Close window", color = Color(0xFFFF6B6B), fontSize = 12.sp) },
+                    text = { Text("Close window", color = DS.badgeRed, fontSize = 12.sp) },
                     onClick = { showMenu = false },
-                    leadingIcon = { Icon(imageVector = FluentIcon.Dismiss, contentDescription = null, tint = Color(0xFFFF6B6B),
+                    leadingIcon = { Icon(imageVector = FluentIcon.Dismiss, contentDescription = null, tint = DS.badgeRed,
                         modifier = Modifier.size(13.dp)) }
                 )
             }
@@ -1462,7 +1459,7 @@ private fun TaskbarAppIcon(
                 modifier = Modifier
                     .width(if (isActive) 14.dp else 4.dp).height(2.dp)
                     .clip(RoundedCornerShape(1.dp))
-                    .background(if (isActive) bluebirdColors.AccentBlue else Color.White.copy(alpha = 0.45f))
+                    .background(if (isActive) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.45f))
             )
         }
     }
@@ -1477,13 +1474,13 @@ private fun TaskbarWindowIcon(
     showLabel: Boolean,
     isActive: Boolean,
     windowCount: Int = 1,
+    isDark: Boolean = true,
     onClick: () -> Unit
 ) {
-    val bgColor by animateColorAsState(
-        targetValue = if (isActive) bluebirdColors.AccentBlue.copy(alpha = 0.22f)
-        else bluebirdColors.HoverBg.copy(alpha = 0.5f),
-        animationSpec = tween(200), label = "windowBg"
-    )
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val hoverBg = if (isDark) bluebirdColors.HoverBg else bluebirdColors.HoverBgLight
+    val bgColor = if (isActive) bluebirdColors.AccentBlue.copy(alpha = 0.22f)
+        else hoverBg.copy(alpha = 0.5f)
     val bmpIcon = rememberWindowBitmapIcon(windowState.customIconPath)
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1509,7 +1506,7 @@ private fun TaskbarWindowIcon(
                         // falling back to iconForKey()'s Fluent glyph.
                         WindowKeyIcon(
                             key = windowState.iconKey,
-                            tint = if (isActive) Color.White else Color.White.copy(alpha = 0.8f),
+                            tint = if (isActive) textColor else textColor.copy(alpha = 0.8f),
                             modifier = Modifier.size(15.dp)
                         )
                     }
@@ -1530,21 +1527,18 @@ private fun TaskbarWindowIcon(
                 }
                 if (showLabel) {
                     Text(text = windowState.title,
-                        color = if (isActive) Color.White else Color.White.copy(alpha = 0.8f),
+                        color = if (isActive) textColor else textColor.copy(alpha = 0.8f),
                         fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
-        val indicatorWidth by animateDpAsState(
-            targetValue = if (isActive) 16.dp else if (windowCount > 1) 10.dp else 6.dp,
-            animationSpec = tween(180), label = "indicatorWidth"
-        )
+        val indicatorWidth = if (isActive) 16.dp else if (windowCount > 1) 10.dp else 6.dp
         Box(
             modifier = Modifier
                 .width(indicatorWidth)
                 .height(2.dp)
                 .clip(RoundedCornerShape(1.dp))
-                .background(if (isActive) DS.accentStart else Color.White.copy(alpha = 0.35f))
+                .background(if (isActive) DS.accentStart else textColor.copy(alpha = 0.35f))
         )
     }
 }
@@ -1556,8 +1550,10 @@ private fun TaskbarWindowIcon(
 private fun SystemTray(
     uiState: LauncherUiState,
     settings: TaskbarSettings,
+    isDark: Boolean,
     onClickActionCenter: () -> Unit
 ) {
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
@@ -1570,7 +1566,7 @@ private fun SystemTray(
             Icon(
                 imageVector = if (uiState.isWifiOn) FluentIcon.Wifi else FluentIcon.WifiOff,
                 contentDescription = "Wi-Fi",
-                tint = Color.White,
+                tint = textColor,
                 modifier = Modifier.size(13.dp)
             )
         }
@@ -1582,12 +1578,12 @@ private fun SystemTray(
                         else                   -> FluentIcon.Speaker2
                     },
                 contentDescription = "Volume",
-                tint = Color.White,
+                tint = textColor,
                 modifier = Modifier.size(13.dp)
             )
         }
         if (settings.showBattery) {
-            Icon(imageVector = FluentIcon.Battery10, contentDescription = "Battery", tint = Color.White,
+            Icon(imageVector = FluentIcon.Battery10, contentDescription = "Battery", tint = textColor,
                 modifier = Modifier.size(13.dp))
         }
         if (settings.showClock) {
@@ -1613,9 +1609,9 @@ private fun SystemTray(
                 horizontalAlignment = Alignment.End,
                 modifier = Modifier.padding(start = 2.dp)
             ) {
-                Text(parts.getOrElse(0) { "" }, color = Color.White, fontSize = 10.sp,
+                Text(parts.getOrElse(0) { "" }, color = textColor, fontSize = 10.sp,
                     fontWeight = FontWeight.Medium, lineHeight = 12.sp)
-                Text(parts.getOrElse(1) { "" }, color = Color.White.copy(alpha = 0.55f),
+                Text(parts.getOrElse(1) { "" }, color = textColor.copy(alpha = 0.55f),
                     fontSize = 8.5.sp, lineHeight = 10.sp)
             }
         }
