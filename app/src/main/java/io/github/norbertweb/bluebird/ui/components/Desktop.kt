@@ -336,7 +336,10 @@ private fun BackgroundAnimationLayer(
 // animation layer above (see BackgroundEffectsState).
 // ─────────────────────────────────────────────────────────────────
 @Composable
-private fun LiveWallpaperRenderer(
+// internal (was private): now also called from SettingsScreen.kt's
+// PersonalizationSection, which ports this same "Effects" tab content into
+// Settings so Personalize no longer needs its own separate dialog surface.
+internal fun LiveWallpaperRenderer(
     type: LiveWallpaperType,
     modifier: Modifier = Modifier,
     // The Effects-tab picker previously rendered all 4 wallpapers simultaneously, each
@@ -1258,6 +1261,27 @@ fun Desktop(
             }
         }
 
+        // Re-sync from prefs when the Settings window closes. Personalization
+        // (mode/gradient/image/live-wallpaper/effects) is now edited from
+        // SettingsScreen.kt's PersonalizationSection rather than an in-place
+        // dialog here, and it writes straight to the same DesktopPreferences —
+        // but this composable's wallpaperMode/gradientIndex/defaultImageIndex
+        // are plain `remember` state read only once at first composition, so
+        // without this they'd silently keep showing the old wallpaper choice
+        // after the user backs out of Settings. Keyed on "is Settings open"
+        // rather than every uiState change, so it only re-reads at the one
+        // moment it actually matters.
+        val isSettingsOpen = vmUiState.openWindows.any { it.screen == LauncherScreen.SETTINGS }
+        LaunchedEffect(isSettingsOpen) {
+            if (!isSettingsOpen) {
+                wallpaperMode = if (prefs.wallpaperMode == DesktopWallpaperMode.APPARENT && !prefs.wallpaperModeEverSet)
+                    DesktopWallpaperMode.DEFAULT else prefs.wallpaperMode
+                gradientIndex = prefs.wallpaperGradientIndex
+                defaultImageIndex = prefs.wallpaperImageIndex
+                customWallpaperUri = prefs.customWallpaperUri
+            }
+        }
+
         // Auto-cycle wallpaper when no custom wallpaper is set
         LaunchedEffect(wallpaperMode) {
             while (true) {
@@ -1307,7 +1331,10 @@ fun Desktop(
         var propsTarget         by remember { mutableStateOf<DesktopFileInfo?>(null) }
         var showShortcutDialog  by remember { mutableStateOf(false) }
         var showAppPickerDialog by remember { mutableStateOf(false) }
-        var showWallpaperPanel  by remember { mutableStateOf(false) }
+        // showWallpaperPanel removed — Personalize now opens the Settings window
+        // (Appearance category) instead of this in-place dialog. See onPersonalize
+        // above and WallpaperPersonalisePanel's replacement, PersonalizationSection,
+        // in SettingsScreen.kt.
 
         // ── Lasso selection ──
         var selStart            by remember { mutableStateOf(Offset.Zero) }
@@ -1315,7 +1342,13 @@ fun Desktop(
         var isSelecting         by remember { mutableStateOf(false) }
         var lassoActive         by remember { mutableStateOf(false) }
 
-        val isDark = viewModel.uiState.collectAsState().value.isDarkTheme
+        // PERF FIX: this used to be a second, separate collectAsState() of the
+        // *entire* uiState just to read isDarkTheme — a duplicate Flow
+        // subscription doing the same job as vmUiState above (which is already
+        // collected lifecycle-aware). That meant two live collectors of the same
+        // StateFlow driving recomposition off of every single state change,
+        // instead of one. Reuse vmUiState instead.
+        val isDark = vmUiState.isDarkTheme
 
         // ── Grid metrics ──
         val cellWDp     = cellWidthDp(iconSize)
@@ -2442,7 +2475,15 @@ fun Desktop(
                     },
                     onNewShortcut       = { showShortcutDialog  = true; showDesktopCtx = false },
                     onAddAppShortcut    = { showAppPickerDialog = true; showDesktopCtx = false },
-                    onPersonalize       = { showWallpaperPanel  = true; showDesktopCtx = false },
+                    // Personalize now opens the real Settings window at the Appearance
+                    // category (which hosts the Personalization section — background,
+                    // effects, live wallpaper) instead of showing its own separate
+                    // WallpaperPersonalisePanel dialog. Matches Windows 11: right-click
+                    // → Personalize always lands you in Settings, not a standalone popup.
+                    onPersonalize       = {
+                        viewModel.openWindow(LauncherScreen.SETTINGS, extras = mapOf("category" to "APPEARANCE"))
+                        showDesktopCtx = false
+                    },
                     onDisplaySettings   = { viewModel.openWindow(LauncherScreen.SETTINGS); showDesktopCtx = false },
                     onDismiss           = { showDesktopCtx = false }
                 )
@@ -2590,35 +2631,14 @@ fun Desktop(
                 PropertiesDialog(item = propsTarget!!, isDark = isDark, onDismiss = { showPropsDialog = false })
             }
 
-            // ── Wallpaper / Personalise Panel ──
-            if (showWallpaperPanel) {
-                WallpaperPersonalisePanel(
-                    isDark             = isDark,
-                    viewModel          = viewModel,
-                    currentMode        = wallpaperMode,
-                    currentGradientIdx = gradientIndex,
-                    currentImageIdx    = defaultImageIndex,
-                    onModeChange       = { mode ->
-                        wallpaperMode = mode
-                        prefs.wallpaperMode = mode
-                        // Clear custom URI if switching away from custom
-                        if (mode != DesktopWallpaperMode.CUSTOM) {
-                            customWallpaperUri = ""
-                            prefs.customWallpaperUri = ""
-                        }
-                    },
-                    onGradientChange   = { idx ->
-                        gradientIndex = idx
-                        prefs.wallpaperGradientIndex = idx
-                    },
-                    onImageChange      = { idx ->
-                        defaultImageIndex = idx
-                        prefs.wallpaperImageIndex = idx
-                    },
-                    onPickCustom       = { viewModel.openWallpaperPicker(WallpaperTarget.HOME) },
-                    onDismiss          = { showWallpaperPanel = false }
-                )
-            }
+            // WallpaperPersonalisePanel removed from here — Personalize (see
+            // onPersonalize above) now opens the Settings window's Appearance
+            // category instead, which hosts the same Background/Effects controls
+            // via SettingsScreen.kt's PersonalizationSection. wallpaperMode,
+            // gradientIndex, defaultImageIndex, customWallpaperUri and `prefs`
+            // above stay as this composable's own live desktop-rendering state;
+            // Settings reads/writes the same DesktopPreferences so both views of
+            // the wallpaper state stay in sync without any extra plumbing.
         } // end BoxWithConstraints
     } // end BoxWithConstraints lambda — was missing, caused all errors
 } // end Desktop
@@ -2859,7 +2879,8 @@ private fun DesktopIcon(
 // Lets the user switch between APPARENT (gradients), DEFAULT (images),
 // and pick which gradient/image is active.
 // ─────────────────────────────────────────────────────────────────
-private fun bgAnimationLabel(type: BgAnimationType): String = when (type) {
+// internal (was private): shared with SettingsScreen.kt's PersonalizationSection
+internal fun bgAnimationLabel(type: BgAnimationType): String = when (type) {
     BgAnimationType.SNOW -> "Snow"
     BgAnimationType.BUBBLES -> "Bubbles"
     BgAnimationType.STARS -> "Stars"
@@ -2872,7 +2893,8 @@ private fun bgAnimationLabel(type: BgAnimationType): String = when (type) {
     BgAnimationType.SAKURA -> "Sakura"
 }
 
-private fun bgAnimationEmoji(type: BgAnimationType): String = when (type) {
+// internal (was private): shared with SettingsScreen.kt's PersonalizationSection
+internal fun bgAnimationEmoji(type: BgAnimationType): String = when (type) {
     BgAnimationType.SNOW -> "❄"
     BgAnimationType.BUBBLES -> "🫧"
     BgAnimationType.STARS -> "✨"
@@ -2885,376 +2907,10 @@ private fun bgAnimationEmoji(type: BgAnimationType): String = when (type) {
     BgAnimationType.SAKURA -> "🌸"
 }
 
-@Composable
-fun WallpaperPersonalisePanel(
-    isDark: Boolean,
-    viewModel: LauncherViewModel,
-    currentMode: DesktopWallpaperMode,
-    currentGradientIdx: Int,
-    currentImageIdx: Int,
-    onModeChange: (DesktopWallpaperMode) -> Unit,
-    onGradientChange: (Int) -> Unit,
-    onImageChange: (Int) -> Unit,
-    onPickCustom: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val bg  = if (isDark) Color(0xFF1E1E1E) else Color.White
-    val tc  = if (isDark) Color.White else Color(0xFF1A1A1A)
-    val tcm = if (isDark) Color(0xFF909090) else Color(0xFF666666)
-    val acc = Color(0xFF0078D4)
-
-    val gradientNames = listOf(
-        "Ocean Depth", "Midnight Blue", "Carbon", "Sunset Tricolor", "Forest Lime"
-    )
-
-    var activeTab by remember { mutableStateOf(0) }   // 0 = Background, 1 = Effects
-    val effectsState by viewModel.uiState.collectAsStateWithLifecycle()
-    val bgEffects = effectsState.backgroundEffects
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor   = bg,
-        shape            = RoundedCornerShape(12.dp),
-        title = {
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(imageVector = FluentIcon.Color, contentDescription = null, tint = acc, modifier = Modifier.size(20.dp))
-                    Text("Personalise Desktop", color = tc, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("Background" to 0, "Effects" to 1).forEach { (label, idx) ->
-                        val selected = activeTab == idx
-                        Surface(
-                            modifier = Modifier.weight(1f),
-                            shape    = RoundedCornerShape(6.dp),
-                            color    = if (selected) acc.copy(alpha = 0.15f) else Color.Transparent
-                        ) {
-                            Box(
-                                Modifier.clickable { activeTab = idx }.padding(vertical = 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    label, fontSize = 12.sp,
-                                    color = if (selected) acc else tcm,
-                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        text = {
-            if (activeTab == 0) {
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-
-                // ── Mode selector ──
-                Text("Wallpaper type", color = tcm, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf(
-                        DesktopWallpaperMode.APPARENT to "Apparent",
-                        DesktopWallpaperMode.DEFAULT  to "Default",
-                        DesktopWallpaperMode.CUSTOM   to "Custom"
-                    ).forEach { (mode, label) ->
-                        val selected = currentMode == mode
-                        Surface(
-                            modifier      = Modifier.weight(1f),
-                            shape         = RoundedCornerShape(6.dp),
-                            color         = if (selected) acc else (if (isDark) Color(0xFF2C2C2C) else Color(0xFFEEEEEE)),
-                            border        = if (selected) null else BorderStroke(1.dp, if (isDark) Color(0xFF3A3A3A) else Color(0xFFCCCCCC))
-                        ) {
-                            Box(
-                                Modifier
-                                    .clickable { onModeChange(mode) }
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    label,
-                                    color      = if (selected) Color.White else tc,
-                                    fontSize   = 12.sp,
-                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                    textAlign  = TextAlign.Center
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // ── Apparent gradient picker ──
-                AnimatedVisibility(currentMode == DesktopWallpaperMode.APPARENT) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Colour scheme", color = tcm, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            wallpaperGradients.forEachIndexed { idx, gradient ->
-                                val isActive = idx == currentGradientIdx
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(
-                                            if (isActive) acc.copy(alpha = 0.12f)
-                                            else Color.Transparent
-                                        )
-                                        .clickable { onGradientChange(idx) }
-                                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    // Gradient preview swatch
-                                    Box(
-                                        Modifier
-                                            .size(36.dp, 22.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(
-                                                Brush.linearGradient(
-                                                    gradient,
-                                                    start = Offset(0f, 0f),
-                                                    end   = Offset(200f, 100f)
-                                                )
-                                            )
-                                    )
-                                    Text(
-                                        gradientNames.getOrElse(idx) { "Preset ${idx + 1}" },
-                                        color    = tc,
-                                        fontSize = 12.5.sp,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    if (isActive) {
-                                        Icon(imageVector = FluentIcon.Checkmark, contentDescription = null, tint = acc, modifier = Modifier.size(14.dp))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ── Default image picker ──
-                AnimatedVisibility(currentMode == DesktopWallpaperMode.DEFAULT) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Wallpaper image", color = tcm, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                        if (DEFAULT_WALLPAPERS.all { it == 0 }) {
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .height(80.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isDark) Color(0xFF2A2A2A) else Color(0xFFEEEEEE)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    "Add 5 wallpapers to res/drawable\nas desktop_wp_1.png … desktop_wp_5.png",
-                                    color     = tcm,
-                                    fontSize  = 11.sp,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        } else {
-                            Row(
-                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                DEFAULT_WALLPAPERS.forEachIndexed { idx, resId ->
-                                    val isActive = idx == currentImageIdx
-                                    Box(
-                                        Modifier
-                                            .size(72.dp, 48.dp)
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .border(
-                                                width = if (isActive) 2.dp else 0.dp,
-                                                color = if (isActive) acc else Color.Transparent,
-                                                shape = RoundedCornerShape(6.dp)
-                                            )
-                                            .clickable { onImageChange(idx) }
-                                    ) {
-                                        if (resId != 0) {
-                                            Image(
-                                                painter      = painterResource(id = resId),
-                                                contentDescription = null,
-                                                modifier     = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop
-                                            )
-                                        } else {
-                                            Box(Modifier.fillMaxSize().background(Color(0xFF1A1A2E)))
-                                        }
-                                        if (isActive) {
-                                            Box(
-                                                Modifier.fillMaxSize().background(acc.copy(alpha = 0.25f)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(imageVector = FluentIcon.Checkmark, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ── Custom wallpaper ──
-                AnimatedVisibility(currentMode == DesktopWallpaperMode.CUSTOM) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Pick an image from your device", color = tcm, fontSize = 11.sp)
-                        Button(
-                            onClick  = { onPickCustom(); onDismiss() },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape    = RoundedCornerShape(6.dp),
-                            colors   = ButtonDefaults.buttonColors(containerColor = acc)
-                        ) {
-                            Icon(imageVector = FluentIcon.Image, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Browse Gallery…", fontWeight = FontWeight.Medium)
-                        }
-                    }
-                }
-            }
-            } else {
-                // ── Effects tab: particle animations (mix-able) + live wallpapers ──
-                Column(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Background animation", color = tcm, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                        Text(
-                            "Select one or more to mix them together",
-                            color = tcm.copy(alpha = 0.7f), fontSize = 10.sp
-                        )
-                    }
-
-                    val liveActive = bgEffects.liveWallpaper != LiveWallpaperType.NONE
-                    BgAnimationType.entries.toList().chunked(2).forEach { rowTypes ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            rowTypes.forEach { type ->
-                                val active = type in bgEffects.activeAnimations
-                                Surface(
-                                    modifier = Modifier.weight(1f),
-                                    shape    = RoundedCornerShape(6.dp),
-                                    color    = if (active) acc else (if (isDark) Color(0xFF2C2C2C) else Color(0xFFEEEEEE)),
-                                    border   = if (active) null else BorderStroke(1.dp, if (isDark) Color(0xFF3A3A3A) else Color(0xFFCCCCCC))
-                                ) {
-                                    Row(
-                                        Modifier
-                                            .clickable(enabled = !liveActive) { viewModel.toggleBgAnimation(type) }
-                                            .padding(vertical = 8.dp, horizontal = 8.dp)
-                                            .alpha(if (liveActive) 0.4f else 1f),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text(bgAnimationEmoji(type), fontSize = 14.sp)
-                                        Text(
-                                            bgAnimationLabel(type), fontSize = 11.5.sp,
-                                            color = if (active) Color.White else tc,
-                                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
-                                        )
-                                    }
-                                }
-                            }
-                            if (rowTypes.size == 1) Spacer(Modifier.weight(1f))
-                        }
-                    }
-
-                    if (bgEffects.activeAnimations.isNotEmpty()) {
-                        TextButton(onClick = { viewModel.clearBgAnimations() }) {
-                            Text("Turn off all animations", fontSize = 11.sp, color = acc)
-                        }
-                    }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Intensity", color = tcm, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                        Slider(
-                            value = bgEffects.intensity.toFloat(),
-                            onValueChange = { viewModel.setBgAnimationIntensity(it.toInt()) },
-                            valueRange = 10f..100f,
-                            enabled = !liveActive,
-                            colors = SliderDefaults.colors(thumbColor = acc, activeTrackColor = acc)
-                        )
-                    }
-
-                    Divider(color = tcm.copy(alpha = 0.15f))
-
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Live wallpaper", color = tcm, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                        Text(
-                            "Replaces the static wallpaper and turns off particle animations",
-                            color = tcm.copy(alpha = 0.7f), fontSize = 10.sp
-                        )
-                    }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        // "Off" tile
-                        val offActive = bgEffects.liveWallpaper == LiveWallpaperType.NONE
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(72.dp, 48.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isDark) Color(0xFF2A2A2A) else Color(0xFFEEEEEE))
-                                    .border(
-                                        width = if (offActive) 2.dp else 0.dp,
-                                        color = if (offActive) acc else Color.Transparent,
-                                        shape = RoundedCornerShape(6.dp)
-                                    )
-                                    .clickable { viewModel.setLiveWallpaper(LiveWallpaperType.NONE) },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(imageVector = FluentIcon.Dismiss, contentDescription = null, tint = tcm, modifier = Modifier.size(16.dp))
-                            }
-                            Text("Off", fontSize = 10.sp, color = if (offActive) acc else tcm)
-                        }
-                        listOf(
-                            LiveWallpaperType.AURORA to "Aurora",
-                            LiveWallpaperType.NEBULA to "Nebula",
-                            LiveWallpaperType.WAVES  to "Waves",
-                            LiveWallpaperType.BOKEH  to "Bokeh"
-                        ).forEach { (lw, label) ->
-                            val isActive = bgEffects.liveWallpaper == lw
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    Modifier
-                                        .size(72.dp, 48.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .border(
-                                            width = if (isActive) 2.dp else 0.dp,
-                                            color = if (isActive) acc else Color.Transparent,
-                                            shape = RoundedCornerShape(6.dp)
-                                        )
-                                        .clickable { viewModel.setLiveWallpaper(lw) }
-                                ) {
-                                    LiveWallpaperRenderer(type = lw, modifier = Modifier.fillMaxSize(), animated = false)
-                                    if (isActive) {
-                                        Box(
-                                            Modifier.fillMaxSize().background(acc.copy(alpha = 0.2f)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(imageVector = FluentIcon.Checkmark, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                        }
-                                    }
-                                }
-                                Text(label, fontSize = 10.sp, color = if (isActive) acc else tcm)
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = onDismiss, colors = ButtonDefaults.buttonColors(containerColor = acc)) {
-                Text("Done", fontWeight = FontWeight.SemiBold)
-            }
-        }
-    )
-}
+// WallpaperPersonalisePanel (Background/Effects dialog) used to be defined
+// here. It has been removed and its content ported to SettingsScreen.kt's
+// PersonalizationSection — see onPersonalize above, which now opens the
+// Settings window instead of this in-place dialog.
 
 // ─────────────────────────────────────────────────────────────────
 // bluebird style Desktop Context Menu
