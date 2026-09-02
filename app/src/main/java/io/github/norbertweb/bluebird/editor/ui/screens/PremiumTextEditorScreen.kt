@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Alignment
@@ -83,6 +84,8 @@ import io.github.norbertweb.bluebird.editor.ui.components.PremiumFindBar
 import io.github.norbertweb.bluebird.editor.ui.components.PremiumGutter
 import io.github.norbertweb.bluebird.editor.ui.components.PremiumMenuBar
 import io.github.norbertweb.bluebird.editor.ui.components.PremiumStatusBar
+import io.github.norbertweb.bluebird.editor.ui.components.QuickOpenDialog
+import io.github.norbertweb.bluebird.editor.ui.components.SymbolPickerDialog
 import io.github.norbertweb.bluebird.editor.ui.components.PremiumTabBar
 import io.github.norbertweb.bluebird.editor.ui.components.SaveAsDialog
 import io.github.norbertweb.bluebird.editor.ui.components.SettingsPanel
@@ -228,6 +231,8 @@ fun PremiumTextEditorScreen(
 
         // ── Dialogs ───────────────────────────────────────────────
         if (s.showCommandPalette) CommandPalette(s)
+        if (s.showQuickOpen) QuickOpenDialog(s)
+        if (s.showSymbolPicker) SymbolPickerDialog(s)
         if (s.showSaveAsDialog) SaveAsDialog(s) { name ->
             val dir = if (s.filePath.isNotEmpty()) File(s.filePath).parent ?: context.filesDir.path
                       else context.filesDir.path
@@ -269,6 +274,16 @@ private fun EditorGroupContent(
     }
     val effectiveFontSize = (s.fontSize * s.zoom).sp
     val scrollState = rememberScrollState()
+    LaunchedEffect(tab.id) {
+        scrollState.scrollTo(tab.scrollOffset.coerceAtLeast(0))
+    }
+    LaunchedEffect(tab.id) {
+        snapshotFlow { scrollState.value }.collect { offset ->
+            if (s.activeEditorGroup == group && s.tabIdForGroup(group) == tab.id && offset != tab.scrollOffset) {
+                s.updateTabById(tab.id) { copy(scrollOffset = offset) }
+            }
+        }
+    }
     var contentHeightPx by remember(s.tabIdForGroup(group)) { mutableStateOf(0) }
 
     val bracketMatch = remember(tab.content.selection.start, tab.content.text, s.settings.bracketMatching) {
@@ -584,7 +599,9 @@ fun handleKeyEvent(
             s.updateContent(s.content.copy(text = newText, selection = TextRange(start + paste.length)))
             true
         }
-        isCtrl && keyCode == KeyEvent.KEYCODE_P -> { s.showCommandPalette = true; true }
+        isCtrl && isShift && keyCode == KeyEvent.KEYCODE_P -> { s.showCommandPalette = true; true }
+        isCtrl && !isShift && keyCode == KeyEvent.KEYCODE_P -> { s.showQuickOpen = true; true }
+        isCtrl && isShift && keyCode == KeyEvent.KEYCODE_O -> { s.showSymbolPicker = true; true }
         isCtrl && keyCode == KeyEvent.KEYCODE_EQUALS -> { s.updateSettings { copy(zoom = (zoom + 0.1f).coerceAtMost(4f)) }; true }
         isCtrl && keyCode == KeyEvent.KEYCODE_MINUS -> { s.updateSettings { copy(zoom = (zoom - 0.1f).coerceAtLeast(0.25f)) }; true }
         isCtrl && keyCode == KeyEvent.KEYCODE_0 -> { s.updateSettings { copy(zoom = 1f) }; true }
@@ -595,6 +612,8 @@ fun handleKeyEvent(
         keyCode == KeyEvent.KEYCODE_ESCAPE -> {
             when {
                 s.showCommandPalette -> s.showCommandPalette = false
+                s.showQuickOpen -> s.showQuickOpen = false
+                s.showSymbolPicker -> s.showSymbolPicker = false
                 s.showFindBar -> s.showFindBar = false
                 else -> return false
             }

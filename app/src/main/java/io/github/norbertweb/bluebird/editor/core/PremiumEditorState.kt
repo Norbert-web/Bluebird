@@ -677,6 +677,8 @@ class PremiumEditorState(
     var showSnippetManager by mutableStateOf(false)
     var showBookmarksPanel by mutableStateOf(false)
     var showCommandPalette by mutableStateOf(false)
+    var showQuickOpen by mutableStateOf(false)
+    var showSymbolPicker by mutableStateOf(false)
     var showFindResultsPanel by mutableStateOf(false)
     // ── Phase 1 IDE shell state ───────────────────────────────────
     var shellActivity by mutableStateOf(ShellActivity.EXPLORER)
@@ -764,6 +766,8 @@ class PremiumEditorState(
         EditorCommand("Close Tab", "", "file") { closeTab(activeTabIndex) },
         EditorCommand("Undo", "Ctrl+Z", "edit") { undo() },
         EditorCommand("Redo", "Ctrl+Y", "edit") { redo() },
+        EditorCommand("Quick Open", "Ctrl+P", "navigate") { showQuickOpen = true },
+        EditorCommand("Command Palette", "Ctrl+Shift+P", "navigate") { showCommandPalette = true },
         EditorCommand("Find", "Ctrl+F", "edit") { showFindBar = true; showReplace = false },
         EditorCommand("Find & Replace", "Ctrl+H", "edit") { showFindBar = true; showReplace = true },
         EditorCommand("Go to Line…", "Ctrl+G", "edit") { showGoToLineDialog = true },
@@ -796,6 +800,7 @@ class PremiumEditorState(
         EditorCommand("Next Bookmark", "F2", "nav") { nextBookmark() },
         EditorCommand("Previous Bookmark", "Shift+F2", "nav") { prevBookmark() },
         EditorCommand("Show Bookmarks", "", "nav") { showBookmarksPanel = true },
+        EditorCommand("Go to Symbol…", "Ctrl+Shift+O", "navigate") { showSymbolPicker = true },
         EditorCommand("Show Statistics", "", "view") { showStatsPanel = true },
         EditorCommand("Encoding…", "", "file") { showEncodingPicker = true },
         EditorCommand("Line Ending…", "", "file") { showLineEndingPicker = true },

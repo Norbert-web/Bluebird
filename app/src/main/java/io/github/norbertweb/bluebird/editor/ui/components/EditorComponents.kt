@@ -1321,3 +1321,143 @@ private fun DialogTitle(icon: ImageVector, label: String, c: EditorColors) {
 }
 
 private val Modifier.alpha: (Float) -> Modifier get() = { a -> this.then(Modifier.graphicsLayer { alpha = a }) }
+
+// ─────────────────────────────────────────────────────────────────
+// Quick Open / Symbol navigation — Phase 2
+// ─────────────────────────────────────────────────────────────────
+
+@Composable
+fun QuickOpenDialog(s: PremiumEditorState) {
+    val c = s.colors
+    var query by remember { mutableStateOf("") }
+    val focusReq = remember { FocusRequester() }
+    val group = s.activeEditorGroup
+    val candidates = remember(s.tabs, s.settings.recentFiles, query, group) {
+        val open = s.tabsForGroup(group).map { it.filePath.ifEmpty { it.fileName } to it.fileName }
+        val recent = s.settings.recentFiles.map { it to java.io.File(it).name }
+        (open + recent).distinctBy { it.first }
+            .filter { query.isBlank() || it.second.contains(query, true) || it.first.contains(query, true) }
+            .take(60)
+    }
+    LaunchedEffect(Unit) { runCatching { focusReq.requestFocus() } }
+    AlertDialog(
+        onDismissRequest = { s.showQuickOpen = false },
+        containerColor = c.surface,
+        shape = RoundedCornerShape(12.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(FluentIcon.Search, null, tint = c.accent, modifier = Modifier.size(18.dp))
+                Text("Quick Open", color = c.text, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        text = {
+            Column {
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    textStyle = TextStyle(color = c.text, fontSize = 14.sp),
+                    cursorBrush = SolidColor(c.accent),
+                    modifier = Modifier.fillMaxWidth().background(c.surfaceHover, RoundedCornerShape(7.dp))
+                        .border(1.dp, c.border, RoundedCornerShape(7.dp)).padding(10.dp).focusRequester(focusReq),
+                    decorationBox = { inner -> Box { if (query.isEmpty()) Text("Type a file name or path…", color = c.textMuted, fontSize = 14.sp); inner() } }
+                )
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                    itemsIndexed(candidates) { _, (path, name) ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable {
+                                val open = s.tabs.indexOfFirst { it.filePath == path }
+                                if (open >= 0) s.selectTabIdInGroup(group, s.tabs[open].id)
+                                else if (path.isNotEmpty()) { s.toast("Open this file from Explorer: $path") }
+                                s.showQuickOpen = false
+                            }.padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(FluentIcon.Code, null, tint = c.textMuted, modifier = Modifier.size(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(name, color = c.text, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (path.isNotEmpty()) Text(path, color = c.textMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {}
+    )
+}
+
+@Composable
+fun SymbolPickerDialog(s: PremiumEditorState) {
+    val c = s.colors
+    val tab = s.activeTab
+    var query by remember { mutableStateOf("") }
+    val symbols = remember(tab.id, tab.content.text, tab.fileName) { extractSymbolsForPicker(tab.content.text, tab.fileName) }
+    val filtered = remember(query, symbols) { symbols.filter { query.isBlank() || it.name.contains(query, true) || it.kind.contains(query, true) } }
+    AlertDialog(
+        onDismissRequest = { s.showSymbolPicker = false },
+        containerColor = c.surface,
+        shape = RoundedCornerShape(12.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(FluentIcon.Code, null, tint = c.accent, modifier = Modifier.size(18.dp))
+                Text("Go to Symbol", color = c.text, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        text = {
+            Column {
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    textStyle = TextStyle(color = c.text, fontSize = 14.sp),
+                    cursorBrush = SolidColor(c.accent),
+                    modifier = Modifier.fillMaxWidth().background(c.surfaceHover, RoundedCornerShape(7.dp))
+                        .border(1.dp, c.border, RoundedCornerShape(7.dp)).padding(10.dp),
+                    decorationBox = { inner -> Box { if (query.isEmpty()) Text("Search symbols…", color = c.textMuted, fontSize = 14.sp); inner() } }
+                )
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                    itemsIndexed(filtered) { _, symbol ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable {
+                                s.goToLine(symbol.line)
+                                s.showSymbolPicker = false
+                            }.padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(FluentIcon.Code, null, tint = c.accent, modifier = Modifier.size(14.dp))
+                            Text(symbol.name, color = c.text, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${symbol.kind}  ${symbol.line}", color = c.textMuted, fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {}
+    )
+}
+
+private data class PickerSymbol(val name: String, val kind: String, val line: Int)
+
+private fun extractSymbolsForPicker(text: String, fileName: String): List<PickerSymbol> {
+    val result = mutableListOf<PickerSymbol>()
+    val patterns = listOf(
+        Regex("\\b(?:fun|function)\\s+([A-Za-z_][A-Za-z0-9_]*)"),
+        Regex("\\b(?:class|interface|object|struct|enum)\\s+([A-Za-z_][A-Za-z0-9_]*)"),
+        Regex("\\b(?:val|var|const|let)\\s+([A-Za-z_][A-Za-z0-9_]*)"),
+        Regex("(?:def|async\\s+def)\\s+([A-Za-z_][A-Za-z0-9_]*)")
+    )
+    text.lineSequence().forEachIndexed { index, line ->
+        patterns.forEachIndexed { patternIndex, regex ->
+            regex.find(line)?.let { match ->
+                val kind = when (patternIndex) { 0, 3 -> "function"; 1 -> "type"; else -> "symbol" }
+                result += PickerSymbol(match.groupValues[1], kind, index + 1)
+            }
+        }
+    }
+    return result.distinctBy { "${it.line}:${it.name}" }.take(500)
+}
