@@ -14,6 +14,10 @@ interface LanguageServerClient {
     fun references(filePath: String, offset: Int): List<ReferenceLocation>
     fun rename(filePath: String, offset: Int, newName: String): Map<String, String>
     fun hover(filePath: String, offset: Int): HoverInfo?
+
+    /** Optional richer LSP operations. Implementations may return null/empty when unsupported. */
+    fun completion(filePath: String, offset: Int): List<LspCompletionItem> = emptyList()
+    fun capabilities(): LspServerCapabilities = LspServerCapabilities()
 }
 
 object NoOpLanguageServerClient : LanguageServerClient {
@@ -26,4 +30,6 @@ object NoOpLanguageServerClient : LanguageServerClient {
     override fun references(filePath: String, offset: Int): List<ReferenceLocation> = emptyList()
     override fun rename(filePath: String, offset: Int, newName: String): Map<String, String> = emptyMap()
     override fun hover(filePath: String, offset: Int): HoverInfo? = null
+    override fun completion(filePath: String, offset: Int): List<LspCompletionItem> = emptyList()
+    override fun capabilities(): LspServerCapabilities = LspServerCapabilities()
 }

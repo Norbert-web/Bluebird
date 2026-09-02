@@ -69,6 +69,7 @@ import io.github.norbertweb.bluebird.editor.editor.highlighting.findMatchingBrac
 import io.github.norbertweb.bluebird.editor.ui.components.ReferencesDialog
 import io.github.norbertweb.bluebird.editor.ui.components.WorkspaceSearchDialog
 import io.github.norbertweb.bluebird.editor.ui.components.WorkspaceSymbolsDialog
+import io.github.norbertweb.bluebird.editor.ui.components.WorkspaceOutlineDialog
 import io.github.norbertweb.bluebird.editor.ui.components.RenameSymbolDialog
 import io.github.norbertweb.bluebird.editor.ui.components.AutocompletePopup
 import io.github.norbertweb.bluebird.editor.ui.components.BookmarksPanel
@@ -252,6 +253,7 @@ fun PremiumTextEditorScreen(
         if (s.showQuickOpen) QuickOpenDialog(s)
         if (s.showWorkspaceSearch) WorkspaceSearchDialog(s)
         if (s.showWorkspaceSymbols) WorkspaceSymbolsDialog(s)
+        if (s.showWorkspaceOutline) WorkspaceOutlineDialog(s)
         if (s.showRenameSymbol) RenameSymbolDialog(s)
         if (s.showReferencesPanel) ReferencesDialog(s)
         if (s.languageHover != null) LanguageHoverDialog(s)
@@ -572,6 +574,7 @@ fun handleKeyEvent(
         isCtrl && isShift && keyCode == KeyEvent.KEYCODE_P -> { s.showCommandPalette = true; true }
         isCtrl && !isShift && keyCode == KeyEvent.KEYCODE_P -> { s.showQuickOpen = true; true }
         isCtrl && isShift && keyCode == KeyEvent.KEYCODE_O -> { s.showSymbolPicker = true; true }
+        isCtrl && isShift && keyCode == KeyEvent.KEYCODE_T -> { s.showWorkspaceOutline(); true }
         isCtrl && isShift && keyCode == KeyEvent.KEYCODE_LEFT_BRACKET -> { s.toggleFoldAtCursor(); true }
         isCtrl && isShift && keyCode == KeyEvent.KEYCODE_RIGHT_BRACKET -> { s.unfoldAll(); true }
         isCtrl && isAlt && keyCode == KeyEvent.KEYCODE_LEFT_BRACKET -> { s.foldAll(); true }

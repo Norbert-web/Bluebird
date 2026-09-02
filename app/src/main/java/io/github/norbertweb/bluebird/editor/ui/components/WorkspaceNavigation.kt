@@ -99,3 +99,54 @@ fun RenameSymbolDialog(s: PremiumEditorState) {
         dismissButton = { TextButton(onClick = { s.showRenameSymbol = false }) { Text("Cancel", color = c.textMuted) } }
     )
 }
+
+@Composable
+fun WorkspaceOutlineDialog(s: PremiumEditorState) {
+    val c = s.colors
+    val files = s.workspaceIndex.indexedFiles
+    val symbols = s.workspaceIndex.indexedSymbols
+    AlertDialog(
+        onDismissRequest = { s.showWorkspaceOutline = false },
+        containerColor = c.surface, shape = RoundedCornerShape(12.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(FluentIcon.List, null, tint = c.accent, modifier = Modifier.size(18.dp))
+                Text("Workspace Outline", color = c.text)
+            }
+        },
+        text = {
+            Column {
+                Text("${files.size} files · ${symbols.size} symbols · ${s.workspaceIndex.indexedImportCount} imports · ${s.workspaceIndex.indexedExportCount} exports", color = c.textMuted, fontSize = 10.sp)
+                Spacer(Modifier.height(6.dp))
+                LazyColumn(Modifier.heightIn(max = 480.dp)) {
+                    files.forEach { file ->
+                        item(key = "file:${file.path}") {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(FluentIcon.FolderOpen, null, tint = c.textMuted, modifier = Modifier.size(14.dp))
+                                Text(file.fileName, color = c.text, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                Text("${file.symbolCount}", color = c.textMuted, fontSize = 10.sp)
+                            }
+                        }
+                        symbols.filter { it.filePath == file.path }.sortedBy { it.offset }.forEach { symbol ->
+                            item(key = "symbol:${file.path}:${symbol.offset}") {
+                                Row(Modifier.fillMaxWidth().clickable {
+                                    val index = s.tabs.indexOfFirst { runCatching { File(it.filePath).canonicalPath == File(symbol.filePath).canonicalPath }.getOrDefault(it.filePath == symbol.filePath) }
+                                    if (index >= 0) {
+                                        s.selectTabIdInGroup(s.activeEditorGroup, s.tabs[index].id)
+                                        s.updateTabById(s.tabs[index].id) { copy(content = content.copy(selection = androidx.compose.ui.text.TextRange(symbol.offset))) }
+                                    } else runCatching { s.loadFile(LocalContext.current, symbol.filePath) }
+                                    s.showWorkspaceOutline = false
+                                }.padding(start = 24.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(FluentIcon.Code, null, tint = c.accent, modifier = Modifier.size(12.dp))
+                                    Text(symbol.name, color = c.textSecondary, fontSize = 11.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                                    Text("${symbol.line}", color = c.textMuted, fontSize = 9.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { s.showWorkspaceOutline = false }) { Text("Close", color = c.accent) } }
+    )
+}

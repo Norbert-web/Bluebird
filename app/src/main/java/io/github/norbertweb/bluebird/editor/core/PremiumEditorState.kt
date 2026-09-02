@@ -264,6 +264,8 @@ class PremiumEditorState(
         }
         if (shouldPushHistory) lastHistoryPushTime = now
 
+        if (tab.filePath.isNotBlank()) workspaceIndex.updateDocument(tab.filePath, new.text)
+
         // Autocomplete
         if (settings.snippetsEnabled) {
             val allWords = extractWords(new.text)
@@ -271,7 +273,7 @@ class PremiumEditorState(
             autocompleteSuggestions = suggestions
             showAutocomplete = suggestions.isNotEmpty()
         }
-        if (tab.filePath.isNotBlank()) workspaceIndex.updateDocument(tab.filePath, editedSecondaryText)
+        if (tab.filePath.isNotBlank()) workspaceIndex.updateDocument(tab.filePath, new.text)
     }
 
     // ── Undo / Redo ───────────────────────────────────────────────
@@ -944,6 +946,7 @@ class PremiumEditorState(
     var workspaceSearchResults by mutableStateOf<List<WorkspaceSearchResult>>(emptyList())
     var showWorkspaceSearch by mutableStateOf(false)
     var showWorkspaceSymbols by mutableStateOf(false)
+    var showWorkspaceOutline by mutableStateOf(false)
     var showRenameSymbol by mutableStateOf(false)
     var renameTarget by mutableStateOf("")
     var workspaceSymbolQuery by mutableStateOf("")
@@ -986,6 +989,11 @@ class PremiumEditorState(
         showWorkspaceSymbols = true
     }
 
+    fun showWorkspaceOutline() {
+        rebuildWorkspaceIndex()
+        showWorkspaceOutline = true
+    }
+
     fun prepareRenameSymbol() {
         val tab = activeTab
         val word = LanguageIntelligence.wordAt(tab.content.text, tab.content.selection.start)
@@ -1023,7 +1031,8 @@ class PremiumEditorState(
         val tab = activeTab
         val word = LanguageIntelligence.wordAt(tab.content.text, tab.content.selection.start)
         rebuildWorkspaceIndex()
-        val location = workspaceIndex.definition(word, tab.filePath)
+        val location = workspaceIndex.definitionForImport(tab.filePath, word)
+            ?: workspaceIndex.definition(word, tab.filePath)
             ?: LanguageIntelligence.definition(tab.content.text, tab.fileName, tab.content.selection.start)
         if (location == null) { toast("No definition found") ; return }
         val open = tabs.indexOfFirst { it.filePath == location.fileName }
@@ -1040,7 +1049,7 @@ class PremiumEditorState(
         val tab = activeTab
         val word = LanguageIntelligence.wordAt(tab.content.text, tab.content.selection.start)
         rebuildWorkspaceIndex()
-        referenceLocations = workspaceIndex.references(word)
+        referenceLocations = workspaceIndex.referencesWithImports(tab.filePath, word)
         showReferencesPanel = referenceLocations.isNotEmpty()
         toast(if (referenceLocations.isEmpty()) "No references found" else "${referenceLocations.size} reference(s) found")
     }
@@ -1158,6 +1167,7 @@ class PremiumEditorState(
         EditorCommand("Find & Replace", "Ctrl+H", "edit") { showFindBar = true; showReplace = true },
         EditorCommand("Search in Workspace", "Ctrl+Shift+F", "navigate") { showWorkspaceSearch = true },
         EditorCommand("Workspace Symbols", "Ctrl+T", "navigate") { showWorkspaceSymbolTree() },
+        EditorCommand("Workspace Outline", "Ctrl+Shift+T", "navigate") { showWorkspaceOutline() },
         EditorCommand("Rename Symbol", "F2", "navigate") { prepareRenameSymbol() },
         EditorCommand("Go to Line…", "Ctrl+G", "edit") { showGoToLineDialog = true },
         EditorCommand("Go to Definition", "F12", "navigate") { goToDefinition() },

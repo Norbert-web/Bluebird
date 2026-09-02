@@ -1492,12 +1492,16 @@ fun QuickOpenDialog(s: PremiumEditorState) {
     var query by remember { mutableStateOf("") }
     val focusReq = remember { FocusRequester() }
     val group = s.activeEditorGroup
-    val candidates = remember(s.tabs, s.settings.recentFiles, query, group) {
+    LaunchedEffect(Unit) { s.rebuildWorkspaceIndex() }
+    val workspaceFiles = remember(s.workspaceIndexStatus, query) {
+        s.workspaceIndex.quickOpenFiles(query, 80).map { it.path to it.fileName }
+    }
+    val candidates = remember(s.tabs, s.settings.recentFiles, workspaceFiles, query, group) {
         val open = s.tabsForGroup(group).map { it.filePath.ifEmpty { it.fileName } to it.fileName }
         val recent = s.settings.recentFiles.map { it to java.io.File(it).name }
-        (open + recent).distinctBy { it.first }
+        (open + recent + workspaceFiles).distinctBy { it.first }
             .filter { query.isBlank() || it.second.contains(query, true) || it.first.contains(query, true) }
-            .take(60)
+            .take(80)
     }
     LaunchedEffect(Unit) { runCatching { focusReq.requestFocus() } }
     AlertDialog(
@@ -1529,7 +1533,10 @@ fun QuickOpenDialog(s: PremiumEditorState) {
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable {
                                 val open = s.tabs.indexOfFirst { it.filePath == path }
                                 if (open >= 0) s.selectTabIdInGroup(group, s.tabs[open].id)
-                                else if (path.isNotEmpty()) { s.toast("Open this file from Explorer: $path") }
+                                else if (path.isNotEmpty()) {
+                                    runCatching { s.loadFile(LocalContext.current, path) }
+                                        .onFailure { s.toast("Unable to open ${java.io.File(path).name}") }
+                                }
                                 s.showQuickOpen = false
                             }.padding(horizontal = 10.dp, vertical = 8.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
