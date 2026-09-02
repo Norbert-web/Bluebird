@@ -17,6 +17,8 @@ import io.github.norbertweb.bluebird.editor.core.LineIndex
 import io.github.norbertweb.bluebird.editor.core.FileEncoding
 import io.github.norbertweb.bluebird.editor.core.FindResult
 import io.github.norbertweb.bluebird.editor.core.HistoryEntry
+import io.github.norbertweb.bluebird.editor.core.WorkspaceSymbolIndex
+import io.github.norbertweb.bluebird.editor.core.WorkspaceSearchResult
 import io.github.norbertweb.bluebird.editor.core.LineEnding
 import io.github.norbertweb.bluebird.editor.core.TabData
 import io.github.norbertweb.bluebird.editor.editor.actions.ActionResult
@@ -27,6 +29,7 @@ import io.github.norbertweb.bluebird.editor.editor.actions.deleteLine
 import io.github.norbertweb.bluebird.editor.editor.actions.detectLineEnding
 import io.github.norbertweb.bluebird.editor.editor.actions.duplicateLine
 import io.github.norbertweb.bluebird.editor.editor.actions.handleCharInput
+import io.github.norbertweb.bluebird.editor.editor.actions.handleWebCharInput
 import io.github.norbertweb.bluebird.editor.editor.actions.handleEnter
 import io.github.norbertweb.bluebird.editor.editor.actions.handleTab
 import io.github.norbertweb.bluebird.editor.editor.actions.insertText
@@ -268,6 +271,7 @@ class PremiumEditorState(
             autocompleteSuggestions = suggestions
             showAutocomplete = suggestions.isNotEmpty()
         }
+        if (tab.filePath.isNotBlank()) workspaceIndex.updateDocument(tab.filePath, editedSecondaryText)
     }
 
     // ── Undo / Redo ───────────────────────────────────────────────
@@ -765,7 +769,11 @@ class PremiumEditorState(
     fun deleteBackward(byWord: Boolean = false) = applyAction(io.github.norbertweb.bluebird.editor.editor.actions.deleteBackward(content, byWord))
     fun deleteForward(byWord: Boolean = false) = applyAction(io.github.norbertweb.bluebird.editor.editor.actions.deleteForward(content, byWord))
     fun handleChar(char: Char) {
-        val result = handleCharInput(char, content, settings.autoCloseBrackets)
+        val result = if (fileExt in setOf("html", "htm", "jsx", "tsx")) {
+            handleWebCharInput(char, content, fileExt, settings.autoCloseBrackets)
+        } else {
+            handleCharInput(char, content, settings.autoCloseBrackets)
+        }
         if (result != null) applyAction(result)
     }
     fun duplicateCurrentLine() = applyAction(duplicateLine(content))
@@ -928,6 +936,121 @@ class PremiumEditorState(
     val diagnostics: List<Diagnostic>
         get() = diagnosticsForTab(activeTab.id)
 
+    // ── Language intelligence ────────────────────────────────────
+    var languageHover by mutableStateOf<HoverInfo?>(null)
+    var referenceLocations by mutableStateOf<List<ReferenceLocation>>(emptyList())
+    var showReferencesPanel by mutableStateOf(false)
+    var pendingWorkspaceOpen by mutableStateOf<DefinitionLocation?>(null)
+    var workspaceSearchResults by mutableStateOf<List<WorkspaceSearchResult>>(emptyList())
+    var showWorkspaceSearch by mutableStateOf(false)
+    var showWorkspaceSymbols by mutableStateOf(false)
+    var showRenameSymbol by mutableStateOf(false)
+    var renameTarget by mutableStateOf("")
+    var workspaceSymbolQuery by mutableStateOf("")
+    var workspaceIndexStatus by mutableStateOf("Workspace index not built")
+    val workspaceIndex = WorkspaceSymbolIndex()
+
+    val workspaceRoot: File?
+        get() = activeTab.filePath.takeIf { it.isNotBlank() }?.let { locateWorkspaceRoot(File(it)) }
+
+    private fun locateWorkspaceRoot(file: File): File? {
+        var dir: File? = if (file.isDirectory) file else file.parentFile
+        var candidate: File? = dir
+        while (dir != null) {
+            if (File(dir, ".git").exists() || File(dir, "package.json").exists() ||
+                File(dir, "settings.gradle").exists() || File(dir, "settings.gradle.kts").exists()) {
+                candidate = dir
+            }
+            dir = dir.parentFile
+        }
+        return candidate
+    }
+
+    fun rebuildWorkspaceIndex() {
+        val openBuffers = tabs.filter { it.filePath.isNotBlank() }
+            .associate { it.filePath to it.content.text }
+        workspaceIndex.rebuild(workspaceRoot, openBuffers)
+        workspaceIndexStatus = "${workspaceIndex.indexedFilePaths.size} files · ${workspaceIndex.indexedSymbolCount} symbols"
+    }
+
+    fun searchWorkspace(query: String, caseSensitive: Boolean = false, regexMode: Boolean = false) {
+        rebuildWorkspaceIndex()
+        workspaceSearchResults = workspaceIndex.search(query, caseSensitive, regexMode)
+        showWorkspaceSearch = true
+        toast(if (workspaceSearchResults.isEmpty()) "No workspace results" else "${workspaceSearchResults.size} workspace result(s)")
+    }
+
+    fun showWorkspaceSymbolTree() {
+        rebuildWorkspaceIndex()
+        workspaceSymbolQuery = ""
+        showWorkspaceSymbols = true
+    }
+
+    fun prepareRenameSymbol() {
+        val tab = activeTab
+        val word = LanguageIntelligence.wordAt(tab.content.text, tab.content.selection.start)
+        if (word.isBlank()) { toast("Place the cursor on a symbol first"); return }
+        renameTarget = word
+        showRenameSymbol = true
+    }
+
+    fun renameWorkspaceSymbol(newName: String) {
+        val oldName = renameTarget
+        if (newName.isBlank() || oldName.isBlank() || oldName == newName) {
+            showRenameSymbol = false
+            return
+        }
+        rebuildWorkspaceIndex()
+        val changes = workspaceIndex.renameSymbol(oldName, newName)
+        if (changes.isEmpty()) { toast("No references found for $oldName"); showRenameSymbol = false; return }
+        changes.forEach { (path, text) ->
+            val open = tabs.firstOrNull { runCatching { File(it.filePath).canonicalPath == File(path).canonicalPath }.getOrDefault(it.filePath == path) }
+            if (open != null) {
+                updateContentForTab(open.id, TextFieldValue(text, TextRange(text.length)))
+            } else {
+                runCatching { File(path).writeText(text) }
+            }
+        }
+        rebuildWorkspaceIndex()
+        showRenameSymbol = false
+        toast("Renamed $oldName → $newName in ${changes.size} file(s)")
+    }
+
+    fun documentSymbolsForTab(tabId: String): List<DocumentSymbol> =
+        tabs.firstOrNull { it.id == tabId }?.let { LanguageIntelligence.symbols(it.content.text, it.fileName) }.orEmpty()
+
+    fun goToDefinition() {
+        val tab = activeTab
+        val word = LanguageIntelligence.wordAt(tab.content.text, tab.content.selection.start)
+        rebuildWorkspaceIndex()
+        val location = workspaceIndex.definition(word, tab.filePath)
+            ?: LanguageIntelligence.definition(tab.content.text, tab.fileName, tab.content.selection.start)
+        if (location == null) { toast("No definition found") ; return }
+        val open = tabs.indexOfFirst { it.filePath == location.fileName }
+        if (open >= 0) {
+            selectTabIdInGroup(activeEditorGroup, tabs[open].id)
+            updateTabById(tabs[open].id) { copy(content = content.copy(selection = TextRange(location.offset))) }
+        } else {
+            pendingWorkspaceOpen = location
+        }
+        toast("Definition: ${location.symbol} · line ${location.line}")
+    }
+
+    fun findReferences() {
+        val tab = activeTab
+        val word = LanguageIntelligence.wordAt(tab.content.text, tab.content.selection.start)
+        rebuildWorkspaceIndex()
+        referenceLocations = workspaceIndex.references(word)
+        showReferencesPanel = referenceLocations.isNotEmpty()
+        toast(if (referenceLocations.isEmpty()) "No references found" else "${referenceLocations.size} reference(s) found")
+    }
+
+    fun showHoverInfo() {
+        val tab = activeTab
+        languageHover = LanguageIntelligence.hover(tab.content.text, tab.fileName, tab.content.selection.start)
+        if (languageHover == null) toast("No language information available")
+    }
+
     // ── Dialogs / UI State ────────────────────────────────────────
     var showSaveAsDialog by mutableStateOf(false)
     var showUnsavedDialog by mutableStateOf(false)
@@ -1033,7 +1156,13 @@ class PremiumEditorState(
         EditorCommand("Command Palette", "Ctrl+Shift+P", "navigate") { showCommandPalette = true },
         EditorCommand("Find", "Ctrl+F", "edit") { showFindBar = true; showReplace = false },
         EditorCommand("Find & Replace", "Ctrl+H", "edit") { showFindBar = true; showReplace = true },
+        EditorCommand("Search in Workspace", "Ctrl+Shift+F", "navigate") { showWorkspaceSearch = true },
+        EditorCommand("Workspace Symbols", "Ctrl+T", "navigate") { showWorkspaceSymbolTree() },
+        EditorCommand("Rename Symbol", "F2", "navigate") { prepareRenameSymbol() },
         EditorCommand("Go to Line…", "Ctrl+G", "edit") { showGoToLineDialog = true },
+        EditorCommand("Go to Definition", "F12", "navigate") { goToDefinition() },
+        EditorCommand("Find References", "Shift+F12", "navigate") { findReferences() },
+        EditorCommand("Show Hover Information", "Ctrl+K Ctrl+I", "navigate") { showHoverInfo() },
         EditorCommand("Toggle Comment", "Ctrl+/", "edit") { toggleComment() },
         EditorCommand("Duplicate Line", "Ctrl+D", "edit") { duplicateCurrentLine() },
         EditorCommand("Delete Line", "Ctrl+Shift+K", "edit") { deleteCurrentLine() },
@@ -1060,8 +1189,8 @@ class PremiumEditorState(
         EditorCommand("Zoom In", "Ctrl++", "view") { updateSettings { copy(zoom = (zoom + 0.1f).coerceAtMost(4f)) } },
         EditorCommand("Zoom Out", "Ctrl+-", "view") { updateSettings { copy(zoom = (zoom - 0.1f).coerceAtLeast(0.25f)) } },
         EditorCommand("Reset Zoom", "Ctrl+0", "view") { updateSettings { copy(zoom = 1f) } },
-        EditorCommand("Next Bookmark", "F2", "nav") { nextBookmark() },
-        EditorCommand("Previous Bookmark", "Shift+F2", "nav") { prevBookmark() },
+        EditorCommand("Next Bookmark", "Ctrl+F2", "nav") { nextBookmark() },
+        EditorCommand("Previous Bookmark", "Ctrl+Shift+F2", "nav") { prevBookmark() },
         EditorCommand("Show Bookmarks", "", "nav") { showBookmarksPanel = true },
         EditorCommand("Go to Symbol…", "Ctrl+Shift+O", "navigate") { showSymbolPicker = true },
         EditorCommand("Show Statistics", "", "view") { showStatsPanel = true },

@@ -51,13 +51,27 @@ object WebLanguageTools {
         return out
     }
 
-    fun diagnostics(text: String, fileName: String): List<Diagnostic> {
-        val ext = fileName.substringAfterLast('.', "").lowercase()
-        return when (ext) {
-            "html", "htm" -> analyzeDiagnostics(text, fileName)
-            "css", "scss", "sass", "less" -> (analyzeDiagnostics(text, fileName) + cssDiagnostics(text)).sortedWith(compareBy<Diagnostic>{it.line}.thenBy{it.column}).take(1000)
-            "js", "jsx", "mjs", "cjs", "ts", "tsx" -> (analyzeDiagnostics(text, fileName) + javascriptDiagnostics(text)).sortedWith(compareBy<Diagnostic>{it.line}.thenBy{it.column}).take(1000)
-            else -> analyzeDiagnostics(text, fileName)
+    fun diagnostics(text: String, fileName: String): List<Diagnostic> = LanguageServiceRegistry.diagnostics(text, fileName)
+
+
+    /** Returns the paired HTML tag name range when the cursor is inside a tag pair. */
+    fun htmlTagAt(text: String, offset: Int): Pair<IntRange, String>? {
+        val cursor = offset.coerceIn(0, text.length)
+        return htmlTagPairs(text).firstOrNull { cursor in it.start..it.end }?.let { match ->
+            match.start until match.end to match.label
         }
+    }
+
+    /** Renames matching HTML tags for editor commands; returns unchanged text when no pair is found. */
+    fun renameHtmlTag(text: String, offset: Int, newName: String): String {
+        val safeName = newName.trim().takeIf { it.matches(Regex("[A-Za-z][A-Za-z0-9:-]*")) } ?: return text
+        val cursor = offset.coerceIn(0, text.length)
+        val match = htmlTagPairs(text).firstOrNull { cursor in it.start..it.end } ?: return text
+        val rangeText = text.substring(match.start, match.end)
+        val oldName = match.label
+        val replaced = rangeText
+            .replaceFirst(Regex("(<\\s*)$oldName(?=\\s|/?>)", RegexOption.IGNORE_CASE), "$1$safeName")
+            .replaceFirst(Regex("(</\\s*)$oldName(?=\\s*>)", RegexOption.IGNORE_CASE), "$1$safeName")
+        return text.substring(0, match.start) + replaced + text.substring(match.end)
     }
 }

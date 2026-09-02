@@ -31,7 +31,7 @@ fun analyzeDiagnostics(text: String, fileName: String): List<Diagnostic> {
             if (!inDouble && ch == '\'') { inSingle = !inSingle; col++; continue }
             if (!inSingle && ch == '"') { inDouble = !inDouble; col++; continue }
             if (!inSingle && !inDouble) {
-                if (ch in pairs) stack.addLast(ch to (lineIndex + 1 to col + 1))
+                if (ch in pairs) stack.add(ch to (lineIndex + 1 to col + 1))
                 else if (ch in closing) {
                     val expected = stack.lastOrNull()?.first?.let { pairs[it] }
                     if (expected != ch) {

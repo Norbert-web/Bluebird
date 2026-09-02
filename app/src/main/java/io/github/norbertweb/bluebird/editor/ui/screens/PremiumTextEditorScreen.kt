@@ -66,10 +66,15 @@ import androidx.compose.ui.unit.sp
 import io.github.norbertweb.bluebird.editor.core.EditorSettings
 import io.github.norbertweb.bluebird.editor.editor.core.PremiumEditorState
 import io.github.norbertweb.bluebird.editor.editor.highlighting.findMatchingBracket
+import io.github.norbertweb.bluebird.editor.ui.components.ReferencesDialog
+import io.github.norbertweb.bluebird.editor.ui.components.WorkspaceSearchDialog
+import io.github.norbertweb.bluebird.editor.ui.components.WorkspaceSymbolsDialog
+import io.github.norbertweb.bluebird.editor.ui.components.RenameSymbolDialog
 import io.github.norbertweb.bluebird.editor.ui.components.AutocompletePopup
 import io.github.norbertweb.bluebird.editor.ui.components.BookmarksPanel
 import io.github.norbertweb.bluebird.editor.ui.components.BreadcrumbBar
 import io.github.norbertweb.bluebird.editor.ui.components.CommandPalette
+import io.github.norbertweb.bluebird.editor.ui.components.LanguageHoverDialog
 import io.github.norbertweb.bluebird.editor.ui.components.EditorToast
 import io.github.norbertweb.bluebird.editor.ui.components.EncodingPickerDialog
 import io.github.norbertweb.bluebird.editor.ui.components.FindResultsPanel
@@ -167,6 +172,20 @@ fun PremiumTextEditorScreen(
         }
     }
 
+    // ── Workspace definition navigation ─────────────────────────
+    LaunchedEffect(s.pendingWorkspaceOpen) {
+        val location = s.pendingWorkspaceOpen ?: return@LaunchedEffect
+        s.pendingWorkspaceOpen = null
+        val result = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { File(location.fileName).readText() }
+        }
+        result.onSuccess { text ->
+            s.newTab(location.fileName, text)
+            val opened = s.activeTab
+            s.updateTabById(opened.id) { copy(content = content.copy(selection = TextRange(location.offset))) }
+        }.onFailure { error -> s.toast("Could not open definition: ${error.message}", error = true) }
+    }
+
     // ── Toast auto-dismiss ────────────────────────────────────────
     LaunchedEffect(s.toastMsg) {
         if (s.toastMsg != null) {
@@ -231,6 +250,11 @@ fun PremiumTextEditorScreen(
         // ── Dialogs ───────────────────────────────────────────────
         if (s.showCommandPalette) CommandPalette(s)
         if (s.showQuickOpen) QuickOpenDialog(s)
+        if (s.showWorkspaceSearch) WorkspaceSearchDialog(s)
+        if (s.showWorkspaceSymbols) WorkspaceSymbolsDialog(s)
+        if (s.showRenameSymbol) RenameSymbolDialog(s)
+        if (s.showReferencesPanel) ReferencesDialog(s)
+        if (s.languageHover != null) LanguageHoverDialog(s)
         if (s.showSymbolPicker) SymbolPickerDialog(s)
         if (s.showSaveAsDialog) SaveAsDialog(s) { name ->
             val dir = if (s.filePath.isNotEmpty()) File(s.filePath).parent ?: context.filesDir.path
@@ -524,8 +548,9 @@ fun handleKeyEvent(
         isCtrl && isShift && keyCode == KeyEvent.KEYCODE_K -> { s.deleteCurrentLine(); true }
         isCtrl && keyCode == KeyEvent.KEYCODE_SLASH -> { s.toggleComment(); true }
         isCtrl && keyCode == KeyEvent.KEYCODE_B -> { s.toggleBookmark(s.cursorLine); true }
-        keyCode == KeyEvent.KEYCODE_F2 && !isShift -> { s.nextBookmark(); true }
-        keyCode == KeyEvent.KEYCODE_F2 && isShift -> { s.prevBookmark(); true }
+        keyCode == KeyEvent.KEYCODE_F2 && !isShift && !isCtrl -> { s.prepareRenameSymbol(); true }
+        keyCode == KeyEvent.KEYCODE_F2 && isCtrl && !isShift -> { s.nextBookmark(); true }
+        keyCode == KeyEvent.KEYCODE_F2 && isCtrl && isShift -> { s.prevBookmark(); true }
         keyCode == KeyEvent.KEYCODE_F5 -> { s.insertDateTime(); true }
         isCtrl && keyCode == KeyEvent.KEYCODE_A -> {
             s.updateTab { copy(content = content.copy(selection = TextRange(0, content.text.length))) }; true

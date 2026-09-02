@@ -188,6 +188,37 @@ fun handleCharInput(char: Char, tfv: TextFieldValue, autoCloseBrackets: Boolean)
     }
 }
 
+
+
+/** Web-language smart character handling layered on top of the generic bracket handler. */
+fun handleWebCharInput(
+    char: Char,
+    tfv: TextFieldValue,
+    fileExt: String,
+    autoCloseBrackets: Boolean
+): ActionResult? {
+    val generic = handleCharInput(char, tfv, autoCloseBrackets)
+    if (char != '>' || fileExt.lowercase() !in setOf("html", "htm", "jsx", "tsx")) return generic
+
+    val pos = tfv.selection.start
+    val before = tfv.text.substring(0, pos)
+    val open = Regex("<([A-Za-z][A-Za-z0-9:-]*)[^<>]*$").find(before) ?: return generic
+    val tag = open.groupValues[1].lowercase()
+    if (tag in setOf("area","base","br","col","embed","hr","img","input","link","meta","param","source","track","wbr")) return generic
+    if (before.endsWith("/>")) return generic
+
+    // Only auto-close opening tags, never closing tags or comments.
+    val raw = open.value
+    if (raw.startsWith("</") || raw.startsWith("<!")) return generic
+
+    val suffix = "</$tag>"
+    val newText = tfv.text.substring(0, pos) + char + suffix + tfv.text.substring(pos)
+    return ActionResult(
+        tfv.copy(text = newText, selection = TextRange(pos + 1)),
+        shouldRecord = true
+    )
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Tab Handling (indent/dedent)
 // ─────────────────────────────────────────────────────────────────

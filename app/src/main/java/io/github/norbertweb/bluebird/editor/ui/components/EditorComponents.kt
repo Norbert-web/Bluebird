@@ -66,6 +66,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -1335,6 +1336,151 @@ private fun DialogTitle(icon: ImageVector, label: String, c: EditorColors) {
 }
 
 private val Modifier.alpha: (Float) -> Modifier get() = { a -> this.then(Modifier.graphicsLayer { alpha = a }) }
+
+@Composable
+fun LanguageHoverDialog(s: PremiumEditorState) {
+    val info = s.languageHover ?: return
+    val c = s.colors
+    AlertDialog(
+        onDismissRequest = { s.languageHover = null },
+        containerColor = c.surface,
+        shape = RoundedCornerShape(10.dp),
+        title = { Text(info.symbol, color = c.text, fontWeight = FontWeight.SemiBold) },
+        text = { Text(info.markdown.replace("**", ""), color = c.text, fontFamily = FontFamily.Monospace, fontSize = 13.sp) },
+        confirmButton = { TextButton(onClick = { s.languageHover = null }) { Text("Close", color = c.accent) } }
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Workspace References — Phase 3
+// ─────────────────────────────────────────────────────────────────
+
+@Composable
+fun ReferencesDialog(s: PremiumEditorState) {
+    val c = s.colors
+    val refs = s.referenceLocations
+    AlertDialog(
+        onDismissRequest = { s.showReferencesPanel = false },
+        containerColor = c.surface,
+        shape = RoundedCornerShape(12.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(FluentIcon.Link, null, tint = c.accent, modifier = Modifier.size(18.dp))
+                Text("References (${refs.size})", color = c.text, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 460.dp)) {
+                itemsIndexed(refs) { _, ref ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable {
+                            val open = s.tabs.indexOfFirst { it.filePath == ref.fileName }
+                            if (open >= 0) {
+                                s.selectTabIdInGroup(s.activeEditorGroup, s.tabs[open].id)
+                                s.updateTabById(s.tabs[open].id) { copy(content = content.copy(selection = TextRange(ref.offset, ref.offset + ref.length))) }
+                                s.showReferencesPanel = false
+                            } else {
+                            runCatching { s.loadFile(LocalContext.current, ref.fileName) }
+                            s.showReferencesPanel = false
+                        }
+                        }.padding(horizontal = 10.dp, vertical = 7.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(FluentIcon.Code, null, tint = c.textMuted, modifier = Modifier.size(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(java.io.File(ref.fileName).name, color = c.text, fontSize = 12.sp)
+                            Text("${ref.line}:${ref.column}  ${ref.fileName}", color = c.textMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { s.showReferencesPanel = false }) { Text("Close", color = c.accent) } }
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Workspace Search — Phase 3
+// ─────────────────────────────────────────────────────────────────
+
+@Composable
+fun WorkspaceSearchDialog(s: PremiumEditorState) {
+    val c = s.colors
+    var query by remember { mutableStateOf("") }
+    var caseSensitive by remember { mutableStateOf(false) }
+    var regexMode by remember { mutableStateOf(false) }
+    val focusReq = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) { runCatching { focusReq.requestFocus() } }
+
+    AlertDialog(
+        onDismissRequest = { s.showWorkspaceSearch = false },
+        containerColor = c.surface,
+        shape = RoundedCornerShape(12.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(FluentIcon.Search, null, tint = c.accent, modifier = Modifier.size(18.dp))
+                Text("Search in Workspace", color = c.text, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        text = {
+            Column {
+                BasicTextField(
+                    value = query,
+                    onValueChange = {
+                        query = it
+                        if (it.isNotEmpty()) s.searchWorkspace(it, caseSensitive, regexMode)
+                        else s.workspaceSearchResults = emptyList()
+                    },
+                    singleLine = true,
+                    textStyle = TextStyle(color = c.text, fontSize = 14.sp),
+                    cursorBrush = SolidColor(c.accent),
+                    modifier = Modifier.fillMaxWidth().background(c.surfaceHover, RoundedCornerShape(7.dp))
+                        .border(1.dp, c.border, RoundedCornerShape(7.dp)).padding(10.dp).focusRequester(focusReq),
+                    decorationBox = { inner -> Box { if (query.isEmpty()) Text("Search files, symbols, HTML, CSS, JS…", color = c.textMuted, fontSize = 14.sp); inner() } }
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(checked = caseSensitive, onCheckedChange = { caseSensitive = it; if (query.isNotEmpty()) s.searchWorkspace(query, it, regexMode) })
+                        Text("Match case", color = c.textSecondary, fontSize = 11.sp)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(checked = regexMode, onCheckedChange = { regexMode = it; if (query.isNotEmpty()) s.searchWorkspace(query, caseSensitive, it) })
+                        Text("Regex", color = c.textSecondary, fontSize = 11.sp)
+                    }
+                }
+                Text(s.workspaceIndexStatus, color = c.textMuted, fontSize = 10.sp, modifier = Modifier.padding(bottom = 6.dp))
+                LazyColumn(Modifier.heightIn(max = 430.dp)) {
+                    itemsIndexed(s.workspaceSearchResults) { _, result ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable {
+                                val open = s.tabs.indexOfFirst { it.filePath == result.filePath }
+                                if (open >= 0) {
+                                    s.selectTabIdInGroup(s.activeEditorGroup, s.tabs[open].id)
+                                    s.updateTabById(s.tabs[open].id) { copy(content = content.copy(selection = TextRange(result.offset, result.offset + result.matchText.length))) }
+                                    s.showWorkspaceSearch = false
+                                } else {
+                                    runCatching { s.loadFile(LocalContext.current, result.filePath) }
+                                    s.showWorkspaceSearch = false
+                                }
+                            }.padding(horizontal = 10.dp, vertical = 7.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(FluentIcon.Code, null, tint = c.textMuted, modifier = Modifier.size(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(result.fileName, color = c.text, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${result.line}:${result.column}  ${result.lineText}", color = c.textMuted, fontSize = 10.sp, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { s.showWorkspaceSearch = false }) { Text("Close", color = c.accent) } }
+    )
+}
 
 // ─────────────────────────────────────────────────────────────────
 // Quick Open / Symbol navigation — Phase 2
