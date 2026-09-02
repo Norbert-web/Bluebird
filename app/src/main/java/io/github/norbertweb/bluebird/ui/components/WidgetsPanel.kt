@@ -3,6 +3,9 @@ package io.github.norbertweb.bluebird.ui.components
 import android.Manifest
 import android.app.AlarmManager
 import android.app.AppOpsManager
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetHostView
+import android.appwidget.AppWidgetManager
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
@@ -23,7 +26,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -39,17 +44,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
@@ -60,6 +74,7 @@ import org.json.JSONObject
 import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 // ─── Persistence helpers ──────────────────────────────────────────────────────
 
@@ -97,12 +112,27 @@ private fun saveWidgetOrder(context: Context, order: List<String>) {
 }
 
 private fun loadWidgetOrder(context: Context): List<String> {
-    val default = listOf("clock","weather","music","steps","stocks","news","calendar","photos","sports","traffic","todo","alarm","network","screentime")
+    val default = listOf("clock","weather","music","steps","stocks","news","calendar","photos","todo","alarm","network","screentime")
     val saved = context.widgetPrefs().getString("widget_order", null) ?: return default
     val savedList = saved.split(",").filter { it.isNotBlank() }
-    // merge: keep saved order, append any new ones not yet in list
+    // merge: keep saved order, append any new ones not yet in list (external
+    // "ext:<id>" widget entries are appended to this same list, never to `default`)
     return (savedList + default.filter { it !in savedList })
 }
+
+// ─── External (third-party) app widgets ────────────────────────────────────
+// Bound via AppWidgetHost. Represented in `widget_order` as "ext:<appWidgetId>"
+// entries so they can be freely reordered alongside the built-in widgets.
+
+private fun saveExternalWidgetIds(context: Context, ids: Set<Int>) {
+    context.widgetPrefs().edit()
+        .putStringSet("external_widget_ids", ids.map { it.toString() }.toSet())
+        .apply()
+}
+
+private fun loadExternalWidgetIds(context: Context): Set<Int> =
+    context.widgetPrefs().getStringSet("external_widget_ids", emptySet())
+        ?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()
 
 private fun saveHiddenWidgets(context: Context, hidden: Set<String>) {
     context.widgetPrefs().edit().putStringSet("hidden_widgets", hidden).apply()
@@ -144,13 +174,15 @@ private data class DayForecast(val day: String, val icon: String, val high: Int,
 private data class StockTicker(val symbol: String, val change: String, val price: String, val isUp: Boolean, val points: List<Float>)
 private data class NewsArticle(val title: String, val source: String, val url: String)
 private data class CalendarEvent(val title: String, val time: String, val color: Color)
-private data class MatchScore(val team1: String, val score1: String, val team2: String, val score2: String)
 
 // ─── Widget IDs ───────────────────────────────────────────────────────────────
 
+// Built-in widget ids. Third-party app widgets bound via AppWidgetHost are
+// represented separately as "ext:<appWidgetId>" entries inside widgetOrder —
+// they don't need a fixed slot here since their count is dynamic.
 private val ALL_WIDGET_IDS = listOf(
     "clock", "weather", "music", "steps", "stocks",
-    "news", "calendar", "photos", "sports", "traffic",
+    "news", "calendar", "photos",
     "todo", "alarm", "network", "screentime"
 )
 
@@ -163,8 +195,6 @@ private val WIDGET_LABELS = mapOf(
     "news"       to "News",
     "calendar"   to "Calendar",
     "photos"     to "Photos",
-    "sports"     to "Sports",
-    "traffic"    to "Traffic",
     "todo"       to "To Do",
     "alarm"      to "Next Alarm",
     "network"    to "Network Speed",
@@ -174,6 +204,11 @@ private val WIDGET_LABELS = mapOf(
 // ─────────────────────────────────────────────────────────
 // Main Widget Panel
 // ─────────────────────────────────────────────────────────
+// A fixed host id for this panel's AppWidgetHost. Any small positive int is
+// fine as long as it's unique within the app (only one widget surface hosts
+// widgets here, so a constant is fine).
+private const val BLUEBIRD_APPWIDGET_HOST_ID = 1042
+
 @Composable
 fun WidgetsPanel(
     uiState: LauncherUiState,
@@ -181,7 +216,9 @@ fun WidgetsPanel(
     modifier: Modifier = Modifier
 ) {
     val context    = LocalContext.current
-    val isDark     = uiState.isDarkTheme
+    // Follows the system's light/dark setting directly instead of the app's
+    // own theme toggle, so this panel always matches the rest of Android.
+    val isDark     = isSystemInDarkTheme()
     val textColor  = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val scope      = rememberCoroutineScope()
     val textScale  = LocalTextScale.current
@@ -190,6 +227,88 @@ fun WidgetsPanel(
     var editMode      by remember { mutableStateOf(false) }
     var widgetOrder   by remember { mutableStateOf(loadWidgetOrder(context)) }
     var hiddenWidgets by remember { mutableStateOf(loadHiddenWidgets(context)) }
+    var externalIds   by remember { mutableStateOf(loadExternalWidgetIds(context)) }
+
+    // ── AppWidgetHost: lets this panel embed widgets from other installed apps ──
+    val appWidgetManager = remember { AppWidgetManager.getInstance(context) }
+    val appWidgetHost = remember { AppWidgetHost(context, BLUEBIRD_APPWIDGET_HOST_ID) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> appWidgetHost.startListening()
+                Lifecycle.Event.ON_STOP  -> appWidgetHost.stopListening()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        appWidgetHost.startListening()
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            appWidgetHost.stopListening()
+        }
+    }
+
+    fun addExternalWidget(id: Int) {
+        externalIds = externalIds + id
+        saveExternalWidgetIds(context, externalIds)
+        val newOrder = widgetOrder + "ext:$id"
+        widgetOrder = newOrder
+        saveWidgetOrder(context, newOrder)
+    }
+
+    fun removeExternalWidget(id: Int) {
+        appWidgetHost.deleteAppWidgetId(id)
+        externalIds = externalIds - id
+        saveExternalWidgetIds(context, externalIds)
+        val newOrder = widgetOrder.filter { it != "ext:$id" }
+        widgetOrder = newOrder
+        saveWidgetOrder(context, newOrder)
+    }
+
+    // Step 2 of the bind flow: system asked the user to approve binding —
+    // if they said yes, the widget is now safe to host.
+    val bindLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val id = result.data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
+        if (result.resultCode == android.app.Activity.RESULT_OK && id != -1) {
+            addExternalWidget(id)
+        } else if (id != -1) {
+            appWidgetHost.deleteAppWidgetId(id)
+        }
+    }
+
+    // Step 1: system's own "choose a widget" picker (shows every widget from
+    // every installed app, exactly like adding one to the home screen).
+    val pickLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val id = result.data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
+        if (result.resultCode != android.app.Activity.RESULT_OK || id == -1) {
+            if (id != -1) appWidgetHost.deleteAppWidgetId(id)
+            return@rememberLauncherForActivityResult
+        }
+        val info = appWidgetManager.getAppWidgetInfo(id)
+        if (info != null) {
+            addExternalWidget(id)
+        } else {
+            // Provider needs explicit bind approval — ask the user.
+            bindLauncher.launch(
+                Intent(AppWidgetManager.ACTION_APPWIDGET_BIND).apply {
+                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                }
+            )
+        }
+    }
+
+    fun launchWidgetPicker() {
+        val newId = appWidgetHost.allocateAppWidgetId()
+        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_PICK).apply {
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, newId)
+        }
+        pickLauncher.launch(intent)
+    }
 
     // Refresh trigger — only widgets that support an explicit refresh observe it.
     var refreshTick by remember { mutableStateOf(0) }
@@ -221,38 +340,37 @@ fun WidgetsPanel(
                     fontWeight = FontWeight.SemiBold
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    // Refresh
-                    val rotation by animateFloatAsState(
-                        targetValue   = if (isRefreshing) 360f else 0f,
-                        animationSpec = if (isRefreshing)
-                            infiniteRepeatable(tween(900, easing = LinearEasing))
-                        else tween(0),
-                        label = "refresh"
-                    )
+                    // Refresh — a single determinate spin, not a looping animation.
+                    val rotation = remember { Animatable(0f) }
                     IconButton(onClick = {
                         if (!isRefreshing) {
                             isRefreshing = true
                             refreshTick++
-                            scope.launch { delay(1500); isRefreshing = false }
+                            scope.launch {
+                                rotation.snapTo(0f)
+                                rotation.animateTo(360f, tween(450, easing = FastOutSlowInEasing))
+                                isRefreshing = false
+                            }
                         }
                     }, modifier = Modifier.size(32.dp)) {
-                        Icon(imageVector = FluentIcon.ArrowSync, contentDescription = null,
+                        Icon(imageVector = FluentIcon.ArrowSync, contentDescription = "Refresh widgets",
                             tint = textColor.copy(alpha = 0.6f),
-                            modifier = Modifier.size(18.dp).rotate(rotation))
+                            modifier = Modifier.size(18.dp).rotate(rotation.value))
                     }
                     // Edit / Done
                     IconButton(onClick = { editMode = !editMode },
                         modifier = Modifier.size(32.dp)) {
                         Icon(
                             imageVector = if (editMode) FluentIcon.Checkmark else FluentIcon.Edit,
-                            contentDescription = null, tint = if (editMode) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.6f),
+                            contentDescription = if (editMode) "Done editing" else "Edit widgets",
+                            tint = if (editMode) bluebirdColors.AccentBlue else textColor.copy(alpha = 0.6f),
                             modifier = Modifier.size(18.dp)
                         )
                     }
                 }
             }
 
-            // ── Edit mode: visibility toggles ─────────────────────────────────
+            // ── Edit mode: visibility toggles + drag-to-reorder + add widget ──
             AnimatedVisibility(visible = editMode) {
                 WidgetEditPanel(
                     order       = widgetOrder,
@@ -265,53 +383,77 @@ fun WidgetsPanel(
                             hiddenWidgets - id else hiddenWidgets + id
                         saveHiddenWidgets(context, hiddenWidgets)
                     },
-                    onMoveUp    = { id ->
-                        val idx = widgetOrder.indexOf(id)
-                        if (idx > 0) {
-                            val newOrder = widgetOrder.toMutableList().also {
-                                val tmp = it[idx]; it[idx] = it[idx - 1]; it[idx - 1] = tmp
-                            }
-                            widgetOrder = newOrder
-                            saveWidgetOrder(context, newOrder)
-                        }
+                    onReorder   = { newOrder ->
+                        widgetOrder = newOrder
+                        saveWidgetOrder(context, newOrder)
                     },
-                    onMoveDown  = { id ->
-                        val idx = widgetOrder.indexOf(id)
-                        if (idx < widgetOrder.size - 1) {
-                            val newOrder = widgetOrder.toMutableList().also {
-                                val tmp = it[idx]; it[idx] = it[idx + 1]; it[idx + 1] = tmp
-                            }
-                            widgetOrder = newOrder
-                            saveWidgetOrder(context, newOrder)
-                        }
-                    }
+                    onRemoveExternal = { id -> removeExternalWidget(id) },
+                    onAddWidget = { launchWidgetPicker() }
                 )
             }
 
             // ── Render widgets in saved order ─────────────────────────────────
             visibleWidgetIds.forEach { id ->
                 key(id) {
-                    when (id) {
-                        "clock"      -> ClockWidget(isDark, context, textScale)
-                        "weather"    -> WeatherWidget(isDark, context, textScale, refreshTick)
-                        "music"      -> NowPlayingWidget(isDark, context, textScale)
-                        "steps"      -> StepsWidget(isDark, context, textScale)
-                        "stocks"     -> StockWidget(isDark, textScale, refreshTick)
-                        "news"       -> NewsWidget(isDark, textScale, refreshTick)
-                        "calendar"   -> CalendarWidget(isDark, context, textScale)
-                        "photos"     -> PhotosWidget(isDark, context, textScale)
-                        "sports"     -> SportsWidget(isDark, textScale, refreshTick)
-                        "traffic"    -> TrafficWidget(isDark, textScale)
-                        "todo"       -> TodoWidget(isDark, context, textScale)
-                        "alarm"      -> AlarmWidget(isDark, context, textScale)
-                        "network"    -> NetworkSpeedWidget(isDark, textScale)
-                        "screentime" -> ScreenTimeWidget(isDark, context, textScale)
+                    when {
+                        id == "clock"      -> ClockWidget(isDark, context, textScale)
+                        id == "weather"    -> WeatherWidget(isDark, context, textScale, refreshTick)
+                        id == "music"      -> NowPlayingWidget(isDark, context, textScale)
+                        id == "steps"      -> StepsWidget(isDark, context, textScale)
+                        id == "stocks"     -> StockWidget(isDark, textScale, refreshTick)
+                        id == "news"       -> NewsWidget(isDark, textScale, refreshTick)
+                        id == "calendar"   -> CalendarWidget(isDark, context, textScale)
+                        id == "photos"     -> PhotosWidget(isDark, context, textScale)
+                        id == "todo"       -> TodoWidget(isDark, context, textScale)
+                        id == "alarm"      -> AlarmWidget(isDark, context, textScale)
+                        id == "network"    -> NetworkSpeedWidget(isDark, textScale)
+                        id == "screentime" -> ScreenTimeWidget(isDark, context, textScale)
+                        id.startsWith("ext:") -> {
+                            val widgetId = id.removePrefix("ext:").toIntOrNull()
+                            if (widgetId != null) {
+                                ExternalAppWidget(widgetId, appWidgetHost, appWidgetManager, isDark)
+                            }
+                        }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// External app widget host — renders a widget picked from another app,
+// wrapped in the same card language as the built-in widgets.
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun ExternalAppWidget(
+    widgetId: Int,
+    host: AppWidgetHost,
+    manager: AppWidgetManager,
+    isDark: Boolean
+) {
+    val info = remember(widgetId) { manager.getAppWidgetInfo(widgetId) } ?: return
+    val border = if (isDark) DS.borderDark else DS.borderLight
+    val cardBg = if (isDark) bluebirdColors.WidgetBg else bluebirdColors.WidgetBgLight
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(WIDGET_CORNER))
+            .background(cardBg)
+            .border(1.dp, border, RoundedCornerShape(WIDGET_CORNER))
+            .padding(6.dp)
+    ) {
+        AndroidView(
+            modifier = Modifier.fillMaxWidth(),
+            factory = {
+                host.createView(it, widgetId, info).apply {
+                    setPadding(0, 0, 0, 0)
+                }
+            }
+        )
     }
 }
 
@@ -325,54 +467,156 @@ private fun WidgetEditPanel(
     textColor: Color,
     textScale: Float,
     onToggle: (String) -> Unit,
-    onMoveUp: (String) -> Unit,
-    onMoveDown: (String) -> Unit
+    onReorder: (List<String>) -> Unit,
+    onRemoveExternal: (Int) -> Unit,
+    onAddWidget: () -> Unit
 ) {
-    val bg = if (isDark) Color(0xFF1E1E1E) else Color(0xFFF0F0F0)
+    val bg     = if (isDark) bluebirdColors.WidgetBg else bluebirdColors.WidgetBgLight
+    val border = if (isDark) DS.borderDark else DS.borderLight
+
+    // ── Manual drag-to-reorder state ──
+    // Rows report their measured height; while dragging we track how far the
+    // pointer has moved and swap the dragged row past a neighbor once it
+    // crosses that neighbor's midpoint — the same interaction used by most
+    // native "rearrange your home screen" pickers.
+    var localOrder by remember(order) { mutableStateOf(order) }
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    val rowHeightPx = remember { mutableStateOf(1f) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(WIDGET_CORNER))
             .background(bg)
+            .border(1.dp, border, RoundedCornerShape(WIDGET_CORNER))
             .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text(
-            "Edit Widgets",
-            color      = bluebirdColors.AccentBlue,
-            fontSize   = (12 * textScale).sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier   = Modifier.padding(bottom = 4.dp)
-        )
-        order.forEach { id ->
-            val label   = WIDGET_LABELS[id] ?: id
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Edit widgets",
+                color      = bluebirdColors.AccentBlue,
+                fontSize   = (12 * textScale).sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                "Hold  ${'\u2261'}  to drag",
+                color    = textColor.copy(alpha = 0.4f),
+                fontSize = (10 * textScale).sp
+            )
+        }
+
+        localOrder.forEachIndexed { index, id ->
+            val isExternal = id.startsWith("ext:")
+            val label = if (isExternal) "App widget" else (WIDGET_LABELS[id] ?: id)
             val visible = id !in hidden
+            val isDragged = id == draggingId
+
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned { rowHeightPx.value = it.size.height.toFloat() }
+                    .zIndex(if (isDragged) 1f else 0f)
+                    .graphicsLayer {
+                        translationY = if (isDragged) dragOffset else 0f
+                        alpha = if (isDragged) 0.92f else 1f
+                        scaleX = if (isDragged) 1.02f else 1f
+                        scaleY = if (isDragged) 1.02f else 1f
+                    }
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isDragged) (if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f)) else Color.Transparent)
+                    .padding(vertical = 4.dp, horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Icon(
+                    imageVector = FluentIcon.ArrowSort,
+                    contentDescription = "Drag to reorder",
+                    tint = textColor.copy(alpha = 0.35f),
+                    modifier = Modifier
+                        .size(18.dp)
+                        .pointerInput(localOrder) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { draggingId = id; dragOffset = 0f },
+                                onDragEnd = { draggingId = null; dragOffset = 0f; onReorder(localOrder) },
+                                onDragCancel = { draggingId = null; dragOffset = 0f },
+                                onDrag = { change, delta ->
+                                    change.consume()
+                                    dragOffset += delta.y
+                                    val rowH = rowHeightPx.value.coerceAtLeast(1f)
+                                    val currentIdx = localOrder.indexOf(id)
+                                    val targetIdx = (currentIdx + (dragOffset / rowH).roundToInt())
+                                        .coerceIn(0, localOrder.lastIndex)
+                                    if (targetIdx != currentIdx) {
+                                        localOrder = localOrder.toMutableList().apply {
+                                            add(targetIdx, removeAt(currentIdx))
+                                        }
+                                        dragOffset -= (targetIdx - currentIdx) * rowH
+                                    }
+                                }
+                            )
+                        }
+                )
                 Switch(
                     checked  = visible,
                     onCheckedChange = { onToggle(id) },
                     colors   = SwitchDefaults.colors(checkedThumbColor = bluebirdColors.AccentBlue),
-                    modifier = Modifier.size(36.dp, 20.dp)
+                    modifier = Modifier.size(34.dp, 20.dp)
                 )
                 Text(
                     label, color = textColor,
                     fontSize = (12 * textScale).sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = { onMoveUp(id) }, modifier = Modifier.size(24.dp)) {
-                    Icon(imageVector = FluentIcon.ChevronUp, contentDescription = null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
-                }
-                IconButton(onClick = { onMoveDown(id) }, modifier = Modifier.size(24.dp)) {
-                    Icon(imageVector = FluentIcon.ChevronDown, contentDescription = null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
+                if (isExternal) {
+                    IconButton(
+                        onClick = { id.removePrefix("ext:").toIntOrNull()?.let(onRemoveExternal) },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(imageVector = FluentIcon.Delete, contentDescription = "Remove widget",
+                            tint = bluebirdColors.Error.copy(alpha = 0.7f), modifier = Modifier.size(15.dp))
+                    }
                 }
             }
         }
+
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 6.dp),
+            color = textColor.copy(alpha = 0.08f), thickness = 0.5.dp
+        )
+
+        // ── Add a widget from any installed app ──
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { onAddWidget() }
+                .padding(vertical = 8.dp, horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(imageVector = FluentIcon.Add, contentDescription = null,
+                tint = bluebirdColors.AccentBlue, modifier = Modifier.size(16.dp))
+            Text(
+                "Add widget from an app",
+                color = bluebirdColors.AccentBlue,
+                fontSize = (12 * textScale).sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
+
+// Shared corner radius for every widget-panel surface (cards, edit sheet,
+// external widget frames) so the whole panel reads as one consistent shape
+// language instead of the previous 12–14dp mismatch.
+private val WIDGET_CORNER = 16.dp
 
 // ─── Shared card wrapper ──────────────────────────────────────────────────────
 
@@ -382,15 +626,20 @@ private fun WidgetCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val cardBg = if (isDark) Color(0xFF2C2C2C) else Color(0xFFEEEEEE)
+    val cardBg = if (isDark) bluebirdColors.WidgetBg else bluebirdColors.WidgetBgLight
+    val border = if (isDark) DS.borderDark else DS.borderLight
     Card(
         modifier  = modifier.fillMaxWidth(),
-        shape     = RoundedCornerShape(14.dp),
+        shape     = RoundedCornerShape(WIDGET_CORNER),
         colors    = CardDefaults.cardColors(containerColor = cardBg),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border    = BorderStroke(1.dp, border),
         content   = { Column(modifier = Modifier.padding(14.dp), content = content) }
     )
 }
+
+/** Shared, tone-balanced divider color for widget-internal separators. */
+private fun widgetDividerColor(textColor: Color) = textColor.copy(alpha = 0.10f)
 
 @Composable
 private fun WidgetHeader(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, textColor: Color, textScale: Float) {
@@ -445,7 +694,7 @@ private fun ClockWidget(isDark: Boolean, context: Context, textScale: Float) {
 
         if (worldClocks.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
-            HorizontalDivider(color = if (isDark) Color(0xFF3A3A3A) else Color(0xFFDEDEDE), thickness = 0.5.dp)
+            HorizontalDivider(color = widgetDividerColor(textColor), thickness = 0.5.dp)
             Spacer(Modifier.height(10.dp))
             // World clocks
             worldClocks.forEach { wc ->
@@ -860,7 +1109,7 @@ private fun StepsWidget(isDark: Boolean, context: Context, textScale: Float) {
                 Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         val sweep = (steps.toFloat() / goal).coerceIn(0f, 1f) * 360f
-                        drawArc(color = if (isDark) Color(0xFF3A3A3A) else Color(0xFFDDDDDD),
+                        drawArc(color = widgetDividerColor(textColor),
                             startAngle = -90f, sweepAngle = 360f, useCenter = false,
                             style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round))
                         drawArc(color = bluebirdColors.AccentBlue,
@@ -880,7 +1129,7 @@ private fun StepsWidget(isDark: Boolean, context: Context, textScale: Float) {
                         progress = { steps.toFloat() / goal },
                         modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
                         color      = bluebirdColors.AccentBlue,
-                        trackColor = if (isDark) Color(0xFF3A3A3A) else Color(0xFFDDDDDD)
+                        trackColor = widgetDividerColor(textColor)
                     )
                     Spacer(Modifier.height(4.dp))
                     Text("$pct% of daily goal", color = textColor.copy(alpha = 0.5f), fontSize = (10 * textScale).sp)
@@ -891,20 +1140,51 @@ private fun StepsWidget(isDark: Boolean, context: Context, textScale: Float) {
 }
 
 // ─────────────────────────────────────────────────────────
-// 5. Stock / Markets Widget
+// 5. Stock / Markets Widget (real quotes via Stooq's public CSV endpoint —
+//    no API key required; delayed data, refreshed on demand)
 // ─────────────────────────────────────────────────────────
+private val TRACKED_SYMBOLS = listOf("msft.us", "aapl.us", "googl.us", "amzn.us", "tsla.us")
+
 @Composable
 private fun StockWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
     val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    var stocks  by remember { mutableStateOf(stableStockData()) }
-    var loading by remember { mutableStateOf(false) }
+    var stocks  by remember { mutableStateOf<List<StockTicker>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error   by remember { mutableStateOf(false) }
 
-    // In production, replace with real API (Yahoo Finance, Alpha Vantage, etc.)
-    // For now uses stable mock data — not random on every recomposition
     LaunchedEffect(refreshTick) {
-        if (refreshTick == 0) return@LaunchedEffect
-        loading = true; delay(800); loading = false
-        stocks = stableStockData() // swap with real API call
+        loading = true
+        val result = withContext(Dispatchers.IO) {
+            try {
+                val symbols = TRACKED_SYMBOLS.joinToString(",")
+                val url = "https://stooq.com/q/l/?s=$symbols&f=sd2t2ohlc&h&e=csv"
+                val lines = URL(url).readText().lines().drop(1).filter { it.isNotBlank() }
+                lines.mapNotNull { line ->
+                    val cols = line.split(",")
+                    if (cols.size < 7) return@mapNotNull null
+                    val symbol = cols[0].removeSuffix(".US")
+                    val open  = cols[3].toDoubleOrNull() ?: return@mapNotNull null
+                    val high  = cols[4].toDoubleOrNull() ?: open
+                    val low   = cols[5].toDoubleOrNull() ?: open
+                    val close = cols[6].toDoubleOrNull() ?: open
+                    val changePct = if (open != 0.0) (close - open) / open * 100.0 else 0.0
+                    // Real open/low/high/close shape (4 points) rather than a
+                    // fabricated multi-day history — honest about what we have.
+                    val lo = minOf(open, low, high, close)
+                    val hi = maxOf(open, low, high, close).coerceAtLeast(lo + 0.01)
+                    val points = listOf(open, low, high, close).map { ((it - lo) / (hi - lo)).toFloat() }
+                    StockTicker(
+                        symbol   = symbol.uppercase(),
+                        change   = "${if (changePct >= 0) "+" else ""}${"%.2f".format(changePct)}%",
+                        price    = "$" + "%.2f".format(close),
+                        isUp     = changePct >= 0,
+                        points   = points
+                    )
+                }
+            } catch (e: Exception) { null }
+        }
+        if (result.isNullOrEmpty()) { error = stocks.isEmpty() } else { stocks = result; error = false }
+        loading = false
     }
 
     WidgetCard(isDark) {
@@ -914,62 +1194,67 @@ private fun StockWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
             else Icon(imageVector = FluentIcon.ArrowTrendingUp, contentDescription = null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(18.dp))
         }
         Spacer(Modifier.height(10.dp))
-        stocks.forEach { stock ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(0.25f)) {
-                    Text(stock.symbol, color = textColor, fontSize = (13 * textScale).sp, fontWeight = FontWeight.SemiBold)
-                    Text(stock.price, color = textColor.copy(alpha = 0.5f), fontSize = (10 * textScale).sp)
-                }
-                Canvas(modifier = Modifier.weight(0.4f).height(22.dp)) {
-                    val pts  = stock.points
-                    val path = Path()
-                    pts.forEachIndexed { i, yRatio ->
-                        val x = i * (size.width / (pts.size - 1))
-                        val y = size.height * (1 - yRatio)
-                        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        when {
+            error && stocks.isEmpty() -> Text("Could not load markets", color = textColor.copy(alpha = 0.5f), fontSize = (12 * textScale).sp)
+            else -> stocks.forEach { stock ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(0.25f)) {
+                        Text(stock.symbol, color = textColor, fontSize = (13 * textScale).sp, fontWeight = FontWeight.SemiBold)
+                        Text(stock.price, color = textColor.copy(alpha = 0.5f), fontSize = (10 * textScale).sp)
                     }
-                    drawPath(path,
-                        color = if (stock.isUp) bluebirdColors.SuccessGreen else bluebirdColors.DangerRed,
-                        style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+                    Canvas(modifier = Modifier.weight(0.4f).height(22.dp)) {
+                        val pts  = stock.points
+                        val path = Path()
+                        pts.forEachIndexed { i, yRatio ->
+                            val x = i * (size.width / (pts.size - 1))
+                            val y = size.height * (1 - yRatio)
+                            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                        }
+                        drawPath(path,
+                            color = if (stock.isUp) bluebirdColors.SuccessGreen else bluebirdColors.DangerRed,
+                            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+                    }
+                    Text(
+                        stock.change,
+                        color      = if (stock.isUp) bluebirdColors.SuccessGreen else bluebirdColors.DangerRed,
+                        fontSize   = (12 * textScale).sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier   = Modifier.weight(0.25f)
+                    )
                 }
-                Text(
-                    stock.change,
-                    color      = if (stock.isUp) bluebirdColors.SuccessGreen else bluebirdColors.DangerRed,
-                    fontSize   = (12 * textScale).sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier   = Modifier.weight(0.25f)
-                )
             }
         }
     }
 }
 
-private fun stableStockData() = listOf(
-    StockTicker("MSFT",  "+2.4%", "$415.32", true,  listOf(0.4f,0.45f,0.5f,0.48f,0.55f,0.6f,0.65f)),
-    StockTicker("AAPL",  "-0.8%", "$189.45", false, listOf(0.7f,0.65f,0.6f,0.62f,0.58f,0.55f,0.5f)),
-    StockTicker("GOOGL", "+1.2%", "$172.18", true,  listOf(0.3f,0.35f,0.38f,0.4f,0.42f,0.45f,0.5f)),
-    StockTicker("AMZN",  "+3.1%", "$192.74", true,  listOf(0.2f,0.3f,0.4f,0.45f,0.5f,0.55f,0.6f)),
-    StockTicker("TSLA",  "-2.1%", "$174.60", false, listOf(0.8f,0.7f,0.65f,0.6f,0.55f,0.5f,0.45f)),
-)
+// ─────────────────────────────────────────────────────────
+// 6. News Widget (real headlines via BBC News' public RSS feed)
+// ─────────────────────────────────────────────────────────
+private const val NEWS_RSS_URL = "https://feeds.bbci.co.uk/news/rss.xml"
 
-// ─────────────────────────────────────────────────────────
-// 6. News Widget
-// ─────────────────────────────────────────────────────────
 @Composable
 private fun NewsWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
     val context   = LocalContext.current
     val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    var articles  by remember { mutableStateOf(fallbackNews()) }
-    var loading   by remember { mutableStateOf(false) }
+    var articles  by remember { mutableStateOf<List<NewsArticle>>(emptyList()) }
+    var loading   by remember { mutableStateOf(true) }
+    var usedFallback by remember { mutableStateOf(false) }
 
-    // Replace RSS_URL with a real RSS feed if desired (e.g. BBC, Reuters)
     LaunchedEffect(refreshTick) {
-        loading = true; delay(600); loading = false
-        // Real API: fetch from https://newsapi.org or parse an RSS feed here
+        loading = true
+        val fetched = withContext(Dispatchers.IO) {
+            try { parseRssFeed(URL(NEWS_RSS_URL).readText()) } catch (e: Exception) { null }
+        }
+        if (fetched.isNullOrEmpty()) {
+            if (articles.isEmpty()) { articles = fallbackNews(); usedFallback = true }
+        } else {
+            articles = fetched; usedFallback = false
+        }
+        loading = false
     }
 
     WidgetCard(isDark) {
@@ -999,15 +1284,35 @@ private fun NewsWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
                 }
             }
         }
+        if (usedFallback) {
+            Spacer(Modifier.height(4.dp))
+            Text("Offline — showing saved headlines", color = textColor.copy(alpha = 0.4f), fontSize = (9 * textScale).sp)
+        }
     }
 }
 
+/** Minimal RSS 2.0 parser — good enough for standard <item><title>/<link> feeds. */
+private fun parseRssFeed(xml: String): List<NewsArticle> {
+    val items = xml.split("<item>").drop(1)
+    return items.mapNotNull { item ->
+        val title = Regex("<title>(.*?)</title>", RegexOption.DOT_MATCHES_ALL)
+            .find(item)?.groupValues?.get(1)
+            ?.replace("<![CDATA[", "")?.replace("]]>", "")?.trim() ?: return@mapNotNull null
+        val link = Regex("<link>(.*?)</link>", RegexOption.DOT_MATCHES_ALL)
+            .find(item)?.groupValues?.get(1)?.trim() ?: return@mapNotNull null
+        NewsArticle(title = title, source = "BBC News", url = link)
+    }
+}
+
+// Kept only as an offline fallback if the live RSS fetch fails — no longer
+// the primary data path.
 private fun fallbackNews() = listOf(
     NewsArticle("AI Revolution reshapes global technology landscape", "TechCrunch", "https://techcrunch.com"),
     NewsArticle("Markets soar on positive economic data", "Reuters", "https://reuters.com"),
     NewsArticle("Space mission captures stunning images of distant galaxy", "NASA", "https://nasa.gov"),
     NewsArticle("New Android features you should try today", "Android Central", "https://androidcentral.com"),
 )
+
 
 // ─────────────────────────────────────────────────────────
 // 7. Calendar Widget (real events, fixed permission refresh)
@@ -1139,60 +1444,13 @@ private fun getRecentPhotos(context: Context, maxCount: Int): List<Uri> {
     return uris
 }
 
-// ─────────────────────────────────────────────────────────
-// 9. Sports Widget
-// ─────────────────────────────────────────────────────────
-@Composable
-private fun SportsWidget(isDark: Boolean, textScale: Float, refreshTick: Int) {
-    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    val scores = remember {
-        listOf(
-            MatchScore("Warriors",   "98",  "Celtics",    "102"),
-            MatchScore("Lakers",     "114", "Bucks",      "109"),
-            MatchScore("Real Madrid","3",   "Barcelona",  "1"),
-        )
-    }
-
-    WidgetCard(isDark) {
-        WidgetHeader("Sports", FluentIcon.Trophy, textColor, textScale)
-        Spacer(Modifier.height(10.dp))
-        scores.forEach { (team1, score1, team2, score2) ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(team1, color = textColor, fontSize = (12 * textScale).sp, modifier = Modifier.weight(1f))
-                Box(
-                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(bluebirdColors.AccentBlue.copy(alpha = 0.12f))
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                ) {
-                    Text("$score1 – $score2", color = textColor, fontSize = (12 * textScale).sp, fontWeight = FontWeight.Bold)
-                }
-                Text(team2, color = textColor, fontSize = (12 * textScale).sp,
-                    modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
-            }
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────
-// 10. Traffic Widget
-// ─────────────────────────────────────────────────────────
-@Composable
-private fun TrafficWidget(isDark: Boolean, textScale: Float) {
-    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    WidgetCard(isDark) {
-        WidgetHeader("Traffic", FluentIcon.VehicleCar, textColor, textScale)
-        Spacer(Modifier.height(10.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(imageVector = FluentIcon.Warning, contentDescription = null, tint = Color(0xFFFFB900), modifier = Modifier.size(16.dp))
-            Text("Moderate traffic on your route", color = textColor, fontSize = (12 * textScale).sp)
-        }
-        Spacer(Modifier.height(4.dp))
-        Text("~25 min to home", color = textColor.copy(alpha = 0.55f), fontSize = (11 * textScale).sp)
-    }
-}
+// Sports and Traffic widgets were removed: both only ever rendered static,
+// hardcoded sample data (fake scores, a fixed "25 min to home"), and neither
+// has a real data source available without a paid/keyed API (live sports
+// scores, and Google's Directions/Traffic API respectively). Rather than
+// ship something that looks live but never changes, they're gone. If you
+// get an API key for either later (e.g. TheSportsDB, Google Maps Platform),
+// they can follow the same real-fetch pattern now used by Weather/Stocks/News.
 
 // ─────────────────────────────────────────────────────────
 // 11. To‑Do Widget (persistent, swipe-to-delete)
@@ -1203,22 +1461,53 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
     var tasks        by remember { mutableStateOf(loadTodos(context)) }
     var newTaskText  by remember { mutableStateOf("") }
     var showAddField by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
 
     fun save(updated: List<TodoTask>) { tasks = updated; saveTodos(context, updated) }
+    fun submitNewTask() {
+        if (newTaskText.isNotBlank()) {
+            save(tasks + TodoTask(newTaskText.trim(), false))
+            newTaskText = ""
+        }
+    }
+
+    LaunchedEffect(showAddField) {
+        if (showAddField) { delay(80); focusRequester.requestFocus() }
+    }
 
     WidgetCard(isDark) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("To Do", style = MaterialTheme.typography.titleMedium, color = textColor, fontSize = (14 * textScale).sp)
-            Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 val done = tasks.count { it.done }
-                Text("$done/${tasks.size}", color = textColor.copy(alpha = 0.45f), fontSize = (11 * textScale).sp,
-                    modifier = Modifier.align(Alignment.CenterVertically).padding(end = 6.dp))
-                IconButton(onClick = { showAddField = !showAddField }, modifier = Modifier.size(22.dp)) {
-                    Icon(imageVector = FluentIcon.Add, contentDescription = null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(16.dp))
+                if (tasks.isNotEmpty()) {
+                    Text("$done/${tasks.size}", color = textColor.copy(alpha = 0.45f), fontSize = (11 * textScale).sp,
+                        modifier = Modifier.padding(end = 6.dp))
+                }
+                IconButton(onClick = { showAddField = !showAddField }, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = if (showAddField) FluentIcon.Dismiss else FluentIcon.Add,
+                        contentDescription = if (showAddField) "Cancel" else "Add task",
+                        tint = bluebirdColors.AccentBlue, modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }
+
+        if (tasks.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { if (tasks.isEmpty()) 0f else tasks.count { it.done }.toFloat() / tasks.size },
+                modifier   = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                color      = bluebirdColors.AccentBlue,
+                trackColor = widgetDividerColor(textColor)
+            )
+        }
         Spacer(Modifier.height(10.dp))
+
+        if (tasks.isEmpty() && !showAddField) {
+            Text("Nothing on your list — tap + to add a task", color = textColor.copy(alpha = 0.45f), fontSize = (12 * textScale).sp)
+        }
 
         tasks.forEachIndexed { idx, task ->
             var offsetX    by remember { mutableFloatStateOf(0f) }
@@ -1227,11 +1516,11 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                 LaunchedEffect(Unit) { save(tasks.toMutableList().also { it.removeAt(idx) }) }
                 return@forEachIndexed
             }
-            Box(modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                 // Delete bg
                 if (offsetX < -30f) {
                     Box(
-                        modifier = Modifier.matchParentSize().clip(RoundedCornerShape(8.dp))
+                        modifier = Modifier.matchParentSize().clip(RoundedCornerShape(10.dp))
                             .background(bluebirdColors.Error.copy(alpha = (-offsetX / 200f).coerceIn(0f, 1f))),
                         contentAlignment = Alignment.CenterEnd
                     ) { Icon(imageVector = FluentIcon.Delete, contentDescription = null, tint = Color.White, modifier = Modifier.padding(end = 12.dp).size(16.dp)) }
@@ -1240,13 +1529,15 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                     modifier = Modifier
                         .offset { IntOffset(offsetX.toInt(), 0) }
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (task.done) Color.Transparent else (if (isDark) Color.White.copy(alpha = 0.03f) else Color.Black.copy(alpha = 0.02f)))
                         .pointerInput(Unit) {
                             detectHorizontalDragGestures(
                                 onDragEnd = { if (offsetX < -160f) dismissed = true else offsetX = 0f },
                                 onHorizontalDrag = { _, delta -> offsetX = (offsetX + delta).coerceAtMost(0f) }
                             )
                         }
-                        .padding(vertical = 3.dp),
+                        .padding(vertical = 6.dp, horizontal = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -1268,20 +1559,36 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
         }
 
         AnimatedVisibility(visible = showAddField) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedTextField(
                     value = newTaskText, onValueChange = { newTaskText = it },
-                    modifier = Modifier.weight(1f), singleLine = true,
+                    modifier = Modifier.weight(1f).focusRequester(focusRequester), singleLine = true,
                     placeholder = { Text("New task", fontSize = (12 * textScale).sp) },
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = (13 * textScale).sp)
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = (13 * textScale).sp, color = textColor),
+                    shape = RoundedCornerShape(10.dp),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
+                        submitNewTask(); showAddField = false
+                    }),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = bluebirdColors.AccentBlue,
+                        unfocusedBorderColor = widgetDividerColor(textColor)
+                    )
                 )
-                IconButton(onClick = {
-                    if (newTaskText.isNotBlank()) {
-                        save(tasks + TodoTask(newTaskText.trim(), false))
-                        newTaskText = ""; showAddField = false
-                    }
-                }) { Icon(imageVector = FluentIcon.Checkmark, contentDescription = null, tint = bluebirdColors.SuccessGreen) }
+                IconButton(onClick = { submitNewTask(); showAddField = false }, modifier = Modifier.size(32.dp)) {
+                    Icon(imageVector = FluentIcon.Checkmark, contentDescription = "Save task", tint = bluebirdColors.SuccessGreen)
+                }
             }
+        }
+
+        if (tasks.any { it.done }) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Clear completed",
+                color = textColor.copy(alpha = 0.45f),
+                fontSize = (10 * textScale).sp,
+                modifier = Modifier.clickable { save(tasks.filterNot { it.done }) }
+            )
         }
     }
 }
@@ -1353,7 +1660,7 @@ private fun NetworkSpeedWidget(isDark: Boolean, textScale: Float) {
                 }
                 Text(rxSpeed, color = textColor, fontSize = (15 * textScale).sp, fontWeight = FontWeight.SemiBold)
             }
-            Box(modifier = Modifier.width(1.dp).height(36.dp).background(if (isDark) Color(0xFF3A3A3A) else Color(0xFFCCCCCC)))
+            Box(modifier = Modifier.width(1.dp).height(36.dp).background(widgetDividerColor(textColor)))
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(imageVector = FluentIcon.ArrowUpload, contentDescription = null, tint = bluebirdColors.Success, modifier = Modifier.size(14.dp))
@@ -1444,7 +1751,7 @@ private fun ScreenTimeWidget(isDark: Boolean, context: Context, textScale: Float
                         progress = { app.fraction },
                         modifier = Modifier.weight(1f).height(5.dp).clip(RoundedCornerShape(3.dp)),
                         color      = bluebirdColors.AccentBlue,
-                        trackColor = if (isDark) Color(0xFF3A3A3A) else Color(0xFFDDDDDD)
+                        trackColor = widgetDividerColor(textColor)
                     )
                     Text("${app.minutes}m", color = textColor.copy(alpha = 0.55f), fontSize = (10 * textScale).sp,
                         modifier = Modifier.width(32.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
