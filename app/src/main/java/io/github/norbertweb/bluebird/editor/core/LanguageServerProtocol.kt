@@ -1,8 +1,10 @@
 package io.github.norbertweb.bluebird.editor.core
 
+import org.json.JSONObject
+
 /**
- * Small editor-facing abstraction for an eventual Language Server Protocol client.
- * The current workspace index can be used as the local fallback implementation.
+ * Editor-facing abstraction for an optional Language Server Protocol client.
+ * The local workspace index remains the fallback implementation.
  */
 interface LanguageServerClient {
     fun initialize(rootPath: String): Boolean
@@ -17,6 +19,9 @@ interface LanguageServerClient {
 
     /** Optional richer LSP operations. Implementations may return null/empty when unsupported. */
     fun completion(filePath: String, offset: Int): List<LspCompletionItem> = emptyList()
+    fun codeActions(filePath: String, startOffset: Int, endOffset: Int): List<LspCodeAction> = emptyList()
+    fun formatDocument(filePath: String): List<JSONObject> = emptyList()
+    fun semanticTokens(filePath: String): List<LspSemanticToken> = emptyList()
     fun capabilities(): LspServerCapabilities = LspServerCapabilities()
 }
 
@@ -31,5 +36,8 @@ object NoOpLanguageServerClient : LanguageServerClient {
     override fun rename(filePath: String, offset: Int, newName: String): Map<String, String> = emptyMap()
     override fun hover(filePath: String, offset: Int): HoverInfo? = null
     override fun completion(filePath: String, offset: Int): List<LspCompletionItem> = emptyList()
+    override fun codeActions(filePath: String, startOffset: Int, endOffset: Int): List<LspCodeAction> = emptyList()
+    override fun formatDocument(filePath: String): List<JSONObject> = emptyList()
+    override fun semanticTokens(filePath: String): List<LspSemanticToken> = emptyList()
     override fun capabilities(): LspServerCapabilities = LspServerCapabilities()
 }

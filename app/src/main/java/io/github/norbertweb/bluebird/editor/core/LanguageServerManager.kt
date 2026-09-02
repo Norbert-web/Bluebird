@@ -32,6 +32,13 @@ class LanguageServerManager {
     fun requestCompletionAsync(filePath: String, text: String, offset: Int, callback: (List<LspCompletionItem>) -> Unit): Int? =
         (active as? StdioLanguageServerClient)?.requestCompletionAsync(filePath, text, offset, callback)
 
+    fun requestSemanticTokensAsync(filePath: String, callback: (List<LspSemanticToken>) -> Unit): Int? =
+        (active as? StdioLanguageServerClient)?.requestSemanticTokensAsync(filePath, callback)
+
+    fun codeActions(filePath: String, startOffset: Int, endOffset: Int): List<LspCodeAction> = active.codeActions(filePath, startOffset, endOffset)
+    fun formatDocument(filePath: String): List<org.json.JSONObject> = active.formatDocument(filePath)
+    fun semanticTokens(filePath: String): List<LspSemanticToken> = active.semanticTokens(filePath)
+
     fun setDiagnosticsHandler(handler: ((String?, List<LspDiagnostic>) -> Unit)?) {
         (active as? StdioLanguageServerClient)?.diagnosticsHandler = handler?.let { callback -> { pair -> callback(pair.first, pair.second) } }
     }

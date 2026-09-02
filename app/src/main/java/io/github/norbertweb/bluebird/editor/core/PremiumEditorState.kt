@@ -9,6 +9,11 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import io.github.norbertweb.bluebird.editor.core.Bookmark
 import io.github.norbertweb.bluebird.editor.core.Diagnostic
+import io.github.norbertweb.bluebird.editor.core.DiagnosticSeverity
+import io.github.norbertweb.bluebird.editor.core.LanguageServerManager
+import io.github.norbertweb.bluebird.editor.core.LspCodeAction
+import io.github.norbertweb.bluebird.editor.core.LspDiagnostic
+import io.github.norbertweb.bluebird.editor.core.LspSemanticToken
 import io.github.norbertweb.bluebird.editor.core.WebLanguageTools
 import io.github.norbertweb.bluebird.editor.core.CompletionEngine
 import io.github.norbertweb.bluebird.editor.core.EditorSettings
@@ -207,6 +212,15 @@ class PremiumEditorState(
                 redoStack = if (shouldPushHistory) emptyList() else redoStack,
                 secondarySelections = finalSecondary,
             )
+        }
+        if (languageServerManager.isConnected() && tab.filePath.isNotBlank()) {
+            val current = tabs.firstOrNull { it.id == tabId }
+            if (current != null) {
+                languageServerManager.didChange(current)
+                languageServerManager.requestSemanticTokensAsync(current.filePath) { tokens ->
+                    lspSemanticTokensByPath = lspSemanticTokensByPath.toMutableMap().apply { this[current.filePath] = tokens }
+                }
+            }
         }
         if (settings.snippetsEnabled) {
             val allWords = extractWords(new.text)
@@ -953,6 +967,83 @@ class PremiumEditorState(
     var workspaceIndexStatus by mutableStateOf("Workspace index not built")
     val workspaceIndex = WorkspaceSymbolIndex()
 
+    // Phase 10 — live language-service UI state. The manager is optional: local
+    // Bluebird intelligence remains the fallback when no LSP server is attached.
+    val languageServerManager = LanguageServerManager()
+    var lspStatus by mutableStateOf("Local intelligence")
+    var lspDiagnosticsByPath by mutableStateOf<Map<String, List<LspDiagnostic>>>(emptyMap())
+    var lspSemanticTokensByPath by mutableStateOf<Map<String, List<LspSemanticToken>>>(emptyMap())
+    var pendingCodeActions by mutableStateOf<List<LspCodeAction>>(emptyList())
+    var showCodeActions by mutableStateOf(false)
+    private val lspOpenedPaths = mutableSetOf<String>()
+
+    fun lspDiagnosticsForTab(tabId: String): List<LspDiagnostic> {
+        val tab = tabs.firstOrNull { it.id == tabId } ?: return emptyList()
+        return lspDiagnosticsByPath[tab.filePath].orEmpty()
+    }
+
+    fun lspDiagnosticsForActiveTab(): List<LspDiagnostic> = lspDiagnosticsForTab(activeTab.id)
+
+    fun lspSemanticTokensForTab(tabId: String): List<LspSemanticToken> {
+        val tab = tabs.firstOrNull { it.id == tabId } ?: return emptyList()
+        return lspSemanticTokensByPath[tab.filePath].orEmpty()
+    }
+
+    fun refreshLspState() {
+        lspStatus = if (languageServerManager.isConnected()) "LSP: Connected" else "Local intelligence"
+    }
+
+    fun syncLspEditorState(tab: TabData) {
+        refreshLspState()
+        if (!languageServerManager.isConnected() || tab.filePath.isBlank()) return
+        languageServerManager.setDiagnosticsHandler { uri, diagnostics ->
+            val path = uri?.let { runCatching { java.net.URI(it).path }.getOrNull() } ?: tab.filePath
+            if (path.isBlank()) return@setDiagnosticsHandler
+            lspDiagnosticsByPath = lspDiagnosticsByPath.toMutableMap().apply { this[path] = diagnostics }
+        }
+        if (lspOpenedPaths.add(tab.filePath)) {
+            languageServerManager.didOpen(tab)
+        }
+        languageServerManager.requestSemanticTokensAsync(tab.filePath) { tokens ->
+            lspSemanticTokensByPath = lspSemanticTokensByPath.toMutableMap().apply { this[tab.filePath] = tokens }
+        }
+    }
+
+    fun requestCodeActions() {
+        val tab = activeTab
+        if (tab.filePath.isBlank() || !languageServerManager.isConnected()) {
+            pendingCodeActions = emptyList()
+            showCodeActions = true
+            return
+        }
+        val start = tab.content.selection.min
+        val end = tab.content.selection.max
+        pendingCodeActions = languageServerManager.codeActions(tab.filePath, start, end)
+        showCodeActions = true
+    }
+
+    fun applyFormatting() {
+        val tab = activeTab
+        if (tab.filePath.isNotBlank() && languageServerManager.isConnected() &&
+            languageServerManager.capabilities().formatting) {
+            val edits = languageServerManager.formatDocument(tab.filePath)
+            if (edits.isNotEmpty()) {
+                // The LSP edit application layer can be extended without changing the UI.
+                toast("Formatting edits received from LSP")
+                return
+            }
+        }
+        val formatted = tab.content.text.lineSequence().joinToString("\n") { it.trimEnd() }
+        if (formatted != tab.content.text) {
+            updateContentForTab(tab.id, TextFieldValue(formatted, TextRange(formatted.length)))
+            toast("Formatted document")
+        } else toast("Document is already formatted")
+    }
+
+    fun diagnosticCount(): Int = diagnostics.size + lspDiagnosticsForActiveTab().size
+    fun lspErrorCount(): Int = lspDiagnosticsForActiveTab().count { it.severity == 1 }
+    fun lspWarningCount(): Int = lspDiagnosticsForActiveTab().count { it.severity == 2 }
+
     val workspaceRoot: File?
         get() = activeTab.filePath.takeIf { it.isNotBlank() }?.let { locateWorkspaceRoot(File(it)) }
 
@@ -977,20 +1068,24 @@ class PremiumEditorState(
     }
 
     fun searchWorkspace(query: String, caseSensitive: Boolean = false, regexMode: Boolean = false) {
-        rebuildWorkspaceIndex()
+        val openBuffers = tabs.filter { it.filePath.isNotBlank() }.associate { it.filePath to it.content.text }
+        workspaceIndex.ensureFresh(workspaceRoot, openBuffers)
+        workspaceIndexStatus = "${workspaceIndex.indexedFilePaths.size} files · ${workspaceIndex.indexedSymbolCount} symbols"
         workspaceSearchResults = workspaceIndex.search(query, caseSensitive, regexMode)
         showWorkspaceSearch = true
         toast(if (workspaceSearchResults.isEmpty()) "No workspace results" else "${workspaceSearchResults.size} workspace result(s)")
     }
 
     fun showWorkspaceSymbolTree() {
-        rebuildWorkspaceIndex()
+        workspaceIndex.ensureFresh(workspaceRoot, tabs.filter { it.filePath.isNotBlank() }.associate { it.filePath to it.content.text })
+        workspaceIndexStatus = "${workspaceIndex.indexedFilePaths.size} files · ${workspaceIndex.indexedSymbolCount} symbols"
         workspaceSymbolQuery = ""
         showWorkspaceSymbols = true
     }
 
     fun showWorkspaceOutline() {
-        rebuildWorkspaceIndex()
+        workspaceIndex.ensureFresh(workspaceRoot, tabs.filter { it.filePath.isNotBlank() }.associate { it.filePath to it.content.text })
+        workspaceIndexStatus = "${workspaceIndex.indexedFilePaths.size} files · ${workspaceIndex.indexedSymbolCount} symbols"
         showWorkspaceOutline = true
     }
 
@@ -1173,6 +1268,8 @@ class PremiumEditorState(
         EditorCommand("Go to Definition", "F12", "navigate") { goToDefinition() },
         EditorCommand("Find References", "Shift+F12", "navigate") { findReferences() },
         EditorCommand("Show Hover Information", "Ctrl+K Ctrl+I", "navigate") { showHoverInfo() },
+        EditorCommand("Quick Fix / Code Actions", "Ctrl+.", "navigate") { requestCodeActions() },
+        EditorCommand("Format Document", "Shift+Alt+F", "format") { applyFormatting() },
         EditorCommand("Toggle Comment", "Ctrl+/", "edit") { toggleComment() },
         EditorCommand("Duplicate Line", "Ctrl+D", "edit") { duplicateCurrentLine() },
         EditorCommand("Delete Line", "Ctrl+Shift+K", "edit") { deleteCurrentLine() },

@@ -37,6 +37,10 @@ class WorkspaceSymbolIndex(
     private val symbols = mutableListOf<IndexedSymbol>()
     private val imports = mutableListOf<WorkspaceImport>()
     private val exports = mutableListOf<WorkspaceExport>()
+    private var indexedRoot: String? = null
+    private var lastDiskStamp: Long = Long.MIN_VALUE
+    private var lastFreshCheckNanos: Long = 0L
+    private val symbolCountsByFile = mutableMapOf<String, Int>()
 
     data class IndexedSymbol(val location: DefinitionLocation, val kind: SymbolKind)
     data class WorkspaceSymbolEntry(val name: String, val kind: SymbolKind, val filePath: String, val fileName: String, val line: Int, val column: Int, val offset: Int, val containerName: String? = null)
@@ -55,10 +59,39 @@ class WorkspaceSymbolIndex(
         }
 
     val indexedFiles: List<WorkspaceFileEntry>
-        get() = documents.values.map { doc -> WorkspaceFileEntry(doc.path, doc.fileName, symbols.count { it.location.fileName == doc.path }) }.sortedBy { it.path.lowercase() }
+        get() = documents.values.map { doc -> WorkspaceFileEntry(doc.path, doc.fileName, symbolCountsByFile[doc.path] ?: 0) }
+            .sortedBy { it.path.lowercase() }
 
     fun clear() {
         documents.clear(); symbols.clear(); imports.clear(); exports.clear()
+        symbolCountsByFile.clear()
+        indexedRoot = null
+        lastDiskStamp = Long.MIN_VALUE
+        lastFreshCheckNanos = 0L
+    }
+
+    fun ensureFresh(root: File?, openDocuments: Map<String, String> = emptyMap()) {
+        val rootDir = root?.let { if (it.isFile) it.parentFile else it } ?: return
+        val canonicalRoot = runCatching { rootDir.canonicalPath }.getOrNull() ?: return
+        val now = System.nanoTime()
+        if (canonicalRoot == indexedRoot && now - lastFreshCheckNanos < 750_000_000L) {
+            openDocuments.forEach { (path, text) ->
+                val canonical = canonical(path)
+                if (documents[canonical]?.text != text) updateDocument(canonical, text)
+            }
+            return
+        }
+        lastFreshCheckNanos = now
+        val stamp = diskStamp(rootDir)
+        if (canonicalRoot != indexedRoot || stamp != lastDiskStamp) {
+            rebuild(rootDir, openDocuments)
+            return
+        }
+        // Open buffers are authoritative and may change without touching disk.
+        openDocuments.forEach { (path, text) ->
+            val canonical = canonical(path)
+            if (documents[canonical]?.text != text) updateDocument(canonical, text)
+        }
     }
 
     fun rebuild(root: File?, openDocuments: Map<String, String> = emptyMap()) {
@@ -78,6 +111,8 @@ class WorkspaceSymbolIndex(
             }
         }
         rebuildSymbols()
+        indexedRoot = runCatching { rootDir.canonicalPath }.getOrDefault(rootDir.absolutePath)
+        lastDiskStamp = diskStamp(rootDir)
     }
 
     fun updateDocument(path: String, text: String) {
@@ -87,18 +122,22 @@ class WorkspaceSymbolIndex(
         symbols.removeAll { it.location.fileName == canonical }
         imports.removeAll { it.sourceFile == canonical }
         exports.removeAll { it.sourceFile == canonical }
+        symbolCountsByFile.remove(canonical)
         addSymbols(canonical, text, File(path).name)
     }
 
     private fun rebuildSymbols() {
-        symbols.clear(); imports.clear(); exports.clear()
+        symbols.clear(); imports.clear(); exports.clear(); symbolCountsByFile.clear()
         documents.values.forEach { addSymbols(it.path, it.text, it.fileName) }
     }
 
     private fun addSymbols(path: String, text: String, fileName: String) {
+        var count = 0
         LanguageIntelligence.symbols(text, fileName).forEach { symbol ->
             symbols += IndexedSymbol(DefinitionLocation(path, symbol.line, symbol.column, symbol.offset, symbol.name), symbol.kind)
+            count++
         }
+        symbolCountsByFile[path] = count
         indexModuleBindings(path, text)
     }
 
@@ -210,16 +249,22 @@ class WorkspaceSymbolIndex(
         if (query.isEmpty()) return emptyList()
         val options = if (caseSensitive) emptySet() else setOf(RegexOption.IGNORE_CASE)
         val pattern = runCatching { Regex(if (regexMode) query else Regex.escape(query), options) }.getOrNull() ?: return emptyList()
-        val out = mutableListOf<WorkspaceSearchResult>()
-        outer@ for (doc in documents.values) {
-            doc.text.split('\n').forEachIndexed { lineIndex, lineText ->
+        val out = ArrayList<WorkspaceSearchResult>(minOf(maxResults, 128))
+        for (doc in documents.values) {
+            var lineStart = 0
+            var lineNumber = 1
+            while (lineStart <= doc.text.length) {
+                val newline = doc.text.indexOf('\n', lineStart)
+                val lineEnd = if (newline >= 0) newline else doc.text.length
+                val lineText = doc.text.substring(lineStart, lineEnd)
                 pattern.findAll(lineText).forEach { match ->
-                    if (out.size >= maxResults) return@forEach
-                    out += WorkspaceSearchResult(doc.path, doc.fileName, lineIndex + 1, match.range.first + 1, lineText.trim(), match.value, offsetForLine(doc.text, lineIndex) + match.range.first)
+                    if (out.size >= maxResults) return out
+                    out += WorkspaceSearchResult(doc.path, doc.fileName, lineNumber, match.range.first + 1, lineText.trim(), match.value, lineStart + match.range.first)
                 }
-                if (out.size >= maxResults) return@forEachIndexed
+                if (newline < 0) break
+                lineStart = newline + 1
+                lineNumber++
             }
-            if (out.size >= maxResults) break@outer
         }
         return out
     }
@@ -235,10 +280,18 @@ class WorkspaceSymbolIndex(
         return if (qi == query.length) score else -1
     }
 
-    private fun offsetForLine(text: String, line: Int): Int {
-        var current = 0
-        repeat(line) { val next = text.indexOf('\n', current); if (next < 0) return current; current = next + 1 }
-        return current
+    private fun diskStamp(root: File): Long {
+        var stamp = root.lastModified()
+        var count = 0
+        root.walkTopDown().onEnter { it.name.lowercase() !in setOf(".git", ".gradle", "build", "node_modules", ".idea", "target", "out") }
+            .filter { it.isFile && isSupported(it.name) && it.length() <= maxFileBytes }
+            .forEach { file ->
+                // A bounded aggregate stamp avoids rescanning file contents just to detect changes.
+                stamp = 31L * stamp + file.lastModified()
+                stamp = 31L * stamp + file.length()
+                if (++count >= maxFiles) return@forEach
+            }
+        return stamp
     }
     private fun canonical(path: String): String = runCatching { File(path).canonicalPath }.getOrDefault(path)
     private fun sameFile(a: String, b: String): Boolean = canonical(a) == canonical(b)

@@ -2,8 +2,6 @@ package io.github.norbertweb.bluebird.editor.core
 
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
 
 /** LSP completion item normalized for Bluebird's editor UI. */
 data class LspCompletionItem(
@@ -20,17 +18,23 @@ data class LspServerCapabilities(
     val definition: Boolean = false,
     val references: Boolean = false,
     val rename: Boolean = false,
+    val codeAction: Boolean = false,
+    val formatting: Boolean = false,
+    val semanticTokens: Boolean = false,
 ) {
     companion object {
         fun fromInitialize(result: JSONObject?): LspServerCapabilities {
             val caps = result?.optJSONObject("capabilities") ?: return LspServerCapabilities()
             return LspServerCapabilities(
                 completion = caps.has("completionProvider"),
-                diagnostics = caps.has("diagnosticProvider") || caps.optBoolean("textDocumentSync", false),
+                diagnostics = caps.has("diagnosticProvider") || caps.has("textDocumentSync"),
                 hover = caps.has("hoverProvider"),
                 definition = caps.has("definitionProvider"),
                 references = caps.has("referencesProvider"),
                 rename = caps.has("renameProvider"),
+                codeAction = caps.has("codeActionProvider"),
+                formatting = caps.has("documentFormattingProvider"),
+                semanticTokens = caps.has("semanticTokensProvider"),
             )
         }
     }
@@ -46,37 +50,20 @@ data class LspDiagnostic(
     val source: String = "LSP",
 )
 
-/**
- * Thin asynchronous facade over an initialized LSP client. Requests are dispatched off the
- * Compose/UI thread and stale completion responses can be cancelled by request id.
- */
-class AsyncLspLanguageService(
-    private val client: StdioLanguageServerClient,
-) {
-    private val timeoutScheduler: ScheduledExecutorService = Executors.newScheduledThreadPool(1) { runnable ->
-        Thread(runnable, "Bluebird-LSP-Timeout").apply { isDaemon = true }
-    }
+data class LspCodeAction(
+    val title: String,
+    val kind: String = "quickfix",
+    val edit: JSONObject? = null,
+    val command: JSONObject? = null,
+)
 
-    fun requestCompletion(
-        filePath: String,
-        text: String,
-        offset: Int,
-        callback: (List<LspCompletionItem>) -> Unit,
-    ): Int? = client.requestCompletionAsync(filePath, text, offset, callback)
-
-    fun requestDiagnostics(
-        filePath: String,
-        text: String,
-        callback: (List<LspDiagnostic>) -> Unit,
-    ): Int? = client.requestDiagnosticsAsync(filePath, text, callback)
-
-    fun cancel(requestId: Int) = client.cancelRequest(requestId)
-
-    fun shutdown() {
-        timeoutScheduler.shutdownNow()
-        executor.shutdownNow()
-    }
-}
+data class LspSemanticToken(
+    val line: Int,
+    val startCharacter: Int,
+    val length: Int,
+    val tokenType: Int,
+    val tokenModifiers: Int = 0,
+)
 
 internal fun parseCompletionResult(result: JSONObject?): List<LspCompletionItem> {
     val array = when {
@@ -116,4 +103,34 @@ internal fun parseDiagnostics(params: JSONObject?): Pair<String?, List<LspDiagno
         )
     }
     return uri to parsed
+}
+
+internal fun parseCodeActions(result: JSONObject?): List<LspCodeAction> {
+    val array = result?.optJSONArray("result") ?: result?.optJSONArray("items") ?: return emptyList()
+    return (0 until array.length()).mapNotNull { i ->
+        val item = array.optJSONObject(i) ?: return@mapNotNull null
+        val action = item.optJSONObject("codeAction") ?: item
+        val title = action.optString("title").ifBlank { return@mapNotNull null }
+        LspCodeAction(title, action.optString("kind", "quickfix"), action.optJSONObject("edit"), action.optJSONObject("command"))
+    }
+}
+
+/** Decode LSP semantic token delta encoding into absolute token positions. */
+internal fun parseSemanticTokens(result: JSONObject?): List<LspSemanticToken> {
+    val data = result?.optJSONArray("data") ?: result?.optJSONObject("result")?.optJSONArray("data") ?: return emptyList()
+    var line = 0
+    var character = 0
+    return buildList {
+        var i = 0
+        while (i + 4 < data.length()) {
+            val deltaLine = data.optInt(i++)
+            val deltaStart = data.optInt(i++)
+            val length = data.optInt(i++)
+            val tokenType = data.optInt(i++)
+            val modifiers = data.optInt(i++)
+            line += deltaLine
+            character = if (deltaLine == 0) character + deltaStart else deltaStart
+            add(LspSemanticToken(line, character, length, tokenType, modifiers))
+        }
+    }
 }

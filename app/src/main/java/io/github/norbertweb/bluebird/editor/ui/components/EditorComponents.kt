@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -154,15 +155,16 @@ private fun TabItem(
     onClose: () -> Unit, onPin: () -> Unit
 ) {
     var dragDistance by remember(tab.id) { mutableStateOf(0f) }
+    val background = if (isActive) colors.tabActive else colors.tabBg
     Row(
         Modifier
             .height(36.dp).widthIn(min = 90.dp, max = 220.dp)
-            .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-            .background(if (isActive) colors.tabActive else colors.tabBg)
+            .clip(RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp))
+            .background(background)
             .border(
                 width = if (isActive) 1.dp else 0.dp,
-                color = if (isActive) colors.accent else Color.Transparent,
-                shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)
+                color = if (isActive) colors.border else Color.Transparent,
+                shape = RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp)
             )
             .clickable(onClick = onClick)
             .pointerInput(tab.id) {
@@ -188,6 +190,10 @@ private fun TabItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
+        // Thin Fluent active indicator.
+        if (isActive) {
+            Box(Modifier.width(18.dp).height(2.dp).background(colors.accent, RoundedCornerShape(50)))
+        }
         // File type icon dot
         val dotColor = fileTypeColor(tab.fileExt, colors)
         Box(Modifier.size(7.dp).background(dotColor, CircleShape))
@@ -209,11 +215,13 @@ private fun TabItem(
 
         // Close button
         if (!tab.isPinned) {
-            Icon(
-                FluentIcon.Close, null, tint = colors.textMuted,
-                modifier = Modifier.size(13.dp).clip(RoundedCornerShape(2.dp))
-                    .clickable(onClick = onClose)
-            )
+            Box(
+                Modifier.size(20.dp).clip(RoundedCornerShape(4.dp))
+                    .clickable(onClick = onClose),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(FluentIcon.Close, null, tint = colors.textMuted, modifier = Modifier.size(13.dp))
+            }
         }
     }
 }
@@ -599,8 +607,9 @@ fun PremiumGutter(s: PremiumEditorState, scrollState: ScrollState, tab: TabData 
             val isCurrent = lineNo == s.cursorLineForTab(tab.id)
             val hasBookmark = tab.bookmarks.any { it.line == lineNo }
             val lineDiagnostics = s.diagnosticsForTab(tab.id).filter { it.line == lineNo }
-            val hasError = lineDiagnostics.any { it.severity == DiagnosticSeverity.ERROR }
-            val hasWarning = lineDiagnostics.any { it.severity == DiagnosticSeverity.WARNING }
+            val lspDiagnostics = s.lspDiagnosticsForTab(tab.id).filter { it.line == lineNo }
+            val hasError = lineDiagnostics.any { it.severity == DiagnosticSeverity.ERROR } || lspDiagnostics.any { it.severity == 1 }
+            val hasWarning = lineDiagnostics.any { it.severity == DiagnosticSeverity.WARNING } || (!hasError && lspDiagnostics.any { it.severity == 2 })
             Row(
                 Modifier.fillMaxWidth().height(with(density) { lineHeightPx.toDp() })
                     .clickable { s.activateEditorGroup(group); s.goToLineForTab(tab.id, lineNo) },
@@ -724,10 +733,12 @@ fun PremiumStatusBar(s: PremiumEditorState, onEncodingClick: () -> Unit, onLineE
             StatusChip("Ln ${s.cursorLine}, Col ${s.cursorCol}", Color.White)
             StatusChip("${s.wordCount}w ${s.charCount}c", Color.White.copy(0.8f))
             StatusChip("${(s.zoom * 100).toInt()}%", Color.White.copy(0.7f))
-            StatusChip("PROBLEMS", Color.White.copy(0.78f), clickable = true, onClick = {
+            val problemCount = s.diagnosticCount()
+            StatusChip(if (problemCount > 0) "PROBLEMS $problemCount" else "PROBLEMS", Color.White.copy(0.78f), clickable = true, onClick = {
                 s.bottomPanel = io.github.norbertweb.bluebird.editor.core.BottomPanel.PROBLEMS
                 s.showBottomPanel = true
             })
+            StatusChip(s.lspStatus, if (s.languageServerManager.isConnected()) Color.White else Color.White.copy(0.62f), clickable = true, onClick = { s.refreshLspState() })
             if (s.isModified) StatusChip("● Unsaved", c.gold)
             else StatusChip("✓ Saved", Color(0xFF90EE90))
         }
@@ -1354,6 +1365,42 @@ fun LanguageHoverDialog(s: PremiumEditorState) {
 // ─────────────────────────────────────────────────────────────────
 // Workspace References — Phase 3
 // ─────────────────────────────────────────────────────────────────
+
+@Composable
+fun CodeActionsDialog(s: PremiumEditorState) {
+    val c = s.colors
+    AlertDialog(
+        onDismissRequest = { s.showCodeActions = false },
+        containerColor = c.panel,
+        title = { Text("Quick Fixes & Code Actions", color = c.text) },
+        text = {
+            if (s.pendingCodeActions.isEmpty()) {
+                Text(
+                    if (s.languageServerManager.isConnected()) "No code actions available at the current selection."
+                    else "No language server is connected. Local fixes will be added here as they become available.",
+                    color = c.textMuted
+                )
+            } else {
+                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                    s.pendingCodeActions.forEach { action ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable {
+                                s.showCodeActions = false
+                                s.toast("${action.title} selected")
+                            }.padding(horizontal = 10.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(action.title, color = c.text, fontSize = 13.sp)
+                            Spacer(Modifier.weight(1f))
+                            Text(action.kind, color = c.textMuted, fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { s.showCodeActions = false }) { Text("Close", color = c.accent) } }
+    )
+}
 
 @Composable
 fun ReferencesDialog(s: PremiumEditorState) {

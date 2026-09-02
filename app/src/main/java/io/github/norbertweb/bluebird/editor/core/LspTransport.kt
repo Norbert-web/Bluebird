@@ -52,7 +52,8 @@ class JsonRpcStdioTransport private constructor(
         pending[id] = pendingRequest
         send(JSONObject().put("jsonrpc", "2.0").put("id", id).put("method", method).put("params", params))
         Thread({
-            pendingRequest.latch.await()
+            // Never allow a broken language server to leave an editor request pending forever.
+            pendingRequest.latch.await(8000L, TimeUnit.MILLISECONDS)
             pending.remove(id)
             callback(pendingRequest.result)
         }, "Bluebird-LSP-Request-$id").apply { isDaemon = true }.start()
@@ -226,11 +227,37 @@ class StdioLanguageServerClient(
     override fun completion(filePath: String, offset: Int): List<LspCompletionItem> =
         parseCompletionResult(rawRequest("textDocument/completion", textPositionParams(filePath, offset)))
 
+    override fun codeActions(filePath: String, startOffset: Int, endOffset: Int): List<LspCodeAction> {
+        if (!capabilitiesValue.codeAction) return emptyList()
+        val text = runCatching { java.io.File(filePath).readText() }.getOrDefault("")
+        return parseCodeActions(rawRequest("textDocument/codeAction", rangeParams(filePath, text, startOffset, endOffset)))
+    }
+
+    override fun formatDocument(filePath: String): List<JSONObject> {
+        if (!capabilitiesValue.formatting) return emptyList()
+        return rawRequest("textDocument/formatting", JSONObject()
+            .put("textDocument", JSONObject().put("uri", fileToUri(filePath)))
+            .put("options", JSONObject().put("tabSize", 2).put("insertSpaces", true)))
+            ?.optJSONArray("result")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }.orEmpty()
+    }
+
+    override fun semanticTokens(filePath: String): List<LspSemanticToken> {
+        if (!capabilitiesValue.semanticTokens) return emptyList()
+        return parseSemanticTokens(rawRequest("textDocument/semanticTokens/full", JSONObject()
+            .put("textDocument", JSONObject().put("uri", fileToUri(filePath)))))
+    }
+
     override fun capabilities(): LspServerCapabilities = capabilitiesValue
 
     fun requestCompletionAsync(filePath: String, text: String, offset: Int, callback: (List<LspCompletionItem>) -> Unit): Int? {
         val params = textPositionParamsFromText(filePath, text, offset)
         return transport?.requestAsync("textDocument/completion", params) { callback(parseCompletionResult(it)) }
+    }
+
+    fun requestSemanticTokensAsync(filePath: String, callback: (List<LspSemanticToken>) -> Unit): Int? {
+        if (!capabilitiesValue.semanticTokens) return null
+        val params = JSONObject().put("textDocument", JSONObject().put("uri", fileToUri(filePath)))
+        return transport?.requestAsync("textDocument/semanticTokens/full", params) { callback(parseSemanticTokens(it)) }
     }
 
     fun requestDiagnosticsAsync(filePath: String, text: String, callback: (List<LspDiagnostic>) -> Unit): Int? {
@@ -250,6 +277,18 @@ class StdioLanguageServerClient(
 
     fun isRunning(): Boolean = transport != null
     fun workspaceRoot(): String = rootPath
+
+    private fun rangeParams(filePath: String, text: String, startOffset: Int, endOffset: Int): JSONObject {
+        fun position(offset: Int): JSONObject {
+            val safe = offset.coerceIn(0, text.length)
+            val line = text.take(safe).count { it == '\n' }
+            val lastNewline = text.lastIndexOf('\n', safe - 1)
+            return JSONObject().put("line", line).put("character", safe - (lastNewline + 1))
+        }
+        return JSONObject().put("textDocument", JSONObject().put("uri", fileToUri(filePath)))
+            .put("range", JSONObject().put("start", position(startOffset)).put("end", position(endOffset)))
+            .put("context", JSONObject().put("diagnostics", JSONArray()))
+    }
 
     private fun textPositionParamsFromText(filePath: String, text: String, offset: Int): JSONObject {
         val safe = offset.coerceIn(0, text.length)

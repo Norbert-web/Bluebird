@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
@@ -84,6 +86,10 @@ fun VirtualizedCodeSurface(
 
     LaunchedEffect(totalHeightPx) { onContentHeightMeasured(totalHeightPx) }
 
+    val semanticByLine = remember(s.lspSemanticTokensForTab(tab.id)) {
+        s.lspSemanticTokensForTab(tab.id).groupBy { it.line + 1 }
+    }
+
     val visibleLines = remember(
         tab.content.text,
         viewport.firstLine,
@@ -91,6 +97,7 @@ fun VirtualizedCodeSurface(
         tab.foldedLines,
         s.findQuery,
         s.showFindBar,
+        semanticByLine,
         s.currentMatchIndex,
         tab.id,
         c,
@@ -102,7 +109,7 @@ fun VirtualizedCodeSurface(
                 val end = it.range.last + 1 - line.startOffset
                 if (start in 0..line.text.length && end > start && start < line.text.length) start until end else null
             }
-            val annotated = if (s.settings.syntaxHighlight) {
+            val baseAnnotated = if (s.settings.syntaxHighlight) {
                 buildSyntaxHighlight(
                     text = line.text,
                     ext = tab.fileName.substringAfterLast('.', "txt").lowercase(),
@@ -116,7 +123,8 @@ fun VirtualizedCodeSurface(
             } else {
                 AnnotatedString(line.text)
             }
-            line to annotated
+            val semantic = semanticByLine[line.lineNumber].orEmpty()
+            line to applySemanticStyles(baseAnnotated, semantic, c)
         }
     }
 
@@ -273,7 +281,84 @@ fun VirtualizedCodeSurface(
                     charWidthPx = charWidthPx,
                     paddingPx = pad,
                 )
+                drawLspDiagnostics(
+                    c = c,
+                    tab = tab,
+                    index = index,
+                    lineHeightPx = lineHeightPx,
+                    charWidthPx = charWidthPx,
+                    paddingPx = pad,
+                    diagnostics = s.lspDiagnosticsForActiveTab(),
+                )
             }
+        }
+    }
+}
+
+
+private fun applySemanticStyles(
+    base: AnnotatedString,
+    tokens: List<io.github.norbertweb.bluebird.editor.core.LspSemanticToken>,
+    c: EditorColors,
+): AnnotatedString {
+    if (tokens.isEmpty() || base.text.isEmpty()) return base
+    val builder = AnnotatedString.Builder(base)
+    tokens.forEach { token ->
+        val start = token.startCharacter.coerceIn(0, base.text.length)
+        val end = (start + token.length).coerceIn(start, base.text.length)
+        if (start >= end) return@forEach
+        val color = when (token.tokenType % 10) {
+            0 -> c.synVariable
+            1 -> c.synFunction
+            2 -> c.synType
+            3 -> c.synKeyword
+            4 -> c.synString
+            5 -> c.synNumber
+            6 -> c.synComment
+            7 -> c.synConstant
+            8 -> c.synOperator
+            else -> c.text
+        }
+        builder.addStyle(SpanStyle(color = color), start, end)
+    }
+    return builder.toAnnotatedString()
+}
+
+private fun DrawScope.drawLspDiagnostics(
+    c: EditorColors,
+    tab: TabData,
+    index: LineIndex,
+    lineHeightPx: Float,
+    charWidthPx: Float,
+    paddingPx: Float,
+    diagnostics: List<io.github.norbertweb.bluebird.editor.core.LspDiagnostic>,
+) {
+    diagnostics.forEach { diagnostic ->
+        if (diagnostic.line < 1) return@forEach
+        val lineStart = index.lineStart(diagnostic.line)
+        val lineEnd = index.lineEnd(tab.content.text, diagnostic.line)
+        val startCol = (diagnostic.column - 1).coerceAtLeast(0)
+        val endCol = when {
+            diagnostic.endLine == diagnostic.line -> (diagnostic.endColumn - 1).coerceAtLeast(startCol + 1)
+            else -> (lineEnd - lineStart).coerceAtLeast(startCol + 1)
+        }
+        val safeStart = startCol.coerceAtMost((lineEnd - lineStart).coerceAtLeast(0))
+        val safeEnd = endCol.coerceAtLeast(safeStart + 1).coerceAtMost((lineEnd - lineStart).coerceAtLeast(safeStart + 1))
+        val y = paddingPx + (diagnostic.line - 1) * lineHeightPx + lineHeightPx - 2.5f
+        val color = when (diagnostic.severity) {
+            2 -> c.warning
+            3, 4 -> c.accent
+            else -> c.danger
+        }
+        var x = paddingPx + safeStart * charWidthPx
+        val endX = paddingPx + safeEnd * charWidthPx
+        val wave = 3f
+        var up = false
+        while (x < endX) {
+            val nx = (x + wave).coerceAtMost(endX)
+            drawLine(color = color, start = Offset(x, y + if (up) 0f else 1.7f), end = Offset(nx, y + if (up) 1.7f else 0f), strokeWidth = 1.4f)
+            up = !up
+            x = nx
         }
     }
 }

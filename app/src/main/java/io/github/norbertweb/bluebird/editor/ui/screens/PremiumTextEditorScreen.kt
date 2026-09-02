@@ -70,6 +70,7 @@ import io.github.norbertweb.bluebird.editor.ui.components.ReferencesDialog
 import io.github.norbertweb.bluebird.editor.ui.components.WorkspaceSearchDialog
 import io.github.norbertweb.bluebird.editor.ui.components.WorkspaceSymbolsDialog
 import io.github.norbertweb.bluebird.editor.ui.components.WorkspaceOutlineDialog
+import io.github.norbertweb.bluebird.editor.ui.components.CodeActionsDialog
 import io.github.norbertweb.bluebird.editor.ui.components.RenameSymbolDialog
 import io.github.norbertweb.bluebird.editor.ui.components.AutocompletePopup
 import io.github.norbertweb.bluebird.editor.ui.components.BookmarksPanel
@@ -254,6 +255,7 @@ fun PremiumTextEditorScreen(
         if (s.showWorkspaceSearch) WorkspaceSearchDialog(s)
         if (s.showWorkspaceSymbols) WorkspaceSymbolsDialog(s)
         if (s.showWorkspaceOutline) WorkspaceOutlineDialog(s)
+        if (s.showCodeActions) CodeActionsDialog(s)
         if (s.showRenameSymbol) RenameSymbolDialog(s)
         if (s.showReferencesPanel) ReferencesDialog(s)
         if (s.languageHover != null) LanguageHoverDialog(s)
@@ -308,6 +310,9 @@ private fun EditorGroupContent(
                 s.updateTabById(tab.id) { copy(scrollOffset = offset) }
             }
         }
+    }
+    LaunchedEffect(tab.id, tab.content.text, s.lspStatus) {
+        s.syncLspEditorState(tab)
     }
     var contentHeightPx by remember(s.tabIdForGroup(group)) { mutableStateOf(0) }
 
@@ -575,6 +580,8 @@ fun handleKeyEvent(
         isCtrl && !isShift && keyCode == KeyEvent.KEYCODE_P -> { s.showQuickOpen = true; true }
         isCtrl && isShift && keyCode == KeyEvent.KEYCODE_O -> { s.showSymbolPicker = true; true }
         isCtrl && isShift && keyCode == KeyEvent.KEYCODE_T -> { s.showWorkspaceOutline(); true }
+        isCtrl && keyCode == KeyEvent.KEYCODE_PERIOD -> { s.requestCodeActions(); true }
+        isAlt && isShift && keyCode == KeyEvent.KEYCODE_F -> { s.applyFormatting(); true }
         isCtrl && isShift && keyCode == KeyEvent.KEYCODE_LEFT_BRACKET -> { s.toggleFoldAtCursor(); true }
         isCtrl && isShift && keyCode == KeyEvent.KEYCODE_RIGHT_BRACKET -> { s.unfoldAll(); true }
         isCtrl && isAlt && keyCode == KeyEvent.KEYCODE_LEFT_BRACKET -> { s.foldAll(); true }

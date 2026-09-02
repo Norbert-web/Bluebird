@@ -147,15 +147,18 @@ private fun EditorGroupPane(
 ) {
     val c = s.colors
     Column(modifier.border(1.dp, c.border)) {
+        val activeGroup = s.activeEditorGroup == group
         Row(
-            Modifier.fillMaxWidth().height(22.dp).background(c.surface),
+            Modifier.fillMaxWidth().height(24.dp).background(if (activeGroup) c.surfaceHover else c.surface),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Box(Modifier.width(2.dp).height(14.dp).background(if (activeGroup) c.accent else Color.Transparent, RoundedCornerShape(50)))
             Text(
                 if (group == 0) "EDITOR GROUP 1" else "EDITOR GROUP 2",
-                color = c.textMuted, fontSize = 9.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 8.dp)
+                color = if (activeGroup) c.text else c.textMuted, fontSize = 9.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 7.dp)
             )
+            if (activeGroup) Text("ACTIVE", color = c.accent, fontSize = 8.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
             if (group == 1) ShellIconButton(FluentIcon.Close, "Close Group", c) { s.closeEditorGroup() }
         }
@@ -187,14 +190,16 @@ private fun SplitterHorizontal(c: io.github.norbertweb.bluebird.editor.ui.theme.
 private fun IdeTitleBar(s: PremiumEditorState, onSave: () -> Unit, onNewTab: () -> Unit) {
     val c = s.colors
     Row(
-        Modifier.fillMaxWidth().height(36.dp).background(c.surface)
+        Modifier.fillMaxWidth().height(40.dp).background(c.surface)
             .border(1.dp, c.border),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.padding(start = 10.dp).size(20.dp).clip(RoundedCornerShape(5.dp)).background(c.accent), contentAlignment = Alignment.Center) {
             Icon(FluentIcon.Code, null, tint = Color.White, modifier = Modifier.size(13.dp))
         }
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(10.dp))
+        Box(Modifier.width(1.dp).height(20.dp).background(c.border))
+        Spacer(Modifier.width(10.dp))
         Text("Bluebird VS Code", color = c.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Text("  •  ${s.fileName}", color = c.textMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.weight(1f))
@@ -206,7 +211,7 @@ private fun IdeTitleBar(s: PremiumEditorState, onSave: () -> Unit, onNewTab: () 
         }
         ShellIconButton(FluentIcon.Window, "Split Right", c) { s.splitEditor(SplitOrientation.VERTICAL) }
         ShellIconButton(FluentIcon.Window, "Split Down", c) { s.splitEditor(SplitOrientation.HORIZONTAL) }
-        Spacer(Modifier.width(6.dp))
+        Spacer(Modifier.width(8.dp))
     }
 }
 
