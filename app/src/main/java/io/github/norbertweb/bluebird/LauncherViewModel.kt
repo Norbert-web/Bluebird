@@ -214,6 +214,14 @@ data class LauncherUiState(
     val isDarkTheme: Boolean = true,
     val accentColor: Long = 0xFF0078D4,
     val isLocked: Boolean = false,
+    // Whether any window currently wants the screen kept awake — set true while a
+    // video is actively playing in the browser or the built-in Media Player, false
+    // otherwise (including "paused"). MainActivity observes this to decide whether
+    // to hold FLAG_KEEP_SCREEN_ON; it is intentionally NOT persisted to prefs, since
+    // it must always start false on a fresh process rather than resuming "stuck on".
+    // Multiple players can call setMediaPlaying independently (e.g. a background
+    // download preview + the main player) via the id-keyed set below.
+    val activeMediaPlaybackIds: Set<String> = emptySet(),
     val wallpaper: WallpaperState = WallpaperState(),
     val installedApps: List<AppInfo> = emptyList(),
     val pinnedTaskbarApps: List<AppInfo> = emptyList(),
@@ -2188,6 +2196,29 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun dismissUndo() {
         undoDismissJob?.cancel()
         _uiState.value = _uiState.value.copy(undoAction = null)
+    }
+
+    // ─── Screen-awake-during-media control ─────────────────────────────────────
+    // Call setMediaPlaying(id, true) when a player (browser video, Media Player app,
+    // etc.) starts actual playback, and setMediaPlaying(id, false) on pause/stop/
+    // completion/error/screen-leave. `id` should be stable per player instance (e.g.
+    // the window id) so two players can't clobber each other's state — the screen
+    // stays awake as long as at least one id is actively playing.
+    fun setMediaPlaying(id: String, isPlaying: Boolean) {
+        _uiState.value = _uiState.value.copy(
+            activeMediaPlaybackIds = if (isPlaying)
+                _uiState.value.activeMediaPlaybackIds + id
+            else
+                _uiState.value.activeMediaPlaybackIds - id
+        )
+    }
+
+    // Call when a player's window closes, so a forgotten setMediaPlaying(false)
+    // can't leave a stale id keeping the screen on forever.
+    fun clearMediaPlaying(id: String) {
+        _uiState.value = _uiState.value.copy(
+            activeMediaPlaybackIds = _uiState.value.activeMediaPlaybackIds - id
+        )
     }
 
     // ─── Theme & Appearance ───────────────────────────────────────────────────
