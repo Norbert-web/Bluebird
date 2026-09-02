@@ -28,11 +28,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -77,6 +75,7 @@ import io.github.norbertweb.bluebird.editor.ui.components.CommandPalette
 import io.github.norbertweb.bluebird.editor.ui.components.EditorToast
 import io.github.norbertweb.bluebird.editor.ui.components.EncodingPickerDialog
 import io.github.norbertweb.bluebird.editor.ui.components.FindResultsPanel
+import io.github.norbertweb.bluebird.editor.ui.components.IdeShell
 import io.github.norbertweb.bluebird.editor.ui.components.GoToLineDialog
 import io.github.norbertweb.bluebird.editor.ui.components.LineEndingDialog
 import io.github.norbertweb.bluebird.editor.ui.components.MinimapPanel
@@ -89,7 +88,6 @@ import io.github.norbertweb.bluebird.editor.ui.components.SaveAsDialog
 import io.github.norbertweb.bluebird.editor.ui.components.SettingsPanel
 import io.github.norbertweb.bluebird.editor.ui.components.SnippetManager
 import io.github.norbertweb.bluebird.editor.ui.components.StatisticsPanel
-import io.github.norbertweb.bluebird.editor.ui.components.ThemePickerDialog
 import io.github.norbertweb.bluebird.editor.ui.components.UnsavedChangesDialog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -103,7 +101,7 @@ import java.io.File
 
 @Composable
 fun PremiumTextEditorScreen(
-    isDark: Boolean,
+    @Suppress("UNUSED_PARAMETER") isDark: Boolean = false,
 
     filePath: String = "",
     initialContent: String = "",
@@ -113,25 +111,21 @@ fun PremiumTextEditorScreen(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
+    val systemIsDark = isSystemInDarkTheme()
 
     // State is held in a ViewModel so it survives configuration changes and
     // activity restarts. remember{} alone is wiped on rotation / back-stack return.
     val vm = androidx.lifecycle.viewmodel.compose.viewModel<EditorViewModel>(
         key = filePath.ifEmpty { "untitled" },
-        factory = EditorViewModelFactory(filePath, initialContent, savedSettings),
+        factory = EditorViewModelFactory(filePath, initialContent, savedSettings, systemIsDark),
     )
     val s = vm.state
 
-    val c = s.colors
-    val fontFamily = remember(s.settings.fontFamily) {
-        when (s.settings.fontFamily) {
-            "SansSerif" -> FontFamily.SansSerif
-            "Serif" -> FontFamily.Serif
-            "Courier" -> FontFamily.Cursive
-            else -> FontFamily.Monospace
-        }
+    LaunchedEffect(systemIsDark) {
+        s.setSystemTheme(systemIsDark)
     }
-    val effectiveFontSize = (s.fontSize * s.zoom).sp
+
+    val c = s.colors
 
     // ── File picker launcher ──────────────────────────────────────
     val openFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -179,39 +173,6 @@ fun PremiumTextEditorScreen(
         }
     }
 
-    // ── Bracket match ─────────────────────────────────────────────
-    val bracketMatch = remember(s.content.selection.start, s.content.text, s.settings.bracketMatching) {
-        if (s.settings.bracketMatching) findMatchingBracket(s.content.text, s.content.selection.start)
-        else null
-    }
-
-    // ── Syntax highlighted text ───────────────────────────────────
-    val matches = remember(s.findQuery, s.content.text, s.matchCase, s.useRegex, s.wholeWord) {
-        if (s.showFindBar && s.findQuery.isNotEmpty()) s.findMatches() else emptyList()
-    }
-    val currentMatchRange = remember(s.currentMatchIndex, matches) {
-        matches.getOrNull(s.currentMatchIndex)?.range
-    }
-
-    val highlightedText = remember(
-        s.content.text, s.fileExt, s.settings.theme, s.settings.syntaxHighlight,
-        s.findQuery, s.matchCase, s.useRegex, s.wholeWord, s.currentMatchIndex
-    ) {
-        if (s.settings.syntaxHighlight) {
-            buildSyntaxHighlight(
-                text = s.content.text,
-                ext = s.fileExt,
-                colors = c,
-                findQuery = if (s.showFindBar) s.findQuery else "",
-                matchCase = s.matchCase,
-                useRegex = s.useRegex,
-                currentMatchRange = currentMatchRange,
-                allMatchRanges = matches.map { it.range },
-                showWhitespace = s.settings.showWhitespace,
-            )
-        } else buildAnnotatedString { append(s.content.text) }
-    }
-
     // ── Back handler ──────────────────────────────────────────────
     BackHandler {
         if (s.showCommandPalette) { s.showCommandPalette = false; return@BackHandler }
@@ -220,103 +181,50 @@ fun PremiumTextEditorScreen(
         else onBack()
     }
 
-    // ── Content height for minimap ────────────────────────────────
-    var contentHeightPx by remember { mutableStateOf(0) }
-    val scrollState = rememberScrollState()
-
     // ─────────────────────────────────────────────────────────────
-    // Root Layout
-    // ─────────────────────────────────────────────────────────────
-    MaterialTheme(
-        colorScheme = if (c.isDark) darkColorScheme(primary = c.accent) else lightColorScheme(primary = c.accent)
-    ) {
-        Box(Modifier.fillMaxSize().background(c.bg)) {
-            Column(Modifier.fillMaxSize()) {
-
-                // ── Tab bar ───────────────────────────────────────
-                PremiumTabBar(s, onSave = { s.saveToFile(context) }, onNew = { s.newTab() })
-
-                // ── Menu bar ──────────────────────────────────────
-                PremiumMenuBar(
-                    s,
-                    onSave = { s.saveToFile(context) },
-                    onShare = {
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"; putExtra(Intent.EXTRA_TEXT, s.content.text)
-                        }
-                        context.startActivity(Intent.createChooser(shareIntent, "Share"))
-                    },
-                    onRestoreDraft = { s.restoreDraft(context) },
-                    onOpenFile = { openFileLauncher.launch(arrayOf("*/*")) },
-                )
-
-                // ── Breadcrumb ────────────────────────────────────
-                BreadcrumbBar(s)
-
-                // ── Find bar ──────────────────────────────────────
-                AnimatedVisibility(s.showFindBar, enter = slideInVertically() + fadeIn(), exit = slideOutVertically() + fadeOut()) {
-                    PremiumFindBar(s)
-                }
-
-                // ── Main editor area ──────────────────────────────
-                Row(Modifier.weight(1f)) {
-
-                    // Line gutter
-                    if (s.showLineNums) {
-                        PremiumGutter(s, scrollState)
+    // Phase 1 — Professional Fluent IDE shell
+    Box(Modifier.fillMaxSize().background(c.bg)) {
+        IdeShell(
+            s = s,
+            onOpenFile = { openFileLauncher.launch(arrayOf("*/*")) },
+            onOpenWorkspacePath = { path ->
+                scope.launch {
+                    val result = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching { File(path).readText() }
                     }
-
-                    // Text area
-                    Box(Modifier.weight(1f).fillMaxHeight()) {
-                        EditorTextField(
-                            s = s,
-                            highlightedText = highlightedText,
-                            fontFamily = fontFamily,
-                            effectiveFontSize = effectiveFontSize,
-                            scrollState = scrollState,
-                            bracketMatch = bracketMatch,
-                            clipboard = clipboard,
-                            onContentHeightMeasured = { contentHeightPx = it },
-                        )
-
-                        // Column guide line
-                        if (s.settings.showColumnGuide) {
-                            val guideOffset = remember(effectiveFontSize) {
-                                effectiveFontSize.value * s.settings.columnLimit * 0.6f
-                            }
-                            Box(
-                                Modifier.fillMaxHeight()
-                                    .width(1.dp)
-                                    .offset(x = guideOffset.dp)
-                                    .background(c.border.copy(0.5f))
-                            )
-                        }
-                    }
-
-                    // Minimap
-                    if (s.showMinimap && s.settings.showMinimap) {
-                        MinimapPanel(s, scrollState, contentHeightPx)
-                    }
+                    result.onSuccess { text -> s.newTab(path, text); s.toast("Opened ${File(path).name}") }
+                        .onFailure { error -> s.toast("Open failed: ${error.message}", error = true) }
                 }
-
-                // ── Status bar ────────────────────────────────────
-                PremiumStatusBar(
-                    s,
-                    onEncodingClick = { s.showEncodingPicker = true },
-                    onLineEndingClick = { s.showLineEndingPicker = true },
-                )
-            }
-
-            // ── Autocomplete popup ────────────────────────────────
-            if (s.showAutocomplete && s.autocompleteSuggestions.isNotEmpty()) {
-                Box(Modifier.align(Alignment.BottomStart).padding(start = if (s.showLineNums) 60.dp else 8.dp, bottom = 32.dp)) {
-                    AutocompletePopup(s)
-                }
-            }
-
-            // ── Toast ─────────────────────────────────────────────
-            EditorToast(s)
+            },
+            onSave = { s.saveToFile(context) },
+            onNewTab = { s.newTab() },
+        ) { group ->
+            EditorGroupContent(
+                s = s,
+                group = group,
+                context = context,
+                clipboard = clipboard,
+                openFile = { openFileLauncher.launch(arrayOf("*/*")) },
+                share = {
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"; putExtra(Intent.EXTRA_TEXT, s.content.text)
+                    }
+                    context.startActivity(Intent.createChooser(shareIntent, "Share"))
+                },
+                restoreDraft = { s.restoreDraft(context) },
+                save = { s.saveToFile(context) },
+                newTab = { s.newTab() },
+            )
         }
+
+        if (s.showAutocomplete && s.autocompleteSuggestions.isNotEmpty()) {
+            Box(Modifier.align(Alignment.BottomStart).padding(start = if (s.showLineNums) 60.dp else 8.dp, bottom = 32.dp)) {
+                AutocompletePopup(s)
+            }
+        }
+
+        EditorToast(s)
+    }
 
         // ── Dialogs ───────────────────────────────────────────────
         if (s.showCommandPalette) CommandPalette(s)
@@ -331,10 +239,106 @@ fun PremiumTextEditorScreen(
         if (s.showLineEndingPicker) LineEndingDialog(s)
         if (s.showSettingsPanel) SettingsPanel(s)
         if (s.showStatsPanel) StatisticsPanel(s)
-        if (s.showThemePicker) ThemePickerDialog(s)
         if (s.showBookmarksPanel) BookmarksPanel(s)
         if (s.showSnippetManager) SnippetManager(s)
         if (s.showFindResultsPanel) FindResultsPanel(s)
+}
+
+@Composable
+private fun EditorGroupContent(
+    s: PremiumEditorState,
+    group: Int,
+    context: Context,
+    clipboard: ClipboardManager,
+    openFile: () -> Unit,
+    share: () -> Unit,
+    restoreDraft: () -> Unit,
+    save: () -> Unit,
+    newTab: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tab = s.activeTabForGroup(group)
+    val c = s.colors
+    val fontFamily = remember(s.settings.fontFamily) {
+        when (s.settings.fontFamily) {
+            "SansSerif" -> FontFamily.SansSerif
+            "Serif" -> FontFamily.Serif
+            "Courier" -> FontFamily.Cursive
+            else -> FontFamily.Monospace
+        }
+    }
+    val effectiveFontSize = (s.fontSize * s.zoom).sp
+    val scrollState = rememberScrollState()
+    var contentHeightPx by remember(s.tabIdForGroup(group)) { mutableStateOf(0) }
+
+    val bracketMatch = remember(tab.content.selection.start, tab.content.text, s.settings.bracketMatching) {
+        if (s.settings.bracketMatching) findMatchingBracket(tab.content.text, tab.content.selection.start) else null
+    }
+    val matches = remember(tab.id, s.findQuery, tab.content.text, s.matchCase, s.useRegex, s.wholeWord) {
+        if (s.showFindBar && s.activeEditorGroup == group && s.findQuery.isNotEmpty()) {
+            s.findMatchesForTab(tab.id)
+        } else emptyList()
+    }
+    val currentMatchRange = remember(s.currentMatchIndex, matches) { matches.getOrNull(s.currentMatchIndex)?.range }
+    val highlightedText = remember(
+        tab.content.text, tab.fileName, s.isDark, s.settings.syntaxHighlight,
+        s.findQuery, s.matchCase, s.useRegex, s.wholeWord, s.currentMatchIndex
+    ) {
+        if (s.settings.syntaxHighlight) buildSyntaxHighlight(
+            text = tab.content.text,
+            ext = tab.fileName.substringAfterLast('.', "txt").lowercase(),
+            colors = c,
+            findQuery = if (s.showFindBar) s.findQuery else "",
+            matchCase = s.matchCase,
+            useRegex = s.useRegex,
+            currentMatchRange = currentMatchRange,
+            allMatchRanges = matches.map { it.range },
+            showWhitespace = s.settings.showWhitespace,
+        ) else buildAnnotatedString { append(tab.content.text) }
+    }
+
+    Column(modifier.fillMaxSize().background(c.bg)) {
+        PremiumTabBar(s, onSave = { s.activateEditorGroup(group); save() }, onNew = { s.activateEditorGroup(group); newTab() }, group = group)
+        PremiumMenuBar(
+            s,
+            group = group,
+            onSave = { s.activateEditorGroup(group); save() },
+            onShare = { s.activateEditorGroup(group); share() },
+            onRestoreDraft = { s.activateEditorGroup(group); restoreDraft() },
+            onOpenFile = { s.activateEditorGroup(group); openFile() },
+        )
+        BreadcrumbBar(s, group = group)
+        AnimatedVisibility(s.showFindBar && s.activeEditorGroup == group, enter = slideInVertically() + fadeIn(), exit = slideOutVertically() + fadeOut()) {
+            PremiumFindBar(s)
+        }
+        Row(Modifier.weight(1f)) {
+            if (s.showLineNums) PremiumGutter(s, scrollState, tab)
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                EditorTextField(
+                    s = s,
+                    group = group,
+                    tab = tab,
+                    highlightedText = highlightedText,
+                    fontFamily = fontFamily,
+                    effectiveFontSize = effectiveFontSize,
+                    scrollState = scrollState,
+                    bracketMatch = bracketMatch,
+                    clipboard = clipboard,
+                    onContentHeightMeasured = { contentHeightPx = it },
+                )
+                if (s.settings.showColumnGuide) {
+                    val guideOffset = effectiveFontSize.value * s.settings.columnLimit * 0.6f
+                    Box(Modifier.fillMaxHeight().width(1.dp).offset(x = guideOffset.dp).background(c.border.copy(0.5f)))
+                }
+            }
+            if (s.showMinimap && s.settings.showMinimap) MinimapPanel(s, scrollState, contentHeightPx, tab)
+        }
+        PremiumStatusBar(
+            s,
+            group = group,
+            onEncodingClick = { s.activateEditorGroup(group); s.showEncodingPicker = true },
+            onLineEndingClick = { s.activateEditorGroup(group); s.showLineEndingPicker = true },
+        )
     }
 }
 
@@ -345,6 +349,8 @@ fun PremiumTextEditorScreen(
 @Composable
 private fun EditorTextField(
     s: PremiumEditorState,
+    group: Int,
+    tab: io.github.norbertweb.bluebird.editor.core.TabData,
     highlightedText: AnnotatedString,
     fontFamily: FontFamily,
     effectiveFontSize: TextUnit,
@@ -354,7 +360,8 @@ private fun EditorTextField(
     onContentHeightMeasured: (Int) -> Unit,
 ) {
     val c = s.colors
-    val cursorLine = s.cursorLine
+    val cursorBefore = tab.content.text.substring(0, tab.content.selection.start.coerceAtMost(tab.content.text.length))
+    val cursorLine = cursorBefore.count { it == '\n' } + 1
 
     Box(
         Modifier.fillMaxSize()
@@ -369,21 +376,22 @@ private fun EditorTextField(
                 fontSize = effectiveFontSize,
                 color = c.currentLineBg,
                 fontFamily = fontFamily,
-                text = s.content.text,
+                text = tab.content.text,
             )
         }
 
         // Bracket match highlights
         if (bracketMatch != null) {
-            BracketHighlights(bracketMatch, s.content.text, effectiveFontSize, fontFamily, c.accent)
+            BracketHighlights(bracketMatch, tab.content.text, effectiveFontSize, fontFamily, c.accent)
         }
 
         BasicTextField(
-            value = s.content,
+            value = tab.content,
             onValueChange = { newVal ->
-                if (!s.isReadOnly) s.updateContent(newVal)
+                s.activateEditorGroup(group)
+                if (!tab.isReadOnly) s.updateContentForTab(tab.id, newVal)
             },
-            enabled = !s.isReadOnly,
+            enabled = !tab.isReadOnly,
             visualTransformation = if (s.settings.showWhitespace) WhitespaceTransformation() else VisualTransformation.None,
             textStyle = TextStyle(
                 // Use real text color — syntax SpanStyles override per-token.
@@ -395,7 +403,7 @@ private fun EditorTextField(
                 letterSpacing = 0.3.sp,
             ),
             cursorBrush = SolidColor(c.accent),
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(12.dp).onFocusChanged { if (it.isFocused) s.activateEditorGroup(group) },
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.None,
                 autoCorrect = false,
@@ -424,7 +432,7 @@ private fun EditorTextField(
         )
 
         // Read-only watermark
-        if (s.isReadOnly) {
+        if (tab.isReadOnly) {
             Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.TopEnd) {
                 Surface(shape = RoundedCornerShape(4.dp), color = c.gold.copy(0.15f), modifier = Modifier) {
                     Text("  READ ONLY  ", color = c.gold, fontSize = 9.sp, fontWeight = FontWeight.Bold,
@@ -612,11 +620,13 @@ class EditorViewModel(
     filePath: String,
     initialContent: String,
     savedSettings: EditorSettings,
+    initialIsDark: Boolean,
 ) : androidx.lifecycle.ViewModel() {
     val state = PremiumEditorState(
         initialPath = filePath,
         initialContent = initialContent,
         savedSettings = savedSettings,
+        initialIsDark = initialIsDark,
     )
 }
 
@@ -624,9 +634,10 @@ class EditorViewModelFactory(
     private val filePath: String,
     private val initialContent: String,
     private val savedSettings: EditorSettings,
+    private val initialIsDark: Boolean,
 ) : androidx.lifecycle.ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-        return EditorViewModel(filePath, initialContent, savedSettings) as T
+        return EditorViewModel(filePath, initialContent, savedSettings, initialIsDark) as T
     }
 }

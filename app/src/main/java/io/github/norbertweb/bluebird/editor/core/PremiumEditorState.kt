@@ -3,6 +3,7 @@ package io.github.norbertweb.bluebird.editor.editor.core
 import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -59,6 +60,7 @@ class PremiumEditorState(
     initialPath: String = "",
     initialContent: String = "",
     savedSettings: EditorSettings = EditorSettings(),
+    initialIsDark: Boolean = false,
 ) {
     // ── Tabs ──────────────────────────────────────────────────────
     var tabs by mutableStateOf(
@@ -76,12 +78,113 @@ class PremiumEditorState(
             else TabData()
         )
     )
-    var activeTabIndex by mutableStateOf(0)
+    /** Active editor group. 0 = primary, 1 = secondary. */
+    var activeEditorGroup by mutableIntStateOf(0)
+
+    /**
+     * Active tab is resolved per editor group.  The old activeTabIndex API is
+     * retained for compatibility with menus/actions that operate on the
+     * currently focused group.
+     */
+    var activeTabIndex: Int
+        get() {
+            val id = if (activeEditorGroup == 0) workspaceLayout.primaryTabId
+            else workspaceLayout.secondaryTabId
+            return id?.let { wanted -> tabs.indexOfFirst { it.id == wanted } }
+                ?.takeIf { it >= 0 }
+                ?: 0
+        }
+        set(value) {
+            val index = value.coerceIn(0, (tabs.lastIndex).coerceAtLeast(0))
+            val id = tabs.getOrNull(index)?.id
+            selectWorkspaceTab(activeEditorGroup, id)
+        }
+
     val activeTab get() = tabs.getOrElse(activeTabIndex) { TabData() }
+
+    fun activateEditorGroup(group: Int) {
+        activeEditorGroup = group.coerceIn(0, if (workspaceLayout.secondGroupVisible) 1 else 0)
+    }
+
+    fun tabIdsForGroup(group: Int): List<String> =
+        if (group == 0) workspaceLayout.primaryTabIds else workspaceLayout.secondaryTabIds
+
+    fun tabsForGroup(group: Int): List<TabData> =
+        tabIdsForGroup(group).mapNotNull { id -> tabs.firstOrNull { it.id == id } }
+
+    fun tabIdForGroup(group: Int): String? =
+        if (group == 0) workspaceLayout.primaryTabId else workspaceLayout.secondaryTabId
+
+    fun tabIndexForGroup(group: Int): Int =
+        tabIdForGroup(group)?.let { id -> tabs.indexOfFirst { it.id == id } }
+            ?.takeIf { it >= 0 } ?: 0
+
+    fun activeTabForGroup(group: Int): TabData =
+        tabs.getOrElse(tabIndexForGroup(group)) { TabData() }
+
+    fun selectTabInGroup(group: Int, index: Int) {
+        val tab = tabsForGroup(group).getOrNull(index) ?: return
+        selectWorkspaceTab(group, tab.id)
+    }
+
+    fun reorderTabsInGroup(group: Int, from: Int, to: Int) {
+        val ids = tabIdsForGroup(group).toMutableList()
+        if (from !in ids.indices || to !in ids.indices || from == to) return
+        val id = ids.removeAt(from)
+        ids.add(to, id)
+        val active = if (group == 0) workspaceLayout.primaryTabId else workspaceLayout.secondaryTabId
+        workspaceLayout = if (group == 0) workspaceLayout.copy(primaryTabIds = ids, primaryTabId = active)
+        else workspaceLayout.copy(secondaryTabIds = ids, secondaryTabId = active)
+    }
+
+    fun selectTabIdInGroup(group: Int, tabId: String) {
+        if (tabs.any { it.id == tabId }) selectWorkspaceTab(group, tabId)
+    }
+
+    fun withEditorGroup(group: Int, action: () -> Unit) {
+        val previous = activeEditorGroup
+        activeEditorGroup = group.coerceIn(0, if (workspaceLayout.secondGroupVisible) 1 else 0)
+        try { action() } finally { activeEditorGroup = previous }
+    }
 
     fun updateTab(block: TabData.() -> TabData) {
         tabs = tabs.toMutableList().also { list ->
             if (activeTabIndex in list.indices) list[activeTabIndex] = list[activeTabIndex].block()
+        }
+    }
+
+    fun updateTabById(tabId: String, block: TabData.() -> TabData) {
+        tabs = tabs.toMutableList().also { list ->
+            val index = list.indexOfFirst { it.id == tabId }
+            if (index >= 0) list[index] = list[index].block()
+        }
+    }
+
+    fun updateContentForTab(tabId: String, new: TextFieldValue) {
+        val tab = tabs.firstOrNull { it.id == tabId } ?: return
+        val shouldPushHistory = true
+        updateTabById(tabId) {
+            val newUndo = if (shouldPushHistory) (undoStack + HistoryEntry(content)).takeLast(500) else undoStack
+            copy(
+                content = new,
+                isModified = new.text != lastSavedContent,
+                isSaved = new.text == lastSavedContent,
+                undoStack = newUndo,
+                redoStack = if (shouldPushHistory) emptyList() else redoStack,
+            )
+        }
+        if (settings.snippetsEnabled) {
+            val allWords = extractWords(new.text)
+            autocompleteSuggestions = getSuggestions(new.text, new.selection.start, allWords)
+        }
+    }
+
+    fun goToLineForTab(tabId: String, line: Int) {
+        updateTabById(tabId) {
+            val lines = content.text.split('\n')
+            val target = line.coerceIn(1, lines.size)
+            val offset = lines.take(target - 1).sumOf { it.length + 1 }.coerceAtMost(content.text.length)
+            copy(content = content.copy(selection = TextRange(offset)))
         }
     }
 
@@ -163,7 +266,20 @@ class PremiumEditorState(
             )
         else TabData()
         tabs = tabs + tab
-        activeTabIndex = tabs.lastIndex
+        val newIndex = tabs.lastIndex
+        val group = activeEditorGroup
+        workspaceLayout = if (group == 0) {
+            workspaceLayout.copy(
+                primaryTabId = tab.id,
+                primaryTabIds = (workspaceLayout.primaryTabIds + tab.id).distinct(),
+            )
+        } else {
+            workspaceLayout.copy(
+                secondaryTabId = tab.id,
+                secondaryTabIds = (workspaceLayout.secondaryTabIds + tab.id).distinct(),
+            )
+        }
+        activeTabIndex = newIndex
     }
 
     fun closeTab(index: Int): Boolean {
@@ -174,9 +290,26 @@ class PremiumEditorState(
     }
 
     fun forceCloseTab(index: Int) {
-        if (tabs.size == 1) { tabs = listOf(TabData()); activeTabIndex = 0; return }
+        if (index !in tabs.indices) return
+        val removedId = tabs[index].id
+        if (tabs.size == 1) {
+            val replacement = TabData()
+            tabs = listOf(replacement)
+            workspaceLayout = workspaceLayout.copy(
+                primaryTabId = replacement.id,
+                secondaryTabId = if (workspaceLayout.secondGroupVisible) replacement.id else null,
+            )
+            return
+        }
+
+        val replacementId = tabs.getOrNull(if (index < tabs.lastIndex) index + 1 else index - 1)?.id
         tabs = tabs.toMutableList().also { it.removeAt(index) }
-        activeTabIndex = (activeTabIndex).coerceAtMost(tabs.lastIndex)
+        workspaceLayout = workspaceLayout.copy(
+            primaryTabId = if (workspaceLayout.primaryTabId == removedId) replacementId else workspaceLayout.primaryTabId,
+            secondaryTabId = if (workspaceLayout.secondaryTabId == removedId) replacementId else workspaceLayout.secondaryTabId,
+            primaryTabIds = workspaceLayout.primaryTabIds.filterNot { it == removedId }.let { ids -> if (ids.isEmpty() && workspaceLayout.secondGroupVisible) listOfNotNull(replacementId) else ids },
+            secondaryTabIds = workspaceLayout.secondaryTabIds.filterNot { it == removedId }.let { ids -> if (ids.isEmpty() && workspaceLayout.secondGroupVisible) listOfNotNull(replacementId) else ids },
+        )
     }
 
     fun pinTab(index: Int) {
@@ -190,16 +323,108 @@ class PremiumEditorState(
         val mutable = tabs.toMutableList()
         val tab = mutable.removeAt(from)
         mutable.add(to, tab)
+        val movedId = tab.id
         tabs = mutable
-        activeTabIndex = to
+        if (activeEditorGroup == 0) selectWorkspaceTab(0, movedId) else selectWorkspaceTab(1, movedId)
+    }
+
+    // ── Workspace layout ─────────────────────────────────────────
+    var workspaceLayout by mutableStateOf(WorkspaceLayout())
+        private set
+
+    init {
+        val firstId = tabs.firstOrNull()?.id
+        workspaceLayout = workspaceLayout.copy(
+            primaryTabId = firstId,
+            primaryTabIds = tabs.map { it.id },
+        )
+    }
+
+    fun splitEditor(orientation: SplitOrientation) {
+        val current = activeTab.id
+        val primary = workspaceLayout.primaryTabId ?: current
+        val existingPrimary = workspaceLayout.primaryTabIds.ifEmpty { tabs.map { it.id } }
+        val existingSecondary = workspaceLayout.secondaryTabIds.ifEmpty {
+            listOf(tabs.firstOrNull { it.id != primary }?.id ?: current)
+        }
+        val secondary = workspaceLayout.secondaryTabId
+            ?: existingSecondary.firstOrNull()
+            ?: current
+        workspaceLayout = workspaceLayout.copy(
+            orientation = orientation,
+            secondGroupVisible = true,
+            primaryTabId = primary,
+            secondaryTabId = secondary,
+            primaryTabIds = existingPrimary.filterNot { it in existingSecondary },
+            secondaryTabIds = existingSecondary,
+        )
+    }
+
+    fun closeEditorGroup() {
+        workspaceLayout = workspaceLayout.copy(secondGroupVisible = false, orientation = SplitOrientation.NONE, secondaryTabId = null)
+    }
+
+    fun setWorkspaceSplitRatio(ratio: Float) {
+        workspaceLayout = workspaceLayout.copy(secondGroupRatio = ratio.coerceIn(0.25f, 0.75f))
+    }
+
+    fun restoreWorkspaceLayout(saved: WorkspaceLayout) {
+        val allIds = tabs.map { it.id }
+        var primaryIds = saved.primaryTabIds.filter { it in allIds }
+        var secondaryIds = saved.secondaryTabIds.filter { it in allIds }
+        val savedSecondary = saved.secondaryTabId?.takeIf { it in allIds }
+        if (primaryIds.isEmpty()) primaryIds = allIds.toMutableList()
+        if (secondaryIds.isEmpty() && savedSecondary != null) secondaryIds = listOf(savedSecondary)
+        if (saved.secondGroupVisible && secondaryIds.isNotEmpty()) {
+            primaryIds = primaryIds.filterNot { it in secondaryIds }
+        }
+        val primary = saved.primaryTabId?.takeIf { it in primaryIds } ?: primaryIds.firstOrNull()
+        val secondary = savedSecondary?.takeIf { it in secondaryIds } ?: secondaryIds.firstOrNull()
+        workspaceLayout = saved.copy(
+            primaryTabId = primary,
+            secondaryTabId = secondary,
+            primaryTabIds = primaryIds,
+            secondaryTabIds = secondaryIds,
+        )
+    }
+
+    fun selectWorkspaceTab(group: Int, tabId: String?) {
+        workspaceLayout = if (group == 0) workspaceLayout.copy(primaryTabId = tabId)
+        else workspaceLayout.copy(secondaryTabId = tabId)
+    }
+
+    fun moveTabToGroup(tabId: String, fromGroup: Int, toGroup: Int) {
+        if (fromGroup == toGroup || tabs.none { it.id == tabId }) return
+        val from = if (fromGroup == 0) workspaceLayout.primaryTabIds else workspaceLayout.secondaryTabIds
+        val to = if (toGroup == 0) workspaceLayout.primaryTabIds else workspaceLayout.secondaryTabIds
+        val newFrom = from.filterNot { it == tabId }
+        val newTo = (to + tabId).distinct()
+        workspaceLayout = if (fromGroup == 0) workspaceLayout.copy(
+            primaryTabIds = newFrom,
+            secondaryTabIds = newTo,
+            primaryTabId = workspaceLayout.primaryTabId.takeUnless { it == tabId } ?: newFrom.firstOrNull(),
+            secondaryTabId = if (toGroup == 1) tabId else workspaceLayout.secondaryTabId,
+        ) else workspaceLayout.copy(
+            secondaryTabIds = newFrom,
+            primaryTabIds = newTo,
+            secondaryTabId = workspaceLayout.secondaryTabId.takeUnless { it == tabId } ?: newFrom.firstOrNull(),
+            primaryTabId = if (toGroup == 0) tabId else workspaceLayout.primaryTabId,
+        )
     }
 
     // ── Settings ──────────────────────────────────────────────────
-    var settings by mutableStateOf(savedSettings)
+    var settings by mutableStateOf(savedSettings.copy(theme = io.github.norbertweb.bluebird.editor.core.EditorTheme.SYSTEM))
+
+    // Appearance is a property of the host system, never a persisted editor theme.
+    var systemIsDark by mutableStateOf(initialIsDark)
+
+    fun setSystemTheme(isDark: Boolean) {
+        systemIsDark = isDark
+    }
 
     // Convenience accessors
-    val isDark get() = io.github.norbertweb.bluebird.editor.ui.theme.EdThemes.get(settings.theme).isDark
-    val colors get() = io.github.norbertweb.bluebird.editor.ui.theme.EdThemes.get(settings.theme)
+    val isDark get() = systemIsDark
+    val colors get() = io.github.norbertweb.bluebird.editor.ui.theme.EdThemes.system(systemIsDark)
     val wordWrap get() = settings.wordWrap
     val showLineNums get() = settings.showLineNumbers
     val fontSize get() = settings.fontSize
@@ -221,6 +446,31 @@ class PremiumEditorState(
     var matchCase by mutableStateOf(false)
     var wholeWord by mutableStateOf(false)
     var currentMatchIndex by mutableStateOf(0)
+
+    fun findMatchesForTab(tabId: String): List<FindResult> {
+        if (findQuery.isEmpty()) return emptyList()
+        val tab = tabs.firstOrNull { it.id == tabId } ?: return emptyList()
+        return try {
+            val flags = if (matchCase) emptySet() else setOf(RegexOption.IGNORE_CASE)
+            val rawPat = if (useRegex) findQuery else Regex.escape(findQuery)
+            val pat = if (wholeWord) Regex("\\b$rawPat\\b", flags) else Regex(rawPat, flags)
+            val lines = tab.content.text.split('\n')
+            var lineOffset = 0
+            val results = mutableListOf<FindResult>()
+            lines.forEachIndexed { lineIdx, line ->
+                pat.findAll(line).forEach { m ->
+                    results.add(FindResult(
+                        range = (lineOffset + m.range.first)..(lineOffset + m.range.last),
+                        lineNumber = lineIdx + 1,
+                        lineText = line.trim().take(80),
+                        matchText = m.value,
+                    ))
+                }
+                lineOffset += line.length + 1
+            }
+            results
+        } catch (_: Exception) { emptyList() }
+    }
 
     fun findMatches(): List<FindResult> {
         if (findQuery.isEmpty()) return emptyList()
@@ -426,9 +676,14 @@ class PremiumEditorState(
     var showStatsPanel by mutableStateOf(false)
     var showSnippetManager by mutableStateOf(false)
     var showBookmarksPanel by mutableStateOf(false)
-    var showThemePicker by mutableStateOf(false)
     var showCommandPalette by mutableStateOf(false)
     var showFindResultsPanel by mutableStateOf(false)
+    // ── Phase 1 IDE shell state ───────────────────────────────────
+    var shellActivity by mutableStateOf(ShellActivity.EXPLORER)
+    var explorerRefreshKey by mutableIntStateOf(0)
+    var showBottomPanel by mutableStateOf(false)
+    var bottomPanel by mutableStateOf(BottomPanel.OUTPUT)
+
     var showMinimap by mutableStateOf(settings.showMinimap)
 
     // ── Toast / Notification ──────────────────────────────────────
@@ -544,11 +799,18 @@ class PremiumEditorState(
         EditorCommand("Show Statistics", "", "view") { showStatsPanel = true },
         EditorCommand("Encoding…", "", "file") { showEncodingPicker = true },
         EditorCommand("Line Ending…", "", "file") { showLineEndingPicker = true },
-        EditorCommand("Change Theme…", "", "view") { showThemePicker = true },
         EditorCommand("Settings", "", "view") { showSettingsPanel = true },
         EditorCommand("Snippet Manager", "", "view") { showSnippetManager = true },
         EditorCommand("Restore Draft", "", "file") { /* handled by caller */ },
     )
+}
+
+enum class ShellActivity {
+    EXPLORER, SEARCH, SOURCE_CONTROL, RUN_DEBUG, EXTENSIONS
+}
+
+enum class BottomPanel {
+    PROBLEMS, OUTPUT, TERMINAL
 }
 
 data class EditorCommand(

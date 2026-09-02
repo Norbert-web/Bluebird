@@ -27,16 +27,7 @@ enum class LineEnding(val label: String, val chars: String) {
 }
 
 enum class EditorTheme(val label: String) {
-    VSCODE_DARK("VS Code Dark"),
-    VSCODE_LIGHT("VS Code Light"),
-    MONOKAI("Monokai"),
-    SOLARIZED_DARK("Solarized Dark"),
-    SOLARIZED_LIGHT("Solarized Light"),
-    GITHUB_DARK("GitHub Dark"),
-    GITHUB_LIGHT("GitHub Light"),
-    DRACULA("Dracula"),
-    ONE_DARK("One Dark"),
-    NORD("Nord"),
+    SYSTEM("System")
 }
 
 enum class IndentStyle(val label: String) {
@@ -151,7 +142,8 @@ data class FindResult(
 // ─────────────────────────────────────────────────────────────────
 
 data class EditorSettings(
-    val theme: EditorTheme = EditorTheme.VSCODE_DARK,
+    /** Legacy compatibility field; visual appearance always follows the system. */
+    val theme: EditorTheme = EditorTheme.SYSTEM,
     val fontSize: Float = 14f,
     val fontFamily: String = "Monospace",
     val wordWrap: Boolean = true,

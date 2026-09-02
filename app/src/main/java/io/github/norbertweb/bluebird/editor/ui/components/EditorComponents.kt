@@ -7,6 +7,7 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,64 +33,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Analytics
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckBox
-import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Comment
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.ContentCut
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.FindReplace
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.FormatListBulleted
-import androidx.compose.material.icons.filled.FormatListNumbered
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.NavigateBefore
-import androidx.compose.material.icons.filled.NavigateNext
-import androidx.compose.material.icons.filled.Notes
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Redo
-import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.SaveAs
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Sort
-import androidx.compose.material.icons.filled.SpaceBar
-import androidx.compose.material.icons.filled.Subject
-import androidx.compose.material.icons.filled.TextDecrease
-import androidx.compose.material.icons.filled.TextFields
-import androidx.compose.material.icons.filled.TextIncrease
-import androidx.compose.material.icons.filled.Undo
-import androidx.compose.material.icons.filled.VerticalAlignCenter
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.WrapText
-import androidx.compose.material.icons.filled.ZoomIn
-import androidx.compose.material.icons.filled.ZoomOut
-import androidx.compose.material.icons.filled.ZoomOutMap
-import androidx.compose.material.icons.outlined.FormatIndentIncrease
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -130,14 +73,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.norbertweb.bluebird.editor.core.DEFAULT_SNIPPETS
-import io.github.norbertweb.bluebird.editor.core.EditorTheme
 import io.github.norbertweb.bluebird.editor.core.FileEncoding
 import io.github.norbertweb.bluebird.editor.core.IndentStyle
 import io.github.norbertweb.bluebird.editor.core.LineEnding
 import io.github.norbertweb.bluebird.editor.core.TabData
 import io.github.norbertweb.bluebird.editor.editor.core.PremiumEditorState
-import io.github.norbertweb.bluebird.editor.ui.theme.EdThemes
 import io.github.norbertweb.bluebird.editor.ui.theme.EditorColors
+import io.github.norbertweb.bluebird.ui.components.FluentIcon
 
 // ─────────────────────────────────────────────────────────────────
 // Tab Bar
@@ -148,6 +90,7 @@ fun PremiumTabBar(
     s: PremiumEditorState,
     onSave: () -> Unit,
     onNew: () -> Unit,
+    group: Int = 0,
 ) {
     val c = s.colors
     Column {
@@ -159,7 +102,7 @@ fun PremiumTabBar(
             Box(
                 Modifier.size(24.dp).background(c.accent, RoundedCornerShape(5.dp)),
                 contentAlignment = Alignment.Center
-            ) { Icon(Icons.Default.Code, null, tint = Color.White, modifier = Modifier.size(14.dp)) }
+            ) { Icon(FluentIcon.Code, null, tint = Color.White, modifier = Modifier.size(14.dp)) }
             Spacer(Modifier.width(8.dp))
 
             // Tabs
@@ -167,11 +110,16 @@ fun PremiumTabBar(
                 Modifier.weight(1f).horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                s.tabs.forEachIndexed { index, tab ->
-                    val isActive = index == s.activeTabIndex
+                s.tabsForGroup(group).forEachIndexed { index, tab ->
+                    val isActive = index == s.tabIndexForGroup(group)
                     TabItem(
                         tab = tab, isActive = isActive, colors = c,
-                        onClick = { s.activeTabIndex = index },
+                        onClick = { s.selectTabInGroup(group, index); s.activateEditorGroup(group) },
+                        onMove = { from, to ->
+                            s.activateEditorGroup(group)
+                            s.reorderTabsInGroup(group, from, to)
+                        },
+                        index = index,
                         onClose = {
                             if (!s.closeTab(index)) {
                                 s.pendingCloseTabIndex = index
@@ -183,13 +131,13 @@ fun PremiumTabBar(
                     Spacer(Modifier.width(2.dp))
                 }
                 // New tab button
-                EdIconBtn(Icons.Default.Add, "New Tab", c.textMuted) { onNew() }
+                EdIconBtn(FluentIcon.Add, "New Tab", c.textMuted) { onNew() }
             }
 
             Spacer(Modifier.width(8.dp))
             // Quick action buttons
-            EdIconBtn(Icons.Default.Save, "Save", if (s.isModified) c.accent else c.textMuted, enabled = s.isModified) { onSave() }
-            EdIconBtn(Icons.Default.Search, "Command Palette", c.textMuted) { s.showCommandPalette = true }
+            EdIconBtn(FluentIcon.Save, "Save", if (s.activeTabForGroup(group).isModified) c.accent else c.textMuted, enabled = s.activeTabForGroup(group).isModified) { s.activateEditorGroup(group); onSave() }
+            EdIconBtn(FluentIcon.Search, "Command Palette", c.textMuted) { s.activateEditorGroup(group); s.showCommandPalette = true }
         }
         Divider(color = c.border, thickness = 1.dp)
     }
@@ -198,8 +146,10 @@ fun PremiumTabBar(
 @Composable
 private fun TabItem(
     tab: TabData, isActive: Boolean, colors: EditorColors,
-    onClick: () -> Unit, onClose: () -> Unit, onPin: () -> Unit
+    onClick: () -> Unit, onMove: (Int, Int) -> Unit, index: Int,
+    onClose: () -> Unit, onPin: () -> Unit
 ) {
+    var dragDistance by remember(tab.id) { mutableStateOf(0f) }
     Row(
         Modifier
             .height(36.dp).widthIn(min = 90.dp, max = 220.dp)
@@ -211,6 +161,25 @@ private fun TabItem(
                 shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)
             )
             .clickable(onClick = onClick)
+            .pointerInput(tab.id) {
+                detectDragGestures(
+                    onDragEnd = { dragDistance = 0f },
+                    onDragCancel = { dragDistance = 0f },
+                    onDrag = { _, drag ->
+                        dragDistance += drag.x
+                        when {
+                            dragDistance > 70f && index < Int.MAX_VALUE -> {
+                                onMove(index, index + 1)
+                                dragDistance = 0f
+                            }
+                            dragDistance < -70f && index > 0 -> {
+                                onMove(index, index - 1)
+                                dragDistance = 0f
+                            }
+                        }
+                    }
+                )
+            }
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -220,7 +189,7 @@ private fun TabItem(
         Box(Modifier.size(7.dp).background(dotColor, CircleShape))
 
         // Pin indicator
-        if (tab.isPinned) Icon(Icons.Default.PushPin, null, tint = colors.accent, modifier = Modifier.size(10.dp))
+        if (tab.isPinned) Icon(FluentIcon.PushPin, null, tint = colors.accent, modifier = Modifier.size(10.dp))
 
         // Modified dot
         if (tab.isModified) Box(Modifier.size(6.dp).background(colors.gold, CircleShape))
@@ -237,7 +206,7 @@ private fun TabItem(
         // Close button
         if (!tab.isPinned) {
             Icon(
-                Icons.Default.Close, null, tint = colors.textMuted,
+                FluentIcon.Close, null, tint = colors.textMuted,
                 modifier = Modifier.size(13.dp).clip(RoundedCornerShape(2.dp))
                     .clickable(onClick = onClose)
             )
@@ -270,15 +239,16 @@ private fun fileTypeColor(ext: String, c: EditorColors): Color = when (ext) {
 // ─────────────────────────────────────────────────────────────────
 
 @Composable
-fun BreadcrumbBar(s: PremiumEditorState) {
+fun BreadcrumbBar(s: PremiumEditorState, group: Int = 0) {
+    val tab = s.activeTabForGroup(group)
     val c = s.colors
-    if (!s.settings.showBreadcrumb || s.filePath.isEmpty()) return
+    if (!s.settings.showBreadcrumb || tab.filePath.isEmpty()) return
     Row(
         Modifier.fillMaxWidth().height(22.dp).background(c.surface).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        val parts = s.filePath.split('/').filter { it.isNotEmpty() }
+        val parts = tab.filePath.split('/').filter { it.isNotEmpty() }
         parts.forEachIndexed { i, part ->
             if (i > 0) Text("/", color = c.textMuted, fontSize = 11.sp)
             Text(
@@ -289,7 +259,10 @@ fun BreadcrumbBar(s: PremiumEditorState) {
             )
         }
         Spacer(Modifier.weight(1f))
-        Text("Ln ${s.cursorLine}, Col ${s.cursorCol}", color = c.textMuted, fontSize = 10.sp)
+        val cursorBefore = tab.content.text.substring(0, tab.content.selection.start.coerceAtMost(tab.content.text.length))
+        val cursorLine = cursorBefore.count { it == '\n' } + 1
+        val cursorCol = cursorBefore.substringAfterLast('\n').length + 1
+        Text("Ln $cursorLine, Col $cursorCol", color = c.textMuted, fontSize = 10.sp)
     }
     Divider(color = c.border)
 }
@@ -305,11 +278,12 @@ fun PremiumMenuBar(
     onShare: () -> Unit,
     onRestoreDraft: () -> Unit,
     onOpenFile: () -> Unit,
+    group: Int = 0,
 ) {
     val c = s.colors
     var openMenu by remember { mutableStateOf<String?>(null) }
-    fun closeAll() { openMenu = null }
-    fun toggle(name: String) { openMenu = if (openMenu == name) null else name }
+    fun closeAll() { s.activateEditorGroup(group); s.activateEditorGroup(group); openMenu = null }
+    fun toggle(name: String) { s.activateEditorGroup(group); s.activateEditorGroup(group); openMenu = if (openMenu == name) null else name }
 
     Row(
         Modifier.fillMaxWidth().height(30.dp).background(c.surfaceHover).padding(horizontal = 4.dp),
@@ -317,116 +291,115 @@ fun PremiumMenuBar(
     ) {
         // ── File ──
         MenuEntry("File", c, openMenu == "file", { toggle("file") }) {
-            DdItem(Icons.Default.Add, "New Tab", "Ctrl+N", c) { s.newTab(); closeAll() }
-            DdItem(Icons.Default.FolderOpen, "Open File…", "Ctrl+O", c) { onOpenFile(); closeAll() }
-            DdItem(Icons.Default.History, "Recent Files", "", c, enabled = s.settings.recentFiles.isNotEmpty()) { closeAll() }
+            DdItem(FluentIcon.Add, "New Tab", "Ctrl+N", c) { s.activateEditorGroup(group); s.newTab(); closeAll() }
+            DdItem(FluentIcon.FolderOpen, "Open File…", "Ctrl+O", c) { onOpenFile(); closeAll() }
+            DdItem(FluentIcon.History, "Recent Files", "", c, enabled = s.settings.recentFiles.isNotEmpty()) { closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Default.Save, "Save", "Ctrl+S", c, enabled = s.isModified) { onSave(); closeAll() }
-            DdItem(Icons.Default.SaveAs, "Save As…", "Ctrl+Shift+S", c) { s.showSaveAsDialog = true; closeAll() }
+            DdItem(FluentIcon.Save, "Save", "Ctrl+S", c, enabled = s.isModified) { onSave(); closeAll() }
+            DdItem(FluentIcon.SaveAs, "Save As…", "Ctrl+Shift+S", c) { s.activateEditorGroup(group); s.showSaveAsDialog = true; closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Default.Share, "Share", "", c) { onShare(); closeAll() }
-            DdItem(Icons.Default.ContentCopy, "Copy All", "", c) { closeAll() }
-            DdItem(Icons.Default.Restore, "Restore Draft", "", c) { onRestoreDraft(); closeAll() }
+            DdItem(FluentIcon.Share, "Share", "", c) { onShare(); closeAll() }
+            DdItem(FluentIcon.ContentCopy, "Copy All", "", c) { closeAll() }
+            DdItem(FluentIcon.Restore, "Restore Draft", "", c) { onRestoreDraft(); closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Default.Analytics, "Statistics", "", c) { s.showStatsPanel = true; closeAll() }
+            DdItem(FluentIcon.Analytics, "Statistics", "", c) { s.activateEditorGroup(group); s.showStatsPanel = true; closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Default.Close, "Close Tab", "Ctrl+W", c) {
-                if (!s.closeTab(s.activeTabIndex)) { s.pendingCloseTabIndex = s.activeTabIndex; s.showUnsavedDialog = true }
+            DdItem(FluentIcon.Close, "Close Tab", "Ctrl+W", c) {
+                if (!s.closeTab(s.activeTabIndex)) { s.activateEditorGroup(group); s.pendingCloseTabIndex = s.activeTabIndex; s.showUnsavedDialog = true }
                 closeAll()
             }
         }
 
         // ── Edit ──
         MenuEntry("Edit", c, openMenu == "edit", { toggle("edit") }) {
-            DdItem(Icons.Default.Undo, "Undo", "Ctrl+Z", c, enabled = s.canUndo) { s.undo(); closeAll() }
-            DdItem(Icons.Default.Redo, "Redo", "Ctrl+Y", c, enabled = s.canRedo) { s.redo(); closeAll() }
+            DdItem(FluentIcon.Undo, "Undo", "Ctrl+Z", c, enabled = s.canUndo) { s.activateEditorGroup(group); s.undo(); closeAll() }
+            DdItem(FluentIcon.Redo, "Redo", "Ctrl+Y", c, enabled = s.canRedo) { s.activateEditorGroup(group); s.redo(); closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Default.ContentCut, "Cut", "Ctrl+X", c) { closeAll() }
-            DdItem(Icons.Default.ContentCopy, "Copy", "Ctrl+C", c) { closeAll() }
-            DdItem(Icons.Default.ContentPaste, "Paste", "Ctrl+V", c) { closeAll() }
-            DdItem(Icons.Default.SelectAll, "Select All", "Ctrl+A", c) {
+            DdItem(FluentIcon.ContentCut, "Cut", "Ctrl+X", c) { closeAll() }
+            DdItem(FluentIcon.ContentCopy, "Copy", "Ctrl+C", c) { closeAll() }
+            DdItem(FluentIcon.ContentPaste, "Paste", "Ctrl+V", c) { closeAll() }
+            DdItem(FluentIcon.SelectAll, "Select All", "Ctrl+A", c) {
                 s.updateTab { copy(content = content.copy(selection = TextRange(0, content.text.length))) }
                 closeAll()
             }
             DdDivider(c.border)
-            DdItem(Icons.Default.Search, "Find", "Ctrl+F", c) { s.showFindBar = true; s.showReplace = false; closeAll() }
-            DdItem(Icons.Default.FindReplace, "Replace", "Ctrl+H", c) { s.showFindBar = true; s.showReplace = true; closeAll() }
-            DdItem(Icons.Default.VerticalAlignCenter, "Go to Line…", "Ctrl+G", c) { s.showGoToLineDialog = true; closeAll() }
+            DdItem(FluentIcon.Search, "Find", "Ctrl+F", c) { s.activateEditorGroup(group); s.showFindBar = true; s.showReplace = false; closeAll() }
+            DdItem(FluentIcon.FindReplace, "Replace", "Ctrl+H", c) { s.activateEditorGroup(group); s.showFindBar = true; s.showReplace = true; closeAll() }
+            DdItem(FluentIcon.VerticalAlignCenter, "Go to Line…", "Ctrl+G", c) { s.activateEditorGroup(group); s.showGoToLineDialog = true; closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Default.Comment, "Toggle Comment", "Ctrl+/", c) { s.toggleComment(); closeAll() }
-            DdItem(Icons.Default.ContentCopy, "Duplicate Line", "Ctrl+D", c) { s.duplicateCurrentLine(); closeAll() }
-            DdItem(Icons.Default.DeleteForever, "Delete Line", "Ctrl+Shift+K", c) { s.deleteCurrentLine(); closeAll() }
-            DdItem(Icons.Default.ArrowUpward, "Move Line Up", "Alt+↑", c) { s.moveCurrentLineUp(); closeAll() }
-            DdItem(Icons.Default.ArrowDownward, "Move Line Down", "Alt+↓", c) { s.moveCurrentLineDown(); closeAll() }
+            DdItem(FluentIcon.Comment, "Toggle Comment", "Ctrl+/", c) { s.activateEditorGroup(group); s.toggleComment(); closeAll() }
+            DdItem(FluentIcon.ContentCopy, "Duplicate Line", "Ctrl+D", c) { s.activateEditorGroup(group); s.duplicateCurrentLine(); closeAll() }
+            DdItem(FluentIcon.DeleteForever, "Delete Line", "Ctrl+Shift+K", c) { s.activateEditorGroup(group); s.deleteCurrentLine(); closeAll() }
+            DdItem(FluentIcon.ArrowUpward, "Move Line Up", "Alt+↑", c) { s.activateEditorGroup(group); s.moveCurrentLineUp(); closeAll() }
+            DdItem(FluentIcon.ArrowDownward, "Move Line Down", "Alt+↓", c) { s.activateEditorGroup(group); s.moveCurrentLineDown(); closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Default.Schedule, "Insert Date/Time", "F5", c) { s.insertDateTime(); closeAll() }
+            DdItem(FluentIcon.Schedule, "Insert Date/Time", "F5", c) { s.activateEditorGroup(group); s.insertDateTime(); closeAll() }
         }
 
         // ── Selection ──
         MenuEntry("Selection", c, openMenu == "sel", { toggle("sel") }) {
-            DdItem(Icons.Default.TextFields, "UPPERCASE", "", c) { s.toUpper(); closeAll() }
-            DdItem(Icons.Default.TextFields, "lowercase", "", c) { s.toLower(); closeAll() }
-            DdItem(Icons.Default.TextFields, "Title Case", "", c) { s.toTitle(); closeAll() }
-            DdItem(Icons.Default.TextFields, "snake_case", "", c) { s.toSnake(); closeAll() }
-            DdItem(Icons.Default.TextFields, "camelCase", "", c) { s.toCamel(); closeAll() }
+            DdItem(FluentIcon.TextFields, "UPPERCASE", "", c) { s.activateEditorGroup(group); s.toUpper(); closeAll() }
+            DdItem(FluentIcon.TextFields, "lowercase", "", c) { s.activateEditorGroup(group); s.toLower(); closeAll() }
+            DdItem(FluentIcon.TextFields, "Title Case", "", c) { s.activateEditorGroup(group); s.toTitle(); closeAll() }
+            DdItem(FluentIcon.TextFields, "snake_case", "", c) { s.activateEditorGroup(group); s.toSnake(); closeAll() }
+            DdItem(FluentIcon.TextFields, "camelCase", "", c) { s.activateEditorGroup(group); s.toCamel(); closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Default.Sort, "Sort Lines Ascending", "", c) { s.sortLinesAsc(); closeAll() }
-            DdItem(Icons.Default.Sort, "Sort Lines Descending", "", c) { s.sortLinesDesc(); closeAll() }
-            DdItem(Icons.Default.FilterList, "Remove Duplicate Lines", "", c) { s.removeDuplicates(); closeAll() }
+            DdItem(FluentIcon.Sort, "Sort Lines Ascending", "", c) { s.activateEditorGroup(group); s.sortLinesAsc(); closeAll() }
+            DdItem(FluentIcon.Sort, "Sort Lines Descending", "", c) { s.activateEditorGroup(group); s.sortLinesDesc(); closeAll() }
+            DdItem(FluentIcon.FilterList, "Remove Duplicate Lines", "", c) { s.activateEditorGroup(group); s.removeDuplicates(); closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Default.SpaceBar, "Trim Trailing Whitespace", "", c) { s.trimWhitespace(); closeAll() }
+            DdItem(FluentIcon.SpaceBar, "Trim Trailing Whitespace", "", c) { s.activateEditorGroup(group); s.trimWhitespace(); closeAll() }
         }
 
         // ── View ──
         MenuEntry("View", c, openMenu == "view", { toggle("view") }) {
-            DdCheckItem("Word Wrap", s.settings.wordWrap, c) { s.updateSettings { copy(wordWrap = !wordWrap) }; closeAll() }
-            DdCheckItem("Line Numbers", s.settings.showLineNumbers, c) { s.updateSettings { copy(showLineNumbers = !showLineNumbers) }; closeAll() }
-            DdCheckItem("Minimap", s.showMinimap, c) { s.showMinimap = !s.showMinimap; closeAll() }
-            DdCheckItem("Syntax Highlighting", s.settings.syntaxHighlight, c) { s.updateSettings { copy(syntaxHighlight = !syntaxHighlight) }; closeAll() }
-            DdCheckItem("Breadcrumb", s.settings.showBreadcrumb, c) { s.updateSettings { copy(showBreadcrumb = !showBreadcrumb) }; closeAll() }
-            DdCheckItem("Show Whitespace", s.settings.showWhitespace, c) { s.updateSettings { copy(showWhitespace = !showWhitespace) }; closeAll() }
-            DdCheckItem("Column Guide", s.settings.showColumnGuide, c) { s.updateSettings { copy(showColumnGuide = !showColumnGuide) }; closeAll() }
+            DdCheckItem("Word Wrap", s.settings.wordWrap, c) { s.activateEditorGroup(group); s.updateSettings { copy(wordWrap = !wordWrap) }; closeAll() }
+            DdCheckItem("Line Numbers", s.settings.showLineNumbers, c) { s.activateEditorGroup(group); s.updateSettings { copy(showLineNumbers = !showLineNumbers) }; closeAll() }
+            DdCheckItem("Minimap", s.showMinimap, c) { s.activateEditorGroup(group); s.showMinimap = !s.showMinimap; closeAll() }
+            DdCheckItem("Syntax Highlighting", s.settings.syntaxHighlight, c) { s.activateEditorGroup(group); s.updateSettings { copy(syntaxHighlight = !syntaxHighlight) }; closeAll() }
+            DdCheckItem("Breadcrumb", s.settings.showBreadcrumb, c) { s.activateEditorGroup(group); s.updateSettings { copy(showBreadcrumb = !showBreadcrumb) }; closeAll() }
+            DdCheckItem("Show Whitespace", s.settings.showWhitespace, c) { s.activateEditorGroup(group); s.updateSettings { copy(showWhitespace = !showWhitespace) }; closeAll() }
+            DdCheckItem("Column Guide", s.settings.showColumnGuide, c) { s.activateEditorGroup(group); s.updateSettings { copy(showColumnGuide = !showColumnGuide) }; closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Default.ZoomIn, "Zoom In", "Ctrl++", c) { s.updateSettings { copy(zoom = (zoom + 0.1f).coerceAtMost(4f)) }; closeAll() }
-            DdItem(Icons.Default.ZoomOut, "Zoom Out", "Ctrl+-", c) { s.updateSettings { copy(zoom = (zoom - 0.1f).coerceAtLeast(0.25f)) }; closeAll() }
-            DdItem(Icons.Default.ZoomOutMap, "Reset Zoom", "Ctrl+0", c) { s.updateSettings { copy(zoom = 1f) }; closeAll() }
+            DdItem(FluentIcon.ZoomIn, "Zoom In", "Ctrl++", c) { s.activateEditorGroup(group); s.updateSettings { copy(zoom = (zoom + 0.1f).coerceAtMost(4f)) }; closeAll() }
+            DdItem(FluentIcon.ZoomOut, "Zoom Out", "Ctrl+-", c) { s.activateEditorGroup(group); s.updateSettings { copy(zoom = (zoom - 0.1f).coerceAtLeast(0.25f)) }; closeAll() }
+            DdItem(FluentIcon.ZoomOutMap, "Reset Zoom", "Ctrl+0", c) { s.activateEditorGroup(group); s.updateSettings { copy(zoom = 1f) }; closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Default.Palette, "Change Theme…", "", c) { s.showThemePicker = true; closeAll() }
-            DdItem(Icons.Default.Settings, "Settings…", "", c) { s.showSettingsPanel = true; closeAll() }
+            DdItem(FluentIcon.Settings, "Settings…", "", c) { s.activateEditorGroup(group); s.showSettingsPanel = true; closeAll() }
         }
 
         // ── Format ──
         MenuEntry("Format", c, openMenu == "fmt", { toggle("fmt") }) {
-            DdItem(Icons.Default.Code, "Monospace", "", c) { s.updateSettings { copy(fontFamily = "Monospace") }; closeAll() }
-            DdItem(Icons.Default.Subject, "Sans-Serif", "", c) { s.updateSettings { copy(fontFamily = "SansSerif") }; closeAll() }
-            DdItem(Icons.Default.Notes, "Serif", "", c) { s.updateSettings { copy(fontFamily = "Serif") }; closeAll() }
-            DdItem(Icons.Default.SpaceBar, "Courier", "", c) { s.updateSettings { copy(fontFamily = "Courier") }; closeAll() }
+            DdItem(FluentIcon.Code, "Monospace", "", c) { s.activateEditorGroup(group); s.updateSettings { copy(fontFamily = "Monospace") }; closeAll() }
+            DdItem(FluentIcon.Subject, "Sans-Serif", "", c) { s.activateEditorGroup(group); s.updateSettings { copy(fontFamily = "SansSerif") }; closeAll() }
+            DdItem(FluentIcon.Notes, "Serif", "", c) { s.activateEditorGroup(group); s.updateSettings { copy(fontFamily = "Serif") }; closeAll() }
+            DdItem(FluentIcon.SpaceBar, "Courier", "", c) { s.activateEditorGroup(group); s.updateSettings { copy(fontFamily = "Courier") }; closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Default.TextDecrease, "Decrease Font", "Ctrl+-", c) { s.updateSettings { copy(fontSize = (fontSize - 1).coerceAtLeast(8f)) }; closeAll() }
-            DdItem(Icons.Default.TextIncrease, "Increase Font", "Ctrl++", c) { s.updateSettings { copy(fontSize = (fontSize + 1).coerceAtMost(48f)) }; closeAll() }
+            DdItem(FluentIcon.TextDecrease, "Decrease Font", "Ctrl+-", c) { s.activateEditorGroup(group); s.updateSettings { copy(fontSize = (fontSize - 1).coerceAtLeast(8f)) }; closeAll() }
+            DdItem(FluentIcon.TextIncrease, "Increase Font", "Ctrl++", c) { s.activateEditorGroup(group); s.updateSettings { copy(fontSize = (fontSize + 1).coerceAtMost(48f)) }; closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Outlined.FormatIndentIncrease, "2 Spaces", "", c) { s.updateSettings { copy(indentStyle = IndentStyle.SPACES_2) }; closeAll() }
-            DdItem(Icons.Outlined.FormatIndentIncrease, "4 Spaces", "", c) { s.updateSettings { copy(indentStyle = IndentStyle.SPACES_4) }; closeAll() }
-            DdItem(Icons.Outlined.FormatIndentIncrease, "Tabs", "", c) { s.updateSettings { copy(indentStyle = IndentStyle.TAB) }; closeAll() }
+            DdItem(FluentIcon.FormatIndentIncrease, "2 Spaces", "", c) { s.activateEditorGroup(group); s.updateSettings { copy(indentStyle = IndentStyle.SPACES_2) }; closeAll() }
+            DdItem(FluentIcon.FormatIndentIncrease, "4 Spaces", "", c) { s.activateEditorGroup(group); s.updateSettings { copy(indentStyle = IndentStyle.SPACES_4) }; closeAll() }
+            DdItem(FluentIcon.FormatIndentIncrease, "Tabs", "", c) { s.activateEditorGroup(group); s.updateSettings { copy(indentStyle = IndentStyle.TAB) }; closeAll() }
         }
 
         // ── Nav ──
         MenuEntry("Navigate", c, openMenu == "nav", { toggle("nav") }) {
-            DdItem(Icons.Default.Bookmark, "Toggle Bookmark", "Ctrl+B", c) { s.toggleBookmark(s.cursorLine); closeAll() }
-            DdItem(Icons.Default.NavigateNext, "Next Bookmark", "F2", c) { s.nextBookmark(); closeAll() }
-            DdItem(Icons.Default.NavigateBefore, "Prev Bookmark", "Shift+F2", c) { s.prevBookmark(); closeAll() }
-            DdItem(Icons.Default.BookmarkBorder, "Show Bookmarks", "", c) { s.showBookmarksPanel = true; closeAll() }
+            DdItem(FluentIcon.Bookmark, "Toggle Bookmark", "Ctrl+B", c) { s.activateEditorGroup(group); s.toggleBookmark(s.cursorLine); closeAll() }
+            DdItem(FluentIcon.NavigateNext, "Next Bookmark", "F2", c) { s.activateEditorGroup(group); s.nextBookmark(); closeAll() }
+            DdItem(FluentIcon.NavigateBefore, "Prev Bookmark", "Shift+F2", c) { s.activateEditorGroup(group); s.prevBookmark(); closeAll() }
+            DdItem(FluentIcon.BookmarkBorder, "Show Bookmarks", "", c) { s.activateEditorGroup(group); s.showBookmarksPanel = true; closeAll() }
             DdDivider(c.border)
-            DdItem(Icons.Default.Extension, "Snippet Manager", "", c) { s.showSnippetManager = true; closeAll() }
+            DdItem(FluentIcon.Extension, "Snippet Manager", "", c) { s.activateEditorGroup(group); s.showSnippetManager = true; closeAll() }
         }
 
         Spacer(Modifier.weight(1f))
 
         // Quick icon strip
-        EdIconBtn(Icons.Default.FindReplace, "Find", c.textMuted) { s.showFindBar = !s.showFindBar }
-        EdIconBtn(Icons.Default.WrapText, "Word Wrap", if (s.settings.wordWrap) c.accent else c.textMuted) { s.updateSettings { copy(wordWrap = !wordWrap) } }
-        EdIconBtn(Icons.Default.FormatListNumbered, "Line Nums", if (s.settings.showLineNumbers) c.accent else c.textMuted) { s.updateSettings { copy(showLineNumbers = !showLineNumbers) } }
-        EdIconBtn(if (s.isReadOnly) Icons.Default.Lock else Icons.Default.LockOpen, "Read-only", if (s.isReadOnly) c.gold else c.textMuted) { s.updateTab { copy(isReadOnly = !isReadOnly) } }
+        EdIconBtn(FluentIcon.FindReplace, "Find", c.textMuted) { s.activateEditorGroup(group); s.showFindBar = !s.showFindBar }
+        EdIconBtn(FluentIcon.WrapText, "Word Wrap", if (s.settings.wordWrap) c.accent else c.textMuted) { s.activateEditorGroup(group); s.updateSettings { copy(wordWrap = !wordWrap) } }
+        EdIconBtn(FluentIcon.FormatListNumbered, "Line Nums", if (s.settings.showLineNumbers) c.accent else c.textMuted) { s.activateEditorGroup(group); s.updateSettings { copy(showLineNumbers = !showLineNumbers) } }
+        EdIconBtn(if (s.isReadOnly) FluentIcon.Lock else FluentIcon.LockOpen, "Read-only", if (s.isReadOnly) c.gold else c.textMuted) { s.activateEditorGroup(group); s.updateTab { copy(isReadOnly = !isReadOnly) } }
     }
     Divider(color = c.border, thickness = 1.dp)
 }
@@ -476,7 +449,7 @@ fun DdCheckItem(label: String, checked: Boolean, c: EditorColors, onClick: () ->
         text = { Text(label, color = c.text, fontSize = 13.sp) },
         leadingIcon = {
             Icon(
-                if (checked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                if (checked) FluentIcon.CheckBox else FluentIcon.CheckBoxOutlineBlank,
                 null, tint = if (checked) c.accent else c.textMuted,
                 modifier = Modifier.size(15.dp)
             )
@@ -496,7 +469,7 @@ fun DdDivider(color: Color) = Divider(Modifier.padding(vertical = 3.dp), color =
 fun PremiumFindBar(s: PremiumEditorState) {
     val c = s.colors
     val inputBg = c.surfaceHover
-    val matches = remember(s.findQuery, s.content.text, s.matchCase, s.useRegex, s.wholeWord) { s.findMatches() }
+    val matches = remember(s.findQuery, s.content.text, s.matchCase, s.useRegex, s.wholeWord) { s.activateEditorGroup(group); s.findMatches() }
     val matchCount = matches.size
     val isInvalidRegex = s.useRegex && s.findQuery.isNotEmpty() && try { Regex(s.findQuery); false } catch (_: Exception) { true }
 
@@ -504,7 +477,7 @@ fun PremiumFindBar(s: PremiumEditorState) {
         // Find row
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             FindField("Find…", s.findQuery, inputBg, c.border, c.text, c.textMuted,
-                isError = isInvalidRegex, onChange = { s.findQuery = it; s.currentMatchIndex = 0 })
+                isError = isInvalidRegex, onChange = { s.activateEditorGroup(group); s.findQuery = it; s.currentMatchIndex = 0 })
 
             // Match info
             Text(
@@ -513,16 +486,16 @@ fun PremiumFindBar(s: PremiumEditorState) {
                 fontSize = 11.sp, modifier = Modifier.width(60.dp)
             )
 
-            ToggleChip("Aa", s.matchCase, c) { s.matchCase = !s.matchCase }
-            ToggleChip(".*", s.useRegex, c) { s.useRegex = !s.useRegex }
-            ToggleChip("W", s.wholeWord, c) { s.wholeWord = !s.wholeWord }
+            ToggleChip("Aa", s.matchCase, c) { s.activateEditorGroup(group); s.matchCase = !s.matchCase }
+            ToggleChip(".*", s.useRegex, c) { s.activateEditorGroup(group); s.useRegex = !s.useRegex }
+            ToggleChip("W", s.wholeWord, c) { s.activateEditorGroup(group); s.wholeWord = !s.wholeWord }
 
             Spacer(Modifier.weight(1f))
 
-            EdIconBtn(Icons.Default.KeyboardArrowUp, "Previous", c.text, enabled = matchCount > 0) { s.jumpToMatch(-1) }
-            EdIconBtn(Icons.Default.KeyboardArrowDown, "Next", c.text, enabled = matchCount > 0) { s.jumpToMatch(1) }
-            EdIconBtn(Icons.Default.FormatListBulleted, "All Results", c.text, enabled = matchCount > 0) { s.showFindResultsPanel = true }
-            EdIconBtn(Icons.Default.Close, "Close Find", c.textMuted) { s.showFindBar = false }
+            EdIconBtn(FluentIcon.KeyboardArrowUp, "Previous", c.text, enabled = matchCount > 0) { s.activateEditorGroup(group); s.jumpToMatch(-1) }
+            EdIconBtn(FluentIcon.KeyboardArrowDown, "Next", c.text, enabled = matchCount > 0) { s.activateEditorGroup(group); s.jumpToMatch(1) }
+            EdIconBtn(FluentIcon.FormatListBulleted, "All Results", c.text, enabled = matchCount > 0) { s.activateEditorGroup(group); s.showFindResultsPanel = true }
+            EdIconBtn(FluentIcon.Close, "Close Find", c.textMuted) { s.activateEditorGroup(group); s.showFindBar = false }
         }
 
         // Replace row
@@ -533,16 +506,16 @@ fun PremiumFindBar(s: PremiumEditorState) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 FindField("Replace…", s.replaceQuery, inputBg, c.border, c.text, c.textMuted,
-                    onChange = { s.replaceQuery = it })
+                    onChange = { s.activateEditorGroup(group); s.replaceQuery = it })
                 Spacer(Modifier.weight(1f))
                 OutlinedButton(
-                    onClick = { s.replaceOne() },
+                    onClick = { s.activateEditorGroup(group); s.replaceOne() },
                     modifier = Modifier.height(28.dp),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                     enabled = matchCount > 0 && !s.activeTab.isReadOnly
                 ) { Text("Replace", fontSize = 11.sp, color = c.text) }
                 OutlinedButton(
-                    onClick = { s.replaceAll() },
+                    onClick = { s.activateEditorGroup(group); s.replaceAll() },
                     modifier = Modifier.height(28.dp),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                     enabled = matchCount > 0 && !s.activeTab.isReadOnly
@@ -587,7 +560,7 @@ fun FindField(
                 modifier = Modifier.fillMaxWidth())
         }
         if (value.isNotEmpty()) {
-            Icon(Icons.Default.Close, null, tint = tcm,
+            Icon(FluentIcon.Close, null, tint = tcm,
                 modifier = Modifier.size(13.dp).clickable { onChange("") })
         }
     }
@@ -598,7 +571,7 @@ fun FindField(
 // ─────────────────────────────────────────────────────────────────
 
 @Composable
-fun PremiumGutter(s: PremiumEditorState, scrollState: ScrollState) {
+fun PremiumGutter(s: PremiumEditorState, scrollState: ScrollState, tab: TabData = s.activeTab) {
     val c = s.colors
     val effectiveFontSize = (s.fontSize * s.zoom).sp
 
@@ -609,15 +582,18 @@ fun PremiumGutter(s: PremiumEditorState, scrollState: ScrollState) {
             .padding(top = 12.dp, bottom = 12.dp),
         horizontalAlignment = Alignment.End
     ) {
-        repeat(s.lineCount) { i ->
+        val lineCount = tab.content.text.count { it == '\n' } + 1
+        val cursorBefore = tab.content.text.substring(0, tab.content.selection.start.coerceAtMost(tab.content.text.length))
+        val cursorLine = cursorBefore.count { it == '\n' } + 1
+        repeat(lineCount) { i ->
             val lineNo = i + 1
-            val isCurrent = lineNo == s.cursorLine
-            val hasBookmark = s.bookmarks.any { it.line == lineNo }
+            val isCurrent = lineNo == cursorLine
+            val hasBookmark = tab.bookmarks.any { it.line == lineNo }
             val isModified = false // would track line-level changes with git diff
 
             Row(
                 Modifier.fillMaxWidth().height(IntrinsicSize.Min)
-                    .clickable { s.goToLine(lineNo) },
+                    .clickable { s.activateEditorGroup(group); s.goToLineForTab(tab.id, lineNo) },
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Git gutter indicator (left 3px)
@@ -653,9 +629,9 @@ fun PremiumGutter(s: PremiumEditorState, scrollState: ScrollState) {
 // ─────────────────────────────────────────────────────────────────
 
 @Composable
-fun MinimapPanel(s: PremiumEditorState, scrollState: ScrollState, totalContentHeight: Int) {
+fun MinimapPanel(s: PremiumEditorState, scrollState: ScrollState, totalContentHeight: Int, tab: TabData = s.activeTab) {
     val c = s.colors
-    val text = s.content.text
+    val text = tab.content.text
     val width = 80.dp
 
     Canvas(
@@ -710,7 +686,7 @@ fun MinimapPanel(s: PremiumEditorState, scrollState: ScrollState, totalContentHe
 // ─────────────────────────────────────────────────────────────────
 
 @Composable
-fun PremiumStatusBar(s: PremiumEditorState, onEncodingClick: () -> Unit, onLineEndingClick: () -> Unit) {
+fun PremiumStatusBar(s: PremiumEditorState, onEncodingClick: () -> Unit, onLineEndingClick: () -> Unit, group: Int = 0) {
     val c = s.colors
     val bg = c.statusBar
     Column {
@@ -733,6 +709,10 @@ fun PremiumStatusBar(s: PremiumEditorState, onEncodingClick: () -> Unit, onLineE
             StatusChip("Ln ${s.cursorLine}, Col ${s.cursorCol}", Color.White)
             StatusChip("${s.wordCount}w ${s.charCount}c", Color.White.copy(0.8f))
             StatusChip("${(s.zoom * 100).toInt()}%", Color.White.copy(0.7f))
+            StatusChip("PROBLEMS", Color.White.copy(0.78f), clickable = true, onClick = {
+                s.bottomPanel = io.github.norbertweb.bluebird.editor.core.BottomPanel.PROBLEMS
+                s.showBottomPanel = true
+            })
             if (s.isModified) StatusChip("● Unsaved", c.gold)
             else StatusChip("✓ Saved", Color(0xFF90EE90))
         }
@@ -782,7 +762,7 @@ fun CommandPalette(s: PremiumEditorState) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.Search, null, tint = c.accent, modifier = Modifier.size(16.dp))
+                    Icon(FluentIcon.Search, null, tint = c.accent, modifier = Modifier.size(16.dp))
                     BasicTextField(
                         query, { query = it },
                         textStyle = TextStyle(color = c.text, fontSize = 14.sp),
@@ -860,7 +840,7 @@ fun AutocompletePopup(s: PremiumEditorState) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Icon(Icons.Default.TextFields, null, tint = c.textMuted, modifier = Modifier.size(12.dp))
+                Icon(FluentIcon.TextFields, null, tint = c.textMuted, modifier = Modifier.size(12.dp))
                 Text(word, color = c.text, fontSize = 12.sp)
             }
         }
@@ -880,7 +860,7 @@ fun BookmarksPanel(s: PremiumEditorState) {
         shape = RoundedCornerShape(12.dp),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Bookmark, null, tint = c.gold, modifier = Modifier.size(18.dp))
+                Icon(FluentIcon.Bookmark, null, tint = c.gold, modifier = Modifier.size(18.dp))
                 Text("Bookmarks", color = c.text, fontWeight = FontWeight.SemiBold)
             }
         },
@@ -900,7 +880,7 @@ fun BookmarksPanel(s: PremiumEditorState) {
                             Box(Modifier.size(8.dp).background(Color(bm.color), CircleShape))
                             Text("Line ${bm.line}", color = c.accent, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.width(60.dp))
                             Text(bm.label.ifEmpty { "—" }, color = c.textSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                            Icon(Icons.Default.Close, null, tint = c.textMuted,
+                            Icon(FluentIcon.Close, null, tint = c.textMuted,
                                 modifier = Modifier.size(14.dp).clickable { s.toggleBookmark(bm.line) })
                         }
                     }
@@ -928,7 +908,7 @@ fun StatisticsPanel(s: PremiumEditorState) {
         shape = RoundedCornerShape(12.dp),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Analytics, null, tint = c.accent, modifier = Modifier.size(18.dp))
+                Icon(FluentIcon.Analytics, null, tint = c.accent, modifier = Modifier.size(18.dp))
                 Text("Document Statistics", color = c.text, fontWeight = FontWeight.SemiBold)
             }
         },
@@ -966,58 +946,6 @@ private fun StatRow(label: String, value: String, c: EditorColors) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Theme Picker
-// ─────────────────────────────────────────────────────────────────
-
-@Composable
-fun ThemePickerDialog(s: PremiumEditorState) {
-    val c = s.colors
-    AlertDialog(
-        onDismissRequest = { s.showThemePicker = false },
-        containerColor = c.surface,
-        shape = RoundedCornerShape(12.dp),
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Palette, null, tint = c.accent, modifier = Modifier.size(18.dp))
-                Text("Choose Theme", color = c.text, fontWeight = FontWeight.SemiBold)
-            }
-        },
-        text = {
-            LazyColumn(Modifier.heightIn(max = 500.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                itemsIndexed(EditorTheme.values().toList()) { _, theme ->
-                    val tc = EdThemes.get(theme)
-                    val isSelected = s.settings.theme == theme
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                            .background(if (isSelected) c.accent.copy(0.12f) else Color.Transparent)
-                            .border(1.dp, if (isSelected) c.accent else c.border, RoundedCornerShape(8.dp))
-                            .clickable { s.updateSettings { copy(theme = theme) } }
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // Theme preview swatch
-                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                            listOf(tc.bg, tc.synKeyword, tc.synString, tc.synComment, tc.accent).forEach { col ->
-                                Box(Modifier.size(12.dp).background(col, CircleShape))
-                            }
-                        }
-                        Column(Modifier.weight(1f)) {
-                            Text(theme.label, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            Text(if (tc.isDark) "Dark" else "Light", color = c.textMuted, fontSize = 11.sp)
-                        }
-                        if (isSelected) Icon(Icons.Default.Check, null, tint = c.accent, modifier = Modifier.size(16.dp))
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { s.showThemePicker = false }) { Text("Done", color = c.accent) }
-        }
-    )
-}
-
-// ─────────────────────────────────────────────────────────────────
 // Settings Panel
 // ─────────────────────────────────────────────────────────────────
 
@@ -1030,7 +958,7 @@ fun SettingsPanel(s: PremiumEditorState) {
         shape = RoundedCornerShape(12.dp),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Settings, null, tint = c.accent, modifier = Modifier.size(18.dp))
+                Icon(FluentIcon.Settings, null, tint = c.accent, modifier = Modifier.size(18.dp))
                 Text("Editor Settings", color = c.text, fontWeight = FontWeight.SemiBold)
             }
         },
@@ -1100,7 +1028,7 @@ fun FindResultsPanel(s: PremiumEditorState) {
         shape = RoundedCornerShape(12.dp),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Search, null, tint = c.accent, modifier = Modifier.size(18.dp))
+                Icon(FluentIcon.Search, null, tint = c.accent, modifier = Modifier.size(18.dp))
                 Text("${matches.size} Results for \"${s.findQuery}\"", color = c.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
         },
@@ -1148,7 +1076,7 @@ fun SnippetManager(s: PremiumEditorState) {
         shape = RoundedCornerShape(12.dp),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Extension, null, tint = c.accent, modifier = Modifier.size(18.dp))
+                Icon(FluentIcon.Extension, null, tint = c.accent, modifier = Modifier.size(18.dp))
                 Text("Snippets", color = c.text, fontWeight = FontWeight.SemiBold)
             }
         },
@@ -1191,7 +1119,7 @@ fun SaveAsDialog(s: PremiumEditorState, onConfirm: (String) -> Unit) {
     AlertDialog(
         onDismissRequest = { s.showSaveAsDialog = false },
         containerColor = c.surface, shape = RoundedCornerShape(12.dp),
-        title = { DialogTitle(Icons.Default.SaveAs, "Save As", c) },
+        title = { DialogTitle(FluentIcon.SaveAs, "Save As", c) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("File will be saved to the current directory.", color = c.textSecondary, fontSize = 12.sp)
@@ -1218,7 +1146,7 @@ fun UnsavedChangesDialog(s: PremiumEditorState, onSave: () -> Unit) {
     AlertDialog(
         onDismissRequest = { s.showUnsavedDialog = false; s.pendingCloseTabIndex = -1 },
         containerColor = c.surface, shape = RoundedCornerShape(12.dp),
-        title = { DialogTitle(Icons.Default.Warning, "Unsaved Changes", c) },
+        title = { DialogTitle(FluentIcon.Warning, "Unsaved Changes", c) },
         text = { Text("\"${s.tabs.getOrNull(s.pendingCloseTabIndex)?.fileName ?: ""}\" has unsaved changes. Save before closing?", color = c.text) },
         confirmButton = {
             Button(onClick = { onSave(); s.showUnsavedDialog = false },
@@ -1247,7 +1175,7 @@ fun GoToLineDialog(s: PremiumEditorState) {
     AlertDialog(
         onDismissRequest = { s.showGoToLineDialog = false },
         containerColor = c.surface, shape = RoundedCornerShape(12.dp),
-        title = { DialogTitle(Icons.Default.VerticalAlignCenter, "Go to Line", c) },
+        title = { DialogTitle(FluentIcon.VerticalAlignCenter, "Go to Line", c) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Enter a line number (1–${s.lineCount}):", color = c.textSecondary, fontSize = 12.sp)
@@ -1274,7 +1202,7 @@ fun EncodingPickerDialog(s: PremiumEditorState) {
     AlertDialog(
         onDismissRequest = { s.showEncodingPicker = false },
         containerColor = c.surface, shape = RoundedCornerShape(12.dp),
-        title = { DialogTitle(Icons.Default.Code, "File Encoding", c) },
+        title = { DialogTitle(FluentIcon.Code, "File Encoding", c) },
         text = {
             LazyColumn(Modifier.heightIn(max = 350.dp)) {
                 itemsIndexed(FileEncoding.values().toList()) { _, enc ->
@@ -1310,7 +1238,7 @@ fun LineEndingDialog(s: PremiumEditorState) {
     AlertDialog(
         onDismissRequest = { s.showLineEndingPicker = false },
         containerColor = c.surface, shape = RoundedCornerShape(12.dp),
-        title = { DialogTitle(Icons.Default.Code, "Line Endings", c) },
+        title = { DialogTitle(FluentIcon.Code, "Line Endings", c) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 LineEnding.values().forEach { le ->
@@ -1355,7 +1283,7 @@ fun EditorToast(s: PremiumEditorState) {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(
-                    if (s.toastIsError) Icons.Default.Error else Icons.Default.CheckCircle,
+                    if (s.toastIsError) FluentIcon.Error else FluentIcon.CheckCircle,
                     null, tint = if (s.toastIsError) c.danger else c.success,
                     modifier = Modifier.size(16.dp)
                 )

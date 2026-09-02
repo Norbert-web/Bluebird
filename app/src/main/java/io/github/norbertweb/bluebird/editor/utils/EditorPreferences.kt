@@ -40,6 +40,7 @@ object EditorPreferences {
     private const val KEY_SHOW_COLUMN_GUIDE = "show_column_guide"
     private const val KEY_RECENT_FILES = "recent_files"
     private const val KEY_CUSTOM_SNIPPETS = "custom_snippets"
+    private const val KEY_LAYOUT = "workspace_layout"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -48,7 +49,8 @@ object EditorPreferences {
 
     fun save(context: Context, settings: EditorSettings) {
         prefs(context).edit().apply {
-            putString(KEY_THEME, settings.theme.name)
+            // Kept only to migrate old preference files safely.
+            putString(KEY_THEME, EditorTheme.SYSTEM.name)
             putFloat(KEY_FONT_SIZE, settings.fontSize)
             putString(KEY_FONT_FAMILY, settings.fontFamily)
             putBoolean(KEY_WORD_WRAP, settings.wordWrap)
@@ -100,8 +102,9 @@ object EditorPreferences {
         val p = prefs(context)
         if (!p.contains(KEY_THEME)) return EditorSettings() // first launch
 
-        val themeStr = p.getString(KEY_THEME, EditorTheme.VSCODE_DARK.name) ?: EditorTheme.VSCODE_DARK.name
-        val theme = try { EditorTheme.valueOf(themeStr) } catch (_: Exception) { EditorTheme.VSCODE_DARK }
+        // Appearance is controlled exclusively by the Android system. Older
+        // saved theme values are intentionally ignored during migration.
+        val theme = EditorTheme.SYSTEM
 
         val indentStr = p.getString(KEY_INDENT_STYLE, IndentStyle.SPACES_4.name) ?: IndentStyle.SPACES_4.name
         val indent = try { IndentStyle.valueOf(indentStr) } catch (_: Exception) { IndentStyle.SPACES_4 }
@@ -180,6 +183,36 @@ object EditorPreferences {
     fun saveSession(context: Context, openFiles: List<String>) {
         val arr = JSONArray().also { it -> openFiles.forEach { p -> it.put(p) } }
         prefs(context).edit().putString(KEY_SESSION, arr.toString()).apply()
+    }
+
+    fun saveWorkspaceLayout(context: Context, layout: WorkspaceLayout) {
+        val obj = JSONObject().apply {
+            put("orientation", layout.orientation.name)
+            put("secondGroupVisible", layout.secondGroupVisible)
+            put("secondGroupRatio", layout.secondGroupRatio.toDouble())
+            put("primaryTabId", layout.primaryTabId)
+            put("secondaryTabId", layout.secondaryTabId)
+            put("primaryTabIds", JSONArray(layout.primaryTabIds))
+            put("secondaryTabIds", JSONArray(layout.secondaryTabIds))
+        }
+        prefs(context).edit().putString(KEY_LAYOUT, obj.toString()).apply()
+    }
+
+    fun loadWorkspaceLayout(context: Context): WorkspaceLayout {
+        return try {
+            val obj = JSONObject(prefs(context).getString(KEY_LAYOUT, "{}") ?: "{}")
+            val orientation = runCatching { SplitOrientation.valueOf(obj.optString("orientation", SplitOrientation.NONE.name)) }
+                .getOrDefault(SplitOrientation.NONE)
+            WorkspaceLayout(
+                orientation = orientation,
+                secondGroupVisible = obj.optBoolean("secondGroupVisible", false),
+                secondGroupRatio = obj.optDouble("secondGroupRatio", 0.5).toFloat().coerceIn(0.25f, 0.75f),
+                primaryTabId = obj.optString("primaryTabId", null),
+                secondaryTabId = obj.optString("secondaryTabId", null),
+                primaryTabIds = obj.optJSONArray("primaryTabIds")?.let { arr -> (0 until arr.length()).map { i -> arr.optString(i) }.filter { it.isNotEmpty() } } ?: emptyList(),
+                secondaryTabIds = obj.optJSONArray("secondaryTabIds")?.let { arr -> (0 until arr.length()).map { i -> arr.optString(i) }.filter { it.isNotEmpty() } } ?: emptyList(),
+            )
+        } catch (_: Exception) { WorkspaceLayout() }
     }
 
     fun loadSession(context: Context): List<String> = try {
