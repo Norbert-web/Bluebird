@@ -21,8 +21,15 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.core.content.FileProvider
 import android.os.ParcelFileDescriptor
+import android.content.Intent
+import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
+import android.print.PrintDocumentInfo
+import android.print.PrintManager
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -35,8 +42,6 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -47,10 +52,11 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,14 +72,41 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private data class ClipboardParagraph(
+    val text: String,
+    val spans: List<FormatRange>,
+    val styleId: String = "normal",
+    val alignment: TextAlign? = null,
+    val listType: ListType? = null,
+    val listLevel: Int = 0
+)
+
+private data class RichClipboardPayload(
+    val text: String,
+    val spans: List<FormatRange>,
+    val sourceBase: StyleAttrs,
+    val paragraphs: List<ClipboardParagraph> = emptyList()
+)
+
+private var richClipboardPayload: RichClipboardPayload? = null
+
+
 private object WordTheme {
-    val ribbonBlue = Color(0xFF2B579A)
-    val ribbonBlueDark = Color(0xFF1C3B6B)
+    // Compact Microsoft Word desktop-inspired chrome: blue title/status bars,
+    // neutral ribbon, and a light gray document workspace.
+    val wordBlue = Color(0xFF185ABD)
+    val wordBlueDark = Color(0xFF103F82)
+    val ribbonWhite = Color(0xFFFFFFFF)
+    val ribbonNeutral = Color(0xFFF3F2F1)
     val pageWhite = Color(0xFFFFFFFF)
     val darkCanvas = Color(0xFF121212)
     val darkSurface = Color(0xFF1E1E1E)
     val darkPage = Color(0xFF262626)
 }
+
+enum class DocumentViewMode { MULTIPLE_PAGES, SINGLE_PAGE, PAGE_WIDTH }
+
+enum class ContextualRibbon { PICTURE, TABLE }
 
 @Composable
 fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
@@ -84,8 +117,8 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
     val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     val appBg = if (isDark) WordTheme.darkCanvas else Color(0xFFE8EAED)
     val pageColor = if (isDark) WordTheme.darkPage else WordTheme.pageWhite
-    val ribbonBg = if (isDark) WordTheme.ribbonBlueDark else WordTheme.ribbonBlue
-    val ribbonStripBg = if (isDark) WordTheme.darkSurface else Color(0xFFF3F2F1)
+    val ribbonBg = if (isDark) WordTheme.wordBlueDark else WordTheme.wordBlue
+    val ribbonStripBg = if (isDark) WordTheme.darkSurface else WordTheme.ribbonNeutral
 
     val appSettings = remember { AppSettings() }
     val documents = remember { mutableStateListOf(WordDocument("Document1", appSettings.defaultPageSettings)) }
@@ -97,11 +130,22 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
     }
     var focusedTopIndex by remember(currentDoc.id) { mutableStateOf(0) }
     val jumpRequesters = remember(currentDoc.id) { mutableStateMapOf<String, BringIntoViewRequester>() }
+    val jumpTargetIds: Set<String> = jumpRequesters.keys
+    var focusTargetParagraphId by remember(currentDoc.id) { mutableStateOf<String?>(null) }
+    var documentSelection by remember(currentDoc.id) { mutableStateOf<DocumentSelection?>(null) }
+    // Touch selection affordance: native BasicTextField owns the handles; this state only
+    // controls the compact Word mini-toolbar so it appears after a real selection exists.
+    var showSelectionToolbar by remember(currentDoc.id) { mutableStateOf(false) }
 
     var ribbonTab by remember { mutableStateOf(RibbonTab.HOME) }
-    var sidebarOpen by remember { mutableStateOf(true) }
+    var contextualRibbon by remember { mutableStateOf<ContextualRibbon?>(null) }
+    var selectedBlockId by remember(currentDoc.id) { mutableStateOf<String?>(null) }
+    var showRuler by rememberSaveable { mutableStateOf(true) }
+    var sidebarOpen by remember { mutableStateOf(false) }
     var navPanelOpen by remember { mutableStateOf(false) }
     var readingMode by remember { mutableStateOf(false) }
+    var showPageThumbnails by remember { mutableStateOf(false) }
+    var viewMode by remember { mutableStateOf(DocumentViewMode.PAGE_WIDTH) }
     var zoom by remember { mutableStateOf(1f) }
     var pdfPages by remember { mutableStateOf<List<PdfPageInfo>>(emptyList()) }
 
@@ -113,8 +157,13 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showFindReplaceDialog by remember { mutableStateOf(false) }
     var showLinkDialog by remember { mutableStateOf(false) }
+    var showSymbolDialog by remember { mutableStateOf(false) }
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
     var showRecoveryDialog by remember { mutableStateOf(false) }
+    var showCommentDialog by remember { mutableStateOf(false) }
+    var showCommentsDialog by remember { mutableStateOf(false) }
+    var showNoteDialog by remember { mutableStateOf(false) }
+    var pendingNoteIsEndnote by remember { mutableStateOf(false) }
     var recoveredDraftFiles by remember { mutableStateOf<List<File>>(emptyList()) }
 
     var searchQuery by remember { mutableStateOf("") }
@@ -280,6 +329,85 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
         }
     }
 
+    fun shareCurrentDocument() {
+        if (currentDoc.kind != DocKind.RICH_TEXT) {
+            notify("PDF documents are read-only here")
+            return
+        }
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val file = File(context.cacheDir, "${currentDoc.title.ifBlank { "Document" }}.wdoc")
+                file.writeBytes(serializeDocumentZip(currentDoc))
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                        type = "application/octet-stream"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_SUBJECT, currentDoc.title)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }, "Share document"))
+                }
+            } catch (e: Exception) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) { notify("Couldn't share document") }
+            }
+        }
+    }
+
+    fun printCurrentDocument() {
+        if (currentDoc.kind != DocKind.RICH_TEXT) {
+            notify("PDF printing is not available from this view")
+            return
+        }
+        try {
+            val printManager = context.getSystemService(android.content.Context.PRINT_SERVICE) as? PrintManager
+            if (printManager == null) {
+                notify("Printing isn't available on this device")
+                return
+            }
+            val docSnapshot = currentDoc
+            val adapter = object : PrintDocumentAdapter() {
+                override fun onLayout(
+                    oldAttributes: PrintAttributes?, newAttributes: PrintAttributes?,
+                    cancellationSignal: android.os.CancellationSignal?,
+                    callback: LayoutResultCallback?, extras: android.os.Bundle?
+                ) {
+                    if (cancellationSignal?.isCanceled == true) { callback?.onLayoutCancelled(); return }
+                    callback?.onLayoutFinished(
+                        PrintDocumentInfo.Builder(docSnapshot.title.ifBlank { "Document" })
+                            .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                            .setPageCount(PrintDocumentInfo.PAGE_COUNT_UNKNOWN)
+                            .build(),
+                        true
+                    )
+                }
+
+                override fun onWrite(
+                    pages: Array<android.print.PageRange>?,
+                    destination: ParcelFileDescriptor?,
+                    cancellationSignal: android.os.CancellationSignal?,
+                    callback: WriteResultCallback?
+                ) {
+                    try {
+                        if (cancellationSignal?.isCanceled == true) { callback?.onWriteCancelled(); return }
+                        val dest = destination ?: run { callback?.onWriteFailed("No print destination"); return }
+                        val pdf = exportDocToPdf(docSnapshot)
+                        ParcelFileDescriptor.AutoCloseOutputStream(dest).use { out -> pdf.writeTo(out) }
+                        pdf.close()
+                        callback?.onWriteFinished(arrayOf(android.print.PageRange.ALL_PAGES))
+                    } catch (e: Exception) {
+                        callback?.onWriteFailed(e.message)
+                    }
+                }
+            }
+            printManager.print(docSnapshot.title.ifBlank { "Document" }, adapter, PrintAttributes.Builder()
+                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+                .build())
+        } catch (e: Exception) {
+            notify("Couldn't start printing")
+        }
+    }
+
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         try {
@@ -345,142 +473,548 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
     }
 
     // ---- undo / redo ----------------------------------------------------------------------
+    fun restoreEditorFocus(previousId: String?, previousSelection: TextRange = TextRange.Zero) {
+        val target = previousId?.let { id -> currentDoc.blocks.firstOrNull { it.id == id } as? ParagraphBlock }
+            ?: currentDoc.blocks.filterIsInstance<ParagraphBlock>().firstOrNull()
+        focusedParagraph = target
+        target?.let {
+            val max = it.field.text.length
+            val start = previousSelection.start.coerceIn(0, max)
+            val end = previousSelection.end.coerceIn(0, max)
+            it.field = it.field.copy(selection = TextRange(start, end))
+            focusTargetParagraphId = it.id
+        }
+    }
+
     fun undoAction() {
+        val previousId = focusedParagraph?.id
+        val previousSelection = focusedParagraph?.field?.selection ?: TextRange.Zero
         if (currentDoc.undo()) {
-            focusedParagraph = currentDoc.blocks.filterIsInstance<ParagraphBlock>().firstOrNull()
+            restoreEditorFocus(previousId, previousSelection)
             notify("Undo")
         } else notify("Nothing to undo")
     }
 
     fun redoAction() {
+        val previousId = focusedParagraph?.id
+        val previousSelection = focusedParagraph?.field?.selection ?: TextRange.Zero
         if (currentDoc.redo()) {
-            focusedParagraph = currentDoc.blocks.filterIsInstance<ParagraphBlock>().firstOrNull()
+            restoreEditorFocus(previousId, previousSelection)
             notify("Redo")
         } else notify("Nothing to redo")
     }
 
-    // ---- formatting helpers (operate on the currently focused paragraph) -----------------
+    // Text edits are grouped into short undo transactions so Ctrl+Z behaves like a desktop
+    // editor without creating one history entry for every keystroke.
+    fun beginTypingUndo(doc: WordDocument) {
+        val now = System.currentTimeMillis()
+        if (now - doc.lastEditSnapshotAt > 700L) doc.pushUndoSnapshot()
+        doc.lastEditSnapshotAt = now
+    }
+
+    // ---- document selection helpers ---------------------------------------------------------
+    fun paragraphIndex(id: String): Int = currentDoc.blocks.indexOfFirst { it.id == id }
+
+    fun normalizeDocumentSelection(sel: DocumentSelection): DocumentSelection? {
+        val a = paragraphIndex(sel.startBlockId)
+        val b = paragraphIndex(sel.endBlockId)
+        if (a < 0 || b < 0) return null
+        return if (a < b || (a == b && sel.startOffset <= sel.endOffset)) sel
+        else DocumentSelection(sel.endBlockId, sel.endOffset, sel.startBlockId, sel.startOffset)
+    }
+
+    // ---- formatting helpers ------------------------------------------------------------------
+    fun selectedParagraphsForFormatting(): List<Pair<ParagraphBlock, TextRange>> {
+        val sel = documentSelection?.let(::normalizeDocumentSelection)
+        if (sel != null && !sel.collapsed) {
+            val a = paragraphIndex(sel.startBlockId)
+            val b = paragraphIndex(sel.endBlockId)
+            if (a >= 0 && b >= 0) {
+                return currentDoc.blocks.subList(a, b + 1).mapNotNull { block ->
+                    val p = block as? ParagraphBlock ?: return@mapNotNull null
+                    val start = if (p.id == sel.startBlockId) sel.startOffset else 0
+                    val end = if (p.id == sel.endBlockId) sel.endOffset else p.field.text.length
+                    if (end > start) p to TextRange(start.coerceIn(0, p.field.text.length), end.coerceIn(0, p.field.text.length)) else null
+                }
+            }
+        }
+        val p = focusedParagraph ?: return emptyList()
+        val fallbackSel = p.field.selection
+        return if (!fallbackSel.collapsed) listOf(p to TextRange(fallbackSel.min, fallbackSel.max)) else emptyList()
+    }
+
+    fun selectedParagraphsIncludingEmpty(): List<ParagraphBlock> {
+        val sel = documentSelection?.let(::normalizeDocumentSelection)
+        if (sel != null && !sel.collapsed) {
+            val a = paragraphIndex(sel.startBlockId)
+            val b = paragraphIndex(sel.endBlockId)
+            if (a >= 0 && b >= 0) return currentDoc.blocks.subList(a, b + 1).filterIsInstance<ParagraphBlock>()
+        }
+        return focusedParagraph?.let(::listOf) ?: emptyList()
+    }
+
     fun toggleAttribute(pick: (StyleAttrs) -> Boolean, set: (StyleAttrs, Boolean) -> StyleAttrs) {
-        val p = focusedParagraph ?: return
-        val base = BuiltInStyles.byId(p.styleId).baseAttrs()
-        val sel = p.field.selection
-        if (sel.collapsed) {
-            p.typingStyle = set(p.typingStyle, !pick(p.typingStyle))
-        } else {
-            currentDoc.pushUndoSnapshot()
-            val newVal = !rangeHas(p.spans, sel.min, sel.max, pick)
-            p.spans = applyStyle(p.spans, sel.min, sel.max, p.field.text.length, base) { s -> set(s, newVal) }
+        val targets = selectedParagraphsForFormatting()
+        if (targets.isEmpty()) {
+            focusedParagraph?.let { p -> p.typingStyle = set(p.typingStyle, !pick(p.typingStyle)); currentDoc.isDirty = true }
+            return
+        }
+        currentDoc.pushUndoSnapshot()
+        val newVal = !targets.all { (p, r) -> rangeHas(p.spans, r.min, r.max, pick) }
+        targets.forEach { (p, r) ->
+            val base = BuiltInStyles.byId(p.styleId).baseAttrs()
+            p.spans = applyStyle(p.spans, r.min, r.max, p.field.text.length, base) { s -> set(s, newVal) }
+            p.typingStyle = set(p.typingStyle, newVal)
         }
         currentDoc.isDirty = true
     }
 
     fun applyFontSize(size: Int) {
-        val p = focusedParagraph ?: return
-        val base = BuiltInStyles.byId(p.styleId).baseAttrs()
-        val sel = p.field.selection
-        if (sel.collapsed) {
+        val targets = selectedParagraphsForFormatting()
+        if (targets.isEmpty()) { focusedParagraph?.let { it.typingStyle = it.typingStyle.copy(fontSize = size); currentDoc.isDirty = true }; return }
+        currentDoc.pushUndoSnapshot()
+        targets.forEach { (p, r) ->
+            val base = BuiltInStyles.byId(p.styleId).baseAttrs()
+            p.spans = applyStyle(p.spans, r.min, r.max, p.field.text.length, base) { s -> s.copy(fontSize = size) }
             p.typingStyle = p.typingStyle.copy(fontSize = size)
-        } else {
-            currentDoc.pushUndoSnapshot()
-            p.spans = applyStyle(p.spans, sel.min, sel.max, p.field.text.length, base) { s -> s.copy(fontSize = size) }
         }
         currentDoc.isDirty = true
     }
 
     fun applyColor(color: Color) {
-        val p = focusedParagraph ?: return
-        val base = BuiltInStyles.byId(p.styleId).baseAttrs()
-        val sel = p.field.selection
-        if (sel.collapsed) {
+        val targets = selectedParagraphsForFormatting()
+        if (targets.isEmpty()) { focusedParagraph?.let { it.typingStyle = it.typingStyle.copy(color = color); currentDoc.isDirty = true }; return }
+        currentDoc.pushUndoSnapshot()
+        targets.forEach { (p, r) ->
+            val base = BuiltInStyles.byId(p.styleId).baseAttrs()
+            p.spans = applyStyle(p.spans, r.min, r.max, p.field.text.length, base) { s -> s.copy(color = color) }
             p.typingStyle = p.typingStyle.copy(color = color)
-        } else {
-            currentDoc.pushUndoSnapshot()
-            p.spans = applyStyle(p.spans, sel.min, sel.max, p.field.text.length, base) { s -> s.copy(color = color) }
         }
         currentDoc.isDirty = true
     }
 
     fun applyHighlight(color: Color?) {
-        val p = focusedParagraph ?: return
-        val base = BuiltInStyles.byId(p.styleId).baseAttrs()
-        val sel = p.field.selection
-        if (sel.collapsed) {
+        val targets = selectedParagraphsForFormatting()
+        if (targets.isEmpty()) { focusedParagraph?.let { it.typingStyle = it.typingStyle.copy(highlight = color); currentDoc.isDirty = true }; return }
+        currentDoc.pushUndoSnapshot()
+        targets.forEach { (p, r) ->
+            val base = BuiltInStyles.byId(p.styleId).baseAttrs()
+            p.spans = applyStyle(p.spans, r.min, r.max, p.field.text.length, base) { s -> s.copy(highlight = color) }
             p.typingStyle = p.typingStyle.copy(highlight = color)
-        } else {
-            currentDoc.pushUndoSnapshot()
-            p.spans = applyStyle(p.spans, sel.min, sel.max, p.field.text.length, base) { s -> s.copy(highlight = color) }
         }
         currentDoc.isDirty = true
     }
 
     fun applyFont(font: FontChoice) {
-        val p = focusedParagraph ?: return
-        val base = BuiltInStyles.byId(p.styleId).baseAttrs()
-        val sel = p.field.selection
-        if (sel.collapsed) {
+        val targets = selectedParagraphsForFormatting()
+        if (targets.isEmpty()) { focusedParagraph?.let { it.typingStyle = it.typingStyle.copy(font = font); currentDoc.isDirty = true }; return }
+        currentDoc.pushUndoSnapshot()
+        targets.forEach { (p, r) ->
+            val base = BuiltInStyles.byId(p.styleId).baseAttrs()
+            p.spans = applyStyle(p.spans, r.min, r.max, p.field.text.length, base) { s -> s.copy(font = font) }
             p.typingStyle = p.typingStyle.copy(font = font)
-        } else {
-            currentDoc.pushUndoSnapshot()
-            p.spans = applyStyle(p.spans, sel.min, sel.max, p.field.text.length, base) { s -> s.copy(font = font) }
         }
         currentDoc.isDirty = true
     }
 
     fun clearFormatting() {
-        val p = focusedParagraph ?: return
-        val base = BuiltInStyles.byId(p.styleId).baseAttrs()
-        val sel = p.field.selection
-        if (sel.collapsed) {
+        val targets = selectedParagraphsForFormatting()
+        if (targets.isEmpty()) { focusedParagraph?.let { p -> p.typingStyle = BuiltInStyles.byId(p.styleId).baseAttrs(); currentDoc.isDirty = true }; return }
+        currentDoc.pushUndoSnapshot()
+        targets.forEach { (p, r) ->
+            val base = BuiltInStyles.byId(p.styleId).baseAttrs()
+            p.spans = applyStyle(p.spans, r.min, r.max, p.field.text.length, base) { base }
             p.typingStyle = base
-        } else {
-            currentDoc.pushUndoSnapshot()
-            p.spans = applyStyle(p.spans, sel.min, sel.max, p.field.text.length, base) { base }
         }
         currentDoc.isDirty = true
     }
 
     fun setAlign(a: TextAlign) {
-        val p = focusedParagraph ?: return
+        val targets = selectedParagraphsIncludingEmpty()
+        if (targets.isEmpty()) return
         currentDoc.pushUndoSnapshot()
-        p.alignmentOverride = a
+        targets.forEach { it.alignmentOverride = a }
         currentDoc.isDirty = true
     }
 
     fun applyParagraphStyle(styleId: String) {
-        val p = focusedParagraph ?: return
+        val targets = selectedParagraphsIncludingEmpty()
+        if (targets.isEmpty()) return
         currentDoc.pushUndoSnapshot()
-        p.styleId = styleId
-        val base = BuiltInStyles.byId(styleId).baseAttrs()
-        p.spans = normalizeAndMerge(emptyList(), p.field.text.length, base)
-        p.typingStyle = base
+        targets.forEach { p ->
+            p.styleId = styleId
+            val base = BuiltInStyles.byId(styleId).baseAttrs()
+            p.spans = normalizeAndMerge(p.spans, p.field.text.length, base)
+            p.typingStyle = base
+        }
         currentDoc.isDirty = true
     }
 
     fun toggleList(type: ListType) {
-        val p = focusedParagraph ?: return
+        val targets = selectedParagraphsIncludingEmpty()
+        if (targets.isEmpty()) return
         currentDoc.pushUndoSnapshot()
-        p.listType = if (p.listType == type) null else type
+        val turnOn = targets.any { it.listType != type }
+        targets.forEach { it.listType = if (turnOn) type else null }
         currentDoc.isDirty = true
     }
 
     fun changeIndent(delta: Int) {
-        val p = focusedParagraph ?: return
+        val targets = selectedParagraphsIncludingEmpty()
+        if (targets.isEmpty()) return
         currentDoc.pushUndoSnapshot()
-        p.listLevel = (p.listLevel + delta).coerceIn(0, 4)
+        targets.forEach { p ->
+            if (p.listType != null) p.listLevel = (p.listLevel + delta).coerceIn(0, 4)
+            else p.leftIndentPt = (p.leftIndentPt + delta * 18f).coerceIn(0f, 288f)
+        }
         currentDoc.isDirty = true
+    }
+
+    fun setParagraphSpacing(before: Int, after: Int) {
+        val targets = selectedParagraphsIncludingEmpty()
+        if (targets.isEmpty()) return
+        currentDoc.pushUndoSnapshot()
+        targets.forEach { p ->
+            p.spacingBeforeOverride = before.coerceIn(0, 144)
+            p.spacingAfterOverride = after.coerceIn(0, 144)
+        }
+        currentDoc.isDirty = true
+    }
+
+    fun setLineSpacing(value: Float) {
+        val targets = selectedParagraphsIncludingEmpty()
+        if (targets.isEmpty()) return
+        currentDoc.pushUndoSnapshot()
+        targets.forEach { it.lineSpacing = value.coerceIn(0.8f, 3f) }
+        currentDoc.isDirty = true
+    }
+
+    fun syncVisualSelection(sel: DocumentSelection?) {
+        val normalized = sel?.let(::normalizeDocumentSelection)
+        documentSelection = normalized
+        if (normalized == null) return
+        val a = paragraphIndex(normalized.startBlockId)
+        val b = paragraphIndex(normalized.endBlockId)
+        currentDoc.blocks.forEachIndexed { i, block ->
+            if (block is ParagraphBlock) {
+                val range = when {
+                    i < a || i > b -> TextRange.Zero
+                    a == b && i == a -> TextRange(normalized.startOffset.coerceIn(0, block.field.text.length), normalized.endOffset.coerceIn(0, block.field.text.length))
+                    i == a -> TextRange(normalized.startOffset.coerceIn(0, block.field.text.length), block.field.text.length)
+                    i == b -> TextRange(0, normalized.endOffset.coerceIn(0, block.field.text.length))
+                    else -> TextRange(0, block.field.text.length)
+                }
+                block.field = block.field.copy(selection = range)
+            }
+        }
+    }
+
+    fun beginDocumentSelectionFromFocus() {
+        val p = focusedParagraph ?: return
+        val r = p.field.selection
+        documentSelection = DocumentSelection(p.id, r.start, p.id, r.end)
+    }
+
+    fun moveCaretAcrossParagraph(forward: Boolean, extend: Boolean, byWord: Boolean = false): Boolean {
+        val p = focusedParagraph ?: return false
+        val index = paragraphIndex(p.id)
+        val sel = p.field.selection
+        val current = if (extend) sel.end else if (forward) sel.max else sel.min
+        val targetIndex = if (forward) index + 1 else index - 1
+        if (targetIndex !in currentDoc.blocks.indices) return false
+        val target = currentDoc.blocks[targetIndex] as? ParagraphBlock ?: return false
+        if (byWord && extend && current != if (forward) p.field.text.length else 0) return false
+        val targetOffset = if (forward) 0 else target.field.text.length
+        val anchor = if (extend) sel.start else targetOffset
+        if (extend) {
+            val existing = documentSelection
+            val baseSel = existing ?: DocumentSelection(p.id, sel.start, p.id, sel.end)
+            val start = if (forward) baseSel.startBlockId else target.id
+            val startOffset = if (forward) baseSel.startOffset else targetOffset
+            val end = if (forward) target.id else baseSel.endBlockId
+            val endOffset = if (forward) targetOffset else baseSel.endOffset
+            syncVisualSelection(DocumentSelection(start, startOffset, end, endOffset))
+        } else {
+            target.field = target.field.copy(selection = TextRange(targetOffset))
+            documentSelection = null
+        }
+        focusedParagraph = target
+        focusedTopIndex = targetIndex
+        focusTargetParagraphId = target.id
+        return true
+    }
+
+    fun selectedDocumentParagraphs(): Pair<Int, Int>? {
+        val sel = documentSelection?.let(::normalizeDocumentSelection) ?: return null
+        val a = paragraphIndex(sel.startBlockId); val b = paragraphIndex(sel.endBlockId)
+        if (a < 0 || b < 0) return null
+        return a to b
+    }
+
+    fun copyDocumentSelection(): Boolean {
+        val sel = documentSelection?.let(::normalizeDocumentSelection) ?: return false
+        val a = paragraphIndex(sel.startBlockId); val b = paragraphIndex(sel.endBlockId)
+        if (a < 0 || b < 0) return false
+        val selected = currentDoc.blocks.subList(a, b + 1).filterIsInstance<ParagraphBlock>()
+        if (selected.isEmpty()) return false
+        val pieces = selected.mapIndexed { i, para ->
+            val start = if (i == 0) sel.startOffset else 0
+            val end = if (i == selected.lastIndex) sel.endOffset else para.field.text.length
+            para.field.text.substring(start.coerceIn(0, para.field.text.length), end.coerceIn(0, para.field.text.length))
+        }
+        val text = pieces.joinToString("\n")
+        if (text.isEmpty()) return false
+        val paragraphs = selected.mapIndexed { i, para ->
+            val start = if (i == 0) sel.startOffset else 0
+            val end = if (i == selected.lastIndex) sel.endOffset else para.field.text.length
+            val len = (end - start).coerceAtLeast(0)
+            val spans = para.spans.filter { it.end > start && it.start < end }.map { it.copy(start = (it.start - start).coerceAtLeast(0), end = (it.end - start).coerceAtMost(len)) }.filter { it.end > it.start }
+            ClipboardParagraph(para.field.text.substring(start, end), spans, para.styleId, para.alignmentOverride, para.listType, para.listLevel)
+        }
+        richClipboardPayload = RichClipboardPayload(text, paragraphs.firstOrNull()?.spans ?: emptyList(), BuiltInStyles.byId(selected.first().styleId).baseAttrs(), paragraphs)
+        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Bluebird Word", text))
+        notify("Copied")
+        return true
+    }
+
+    fun cutDocumentSelection(): Boolean {
+        val sel = documentSelection?.let(::normalizeDocumentSelection) ?: return false
+        if (currentDoc.readOnly || !copyDocumentSelection()) return false
+        val a = paragraphIndex(sel.startBlockId); val b = paragraphIndex(sel.endBlockId)
+        if (a < 0 || b < 0) return false
+        currentDoc.pushUndoSnapshot()
+        val first = currentDoc.blocks[a] as? ParagraphBlock ?: return false
+        val last = currentDoc.blocks[b] as? ParagraphBlock ?: return false
+        val prefix = first.field.text.substring(0, sel.startOffset.coerceIn(0, first.field.text.length))
+        val suffix = last.field.text.substring(sel.endOffset.coerceIn(0, last.field.text.length))
+        val merged = prefix + suffix
+        val join = prefix.length
+        val spans = first.spans.filter { it.end <= sel.startOffset }.map { it.copy() }.toMutableList()
+        last.spans.filter { it.start >= sel.endOffset }.forEach { spans.add(it.copy(start = it.start - sel.endOffset + join, end = it.end - sel.endOffset + join)) }
+        first.field = TextFieldValue(merged, TextRange(join))
+        first.spans = normalizeAndMerge(spans, merged.length, BuiltInStyles.byId(first.styleId).baseAttrs())
+        for (i in b downTo a + 1) currentDoc.blocks.removeAt(i)
+        focusedParagraph = first; focusedTopIndex = a; focusTargetParagraphId = first.id; documentSelection = null
+        currentDoc.isDirty = true; currentDoc.lastModified = System.currentTimeMillis(); notify("Cut")
+        return true
+    }
+
+    fun copySelection() {
+        if (documentSelection != null && !documentSelection!!.collapsed) { if (copyDocumentSelection()) return }
+        val p = focusedParagraph ?: return
+        val sel = p.field.selection
+        if (sel.collapsed) { notify("Select text first"); return }
+        val start = sel.min
+        val end = sel.max
+        val text = p.field.text.substring(start, end)
+        val base = BuiltInStyles.byId(p.styleId).baseAttrs()
+        val copiedSpans = p.spans
+            .filter { it.end > start && it.start < end }
+            .map { it.copy(start = (it.start - start).coerceAtLeast(0), end = (it.end - start).coerceAtMost(end - start)) }
+            .filter { it.end > it.start }
+        richClipboardPayload = RichClipboardPayload(text, copiedSpans, base)
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+        clipboard.setPrimaryClip(ClipData.newPlainText("Bluebird Word", text))
+        notify("Copied")
+    }
+
+    fun cutSelection() {
+        if (documentSelection != null && !documentSelection!!.collapsed) { if (cutDocumentSelection()) return }
+        val p = focusedParagraph ?: return
+        val sel = p.field.selection
+        if (sel.collapsed) { notify("Select text first"); return }
+        copySelection()
+        currentDoc.pushUndoSnapshot()
+        val old = p.field.text
+        val newText = old.removeRange(sel.min, sel.max)
+        val base = BuiltInStyles.byId(p.styleId).baseAttrs()
+        val (field, spans) = editParagraphText(old, newText, sel.min, p.spans, p.typingStyle, base)
+        p.field = field
+        p.spans = spans
+        currentDoc.isDirty = true
+        notify("Cut")
+    }
+
+    /** Deletes the current logical document selection, including selections spanning paragraphs.
+     *  This is the key bridge between the continuous document model and the paragraph text fields.
+     */
+    fun deleteDocumentSelection(backspace: Boolean): Boolean {
+        val sel = documentSelection?.let(::normalizeDocumentSelection) ?: return false
+        if (sel.collapsed || currentDoc.readOnly) return false
+        val surface = DocumentTextSurface(currentDoc)
+        val range = surface.paragraphRange(sel) ?: return false
+        val (a, b) = range
+        if (a !in currentDoc.blocks.indices || b !in currentDoc.blocks.indices) return false
+        // A selection can only be represented safely as a continuous text range when all
+        // blocks between its endpoints are paragraphs. Never silently delete images/tables.
+        if (currentDoc.blocks.subList(a, b + 1).any { it !is ParagraphBlock }) return false
+
+        currentDoc.pushUndoSnapshot()
+        val first = currentDoc.blocks[a] as ParagraphBlock
+        val last = currentDoc.blocks[b] as ParagraphBlock
+        val start = sel.startOffset.coerceIn(0, first.field.text.length)
+        val end = sel.endOffset.coerceIn(0, last.field.text.length)
+
+        if (a == b) {
+            val old = first.field.text
+            val newText = old.removeRange(start, end)
+            val base = BuiltInStyles.byId(first.styleId).baseAttrs()
+            val (field, spans) = editParagraphText(old, newText, start, first.spans, first.typingStyle, base)
+            first.field = field
+            first.spans = spans
+            first.typingStyle = typingStyleAtCursor(first, start)
+        } else {
+            val prefix = first.field.text.substring(0, start)
+            val suffix = last.field.text.substring(end)
+            val merged = prefix + suffix
+            val join = prefix.length
+            val kept = first.spans.filter { it.end <= start }.map { it.copy() }.toMutableList()
+            last.spans.filter { it.start >= end }.forEach {
+                kept.add(it.copy(start = it.start - end + join, end = it.end - end + join))
+            }
+            first.field = TextFieldValue(merged, TextRange(join))
+            first.spans = normalizeAndMerge(kept, merged.length, BuiltInStyles.byId(first.styleId).baseAttrs())
+            first.typingStyle = typingStyleAtCursor(first, join)
+            for (i in b downTo a + 1) currentDoc.blocks.removeAt(i)
+        }
+
+        focusedParagraph = first
+        focusedTopIndex = a
+        focusTargetParagraphId = first.id
+        documentSelection = null
+        showSelectionToolbar = false
+        currentDoc.isDirty = true
+        currentDoc.lastModified = System.currentTimeMillis()
+        notify(if (backspace) "Selection deleted" else "Selection deleted")
+        return true
+    }
+
+    fun selectAllText() {
+        val firstIndex = currentDoc.blocks.indexOfFirst { it is ParagraphBlock }
+        val lastIndex = currentDoc.blocks.indexOfLast { it is ParagraphBlock }
+        if (firstIndex < 0 || lastIndex < 0) return
+        val first = currentDoc.blocks[firstIndex] as ParagraphBlock
+        val last = currentDoc.blocks[lastIndex] as ParagraphBlock
+        syncVisualSelection(DocumentSelection(first.id, 0, last.id, last.field.text.length))
+        focusedParagraph = last
+        focusedTopIndex = lastIndex
+        showSelectionToolbar = !currentDoc.readOnly
     }
 
     fun insertTextAtCursor(text: String) {
         val p = focusedParagraph ?: return
+        if (text.isEmpty() || currentDoc.readOnly) return
         currentDoc.pushUndoSnapshot()
         val sel = p.field.selection
         val old = p.field.text
         val newText = old.substring(0, sel.start) + text + old.substring(sel.end)
         val base = BuiltInStyles.byId(p.styleId).baseAttrs()
-        val (field, spans) = editParagraphText(old, newText, sel.start + text.length, p.spans, p.typingStyle, base)
-        p.spans = spans
-        p.field = field
+        val field = TextFieldValue(newText, TextRange((sel.start + text.length).coerceAtMost(newText.length)))
+        if (text.contains('\n')) {
+            val parts = splitParagraphFromEditedValue(p, field)
+            if (parts.size > 1) {
+                val index = currentDoc.blocks.indexOfFirst { it.id == p.id }
+                if (index >= 0) {
+                    currentDoc.blocks.addAll(index + 1, parts.drop(1))
+                    focusTargetParagraphId = parts.last().id
+                }
+            }
+        } else {
+            val (updatedField, spans) = editParagraphText(old, newText, field.selection.end, p.spans, p.typingStyle, base)
+            p.spans = spans
+            p.field = updatedField
+            p.typingStyle = typingStyleAtCursor(p, updatedField.selection.end)
+        }
         currentDoc.isDirty = true
+        currentDoc.lastModified = System.currentTimeMillis()
+    }
+
+    fun pasteClipboard() {
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+        val clip = clipboard.primaryClip
+        val text = clip?.getItemAt(0)?.coerceToText(context)?.toString()
+        if (text.isNullOrEmpty()) { notify("Clipboard is empty"); return }
+        var p = focusedParagraph
+        val rich = richClipboardPayload
+        if (p != null && documentSelection != null && !documentSelection!!.collapsed) {
+            cutDocumentSelection()
+            p = focusedParagraph
+        }
+        if (p != null && rich != null && rich.text == text && rich.paragraphs.size > 1) {
+            if (currentDoc.readOnly) return
+            currentDoc.pushUndoSnapshot()
+            val start = p.field.selection.min
+            val end = p.field.selection.max
+            val prefix = p.field.text.substring(0, start)
+            val suffix = p.field.text.substring(end)
+            val pieces = rich.paragraphs
+            val created = pieces.mapIndexed { i, cp ->
+                ParagraphBlock().apply {
+                    styleId = cp.styleId
+                    alignmentOverride = cp.alignment
+                    listType = cp.listType
+                    listLevel = cp.listLevel
+                    field = TextFieldValue(if (i == 0) prefix + cp.text else if (i == pieces.lastIndex) cp.text + suffix else cp.text)
+                    val shift = if (i == 0) prefix.length else 0
+                    spans = normalizeAndMerge(cp.spans.map { it.copy(start = it.start + shift, end = it.end + shift) }, field.text.length, BuiltInStyles.byId(styleId).baseAttrs())
+                    typingStyle = typingStyleAtCursor(this, field.text.length)
+                }
+            }
+            val idx = currentDoc.blocks.indexOfFirst { it.id == p.id }
+            if (idx >= 0) { currentDoc.blocks.removeAt(idx); currentDoc.blocks.addAll(idx, created); focusedParagraph = created.last(); focusedTopIndex = idx + created.lastIndex; focusTargetParagraphId = created.last().id }
+            currentDoc.isDirty = true; currentDoc.lastModified = System.currentTimeMillis(); documentSelection = null; notify("Pasted formatting")
+        } else if (p != null && rich != null && rich.text == text && !text.contains('\n')) {
+            val sel = p.field.selection
+            if (currentDoc.readOnly) return
+            currentDoc.pushUndoSnapshot()
+            val old = p.field.text
+            val start = sel.min
+            val end = sel.max
+            val newText = old.substring(0, start) + text + old.substring(end)
+            val base = BuiltInStyles.byId(p.styleId).baseAttrs()
+            val delta = text.length
+            val shifted = p.spans.filter { it.end <= start || it.start >= end }
+                .map { if (it.start >= end) it.copy(start = it.start + delta - (end - start), end = it.end + delta - (end - start)) else it }
+                .toMutableList()
+            val inserted = rich.spans.map { it.copy(start = it.start + start, end = it.end + start) }
+            shifted.addAll(inserted)
+            p.spans = normalizeAndMerge(shifted, newText.length, base)
+            p.field = TextFieldValue(newText, TextRange(start + text.length))
+            p.typingStyle = typingStyleAtCursor(p, p.field.selection.end)
+            currentDoc.isDirty = true
+            currentDoc.lastModified = System.currentTimeMillis()
+            notify("Pasted formatting")
+        } else {
+            insertTextAtCursor(text)
+            notify("Pasted")
+        }
+    }
+
+    fun toggleHeader() {
+        if (currentDoc.readOnly) return
+        currentDoc.pushUndoSnapshot()
+        currentDoc.showHeader = !currentDoc.showHeader
+        currentDoc.isDirty = true
+    }
+
+    fun toggleFooter() {
+        if (currentDoc.readOnly) return
+        currentDoc.pushUndoSnapshot()
+        currentDoc.showFooter = !currentDoc.showFooter
+        currentDoc.isDirty = true
+    }
+
+    fun insertPageNumberFieldIntoFooter() {
+        if (currentDoc.readOnly) return
+        currentDoc.pushUndoSnapshot()
+        currentDoc.showFooter = true
+        val existing = currentDoc.footerParagraph.field.text
+        if (!existing.contains("{page}")) {
+            val separator = if (existing.isBlank()) "" else " "
+            currentDoc.footerParagraph.field = TextFieldValue(existing + separator + "{page}")
+        }
+        currentDoc.isDirty = true
+        notify("Page number added to footer")
     }
 
     fun insertLinkOnSelection(url: String) {
@@ -500,6 +1034,24 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
         currentDoc.bookmarks.add(Bookmark(name = name, blockId = p.id))
         currentDoc.isDirty = true
         notify("Bookmark added")
+    }
+
+    fun addComment(text: String) {
+        val p = focusedParagraph ?: return
+        val sel = p.field.selection
+        val quoted = if (!sel.collapsed) p.field.text.substring(sel.min, sel.max) else ""
+        currentDoc.comments.add(DocumentComment(text = text, blockId = p.id, quotedText = quoted.take(240)))
+        currentDoc.isDirty = true
+        notify("Comment added")
+    }
+
+    fun insertNote(text: String, endnote: Boolean) {
+        val p = focusedParagraph ?: return
+        val marker = currentDoc.notes.count { it.isEndnote == endnote } + 1
+        val label = if (endnote) "[$marker]" else "[$marker]"
+        currentDoc.notes.add(DocumentNote(text = text, isEndnote = endnote, blockId = p.id, marker = marker))
+        insertTextAtCursor(label)
+        notify(if (endnote) "Endnote inserted" else "Footnote inserted")
     }
 
     fun jumpToBlockId(id: String) {
@@ -558,7 +1110,27 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
     }
 
     val fp = focusedParagraph
-    val toolbarStyle: StyleAttrs = if (fp == null) StyleAttrs() else {
+    val selectionTargets = selectedParagraphsForFormatting()
+    val toolbarStyle: StyleAttrs = if (selectionTargets.isNotEmpty()) {
+        val first = selectionTargets.first().first
+        val base = BuiltInStyles.byId(first.styleId).baseAttrs()
+        val attrs = selectionTargets.flatMap { (p, r) ->
+            p.spans.filter { it.end > r.min && it.start < r.max }.map { it.style }
+        }
+        val probe = attrs.firstOrNull() ?: base
+        StyleAttrs(
+            bold = attrs.isNotEmpty() && attrs.all { it.bold },
+            italic = attrs.isNotEmpty() && attrs.all { it.italic },
+            underline = attrs.isNotEmpty() && attrs.all { it.underline },
+            strikethrough = attrs.isNotEmpty() && attrs.all { it.strikethrough },
+            superscript = attrs.isNotEmpty() && attrs.all { it.superscript },
+            subscript = attrs.isNotEmpty() && attrs.all { it.subscript },
+            fontSize = if (attrs.all { it.fontSize == probe.fontSize }) probe.fontSize else probe.fontSize,
+            color = if (attrs.all { it.color == probe.color }) probe.color else probe.color,
+            font = if (attrs.all { it.font == probe.font }) probe.font else probe.font,
+            highlight = if (attrs.all { it.highlight == probe.highlight }) probe.highlight else probe.highlight
+        )
+    } else if (fp == null) StyleAttrs() else {
         val base = BuiltInStyles.byId(fp.styleId).baseAttrs()
         val sel = fp.field.selection
         if (sel.collapsed) fp.typingStyle
@@ -575,22 +1147,35 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
             highlight = styleAt(fp.spans, sel.min, base).highlight
         )
     }
-    val toolbarAlign = fp?.let { it.alignmentOverride ?: BuiltInStyles.byId(it.styleId).alignment } ?: TextAlign.Start
-    val toolbarStyleId = fp?.styleId ?: "normal"
-    val toolbarListType = fp?.listType
-    val jumpTargetIds = remember(currentDoc.blocks.size, currentDoc.bookmarks.size) {
-        (currentDoc.blocks.filterIsInstance<ParagraphBlock>().filter { it.styleId in BuiltInStyles.HEADING_IDS }.map { it.id } +
-            currentDoc.bookmarks.map { it.blockId }).toSet()
-    }
+    val selectedForToolbar = selectedParagraphsIncludingEmpty()
+    val alignmentValues = selectedForToolbar.map { it.alignmentOverride ?: BuiltInStyles.byId(it.styleId).alignment }.distinct()
+    val toolbarAlign: TextAlign? = if (documentSelection?.let { !it.collapsed } == true) {
+        alignmentValues.singleOrNull()
+    } else if (selectionTargets.isNotEmpty()) {
+        alignmentValues.singleOrNull() ?: fp?.let { it.alignmentOverride ?: BuiltInStyles.byId(it.styleId).alignment }
+    } else fp?.let { it.alignmentOverride ?: BuiltInStyles.byId(it.styleId).alignment } ?: TextAlign.Start
+    val styleValues = selectedForToolbar.map { it.styleId }.distinct()
+    val toolbarStyleId = if (styleValues.size == 1) styleValues.firstOrNull() ?: "normal" else "__mixed__"
+    val toolbarListType = if (selectedParagraphsIncludingEmpty().map { it.listType }.distinct().size == 1) selectedParagraphsIncludingEmpty().firstOrNull()?.listType else null
     val homeEnabled = currentDoc.kind == DocKind.RICH_TEXT && !currentDoc.readOnly && fp != null
 
     Scaffold(
         modifier = Modifier.onPreviewKeyEvent { event ->
             if (event.type == KeyEventType.KeyDown && event.isCtrlPressed && currentDoc.kind == DocKind.RICH_TEXT) {
                 when (event.key) {
+                    Key.N -> { newDocument(); true }
+                    Key.O -> { openDocLauncher.launch(arrayOf("text/*", "application/pdf", "*/*")); true }
+                    Key.C -> { copySelection(); true }
+                    Key.X -> { if (!currentDoc.readOnly) cutSelection(); true }
+                    Key.V -> { if (!currentDoc.readOnly) pasteClipboard(); true }
                     Key.B -> { toggleAttribute({ s -> s.bold }, { s, v -> s.copy(bold = v) }); true }
                     Key.I -> { toggleAttribute({ s -> s.italic }, { s, v -> s.copy(italic = v) }); true }
                     Key.U -> { toggleAttribute({ s -> s.underline }, { s, v -> s.copy(underline = v) }); true }
+                    Key.L -> { setAlign(TextAlign.Start); true }
+                    Key.E -> { setAlign(TextAlign.Center); true }
+                    Key.R -> { setAlign(TextAlign.End); true }
+                    Key.J -> { setAlign(TextAlign.Justify); true }
+                    Key.K -> { showLinkDialog = true; true }
                     Key.S -> { saveCurrent(); true }
                     Key.F -> { showFindReplaceDialog = true; true }
                     Key.Z -> { if (event.isShiftPressed) redoAction() else undoAction(); true }
@@ -605,50 +1190,71 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding).background(appBg)) {
 
             if (!readingMode) {
-                // ==================== TITLE BAR ====================
+                // ==================== WORD-STYLE TITLE / QUICK ACCESS BAR ====================
                 Row(
-                    modifier = Modifier.fillMaxWidth().background(ribbonBg).padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().height(30.dp).background(ribbonBg).padding(horizontal = 5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Menu, null, tint = Color.White, modifier = Modifier.size(22.dp).clickable { sidebarOpen = !sidebarOpen })
-                    Spacer(Modifier.width(12.dp))
-                    Icon(Icons.Default.Description, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    FluentIcon("panel_left", "Toggle navigation", tint = Color.White, modifier = Modifier.size(17.dp).clickable { sidebarOpen = !sidebarOpen })
+                    Spacer(Modifier.width(6.dp))
+                    FluentIcon("arrow_undo", "Undo", tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(17.dp).clickable { undoAction() })
+                    Spacer(Modifier.width(5.dp))
+                    FluentIcon("arrow_redo", "Redo", tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(17.dp).clickable { redoAction() })
+                    Spacer(Modifier.width(8.dp))
+                    FluentIcon("document_text", "Document", tint = Color.White, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
                     BasicTextField(
                         value = currentDoc.title,
                         onValueChange = { t -> currentDoc.title = t; currentDoc.isDirty = true },
                         singleLine = true,
-                        textStyle = TextStyle(color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium),
+                        textStyle = TextStyle(color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium),
                         cursorBrush = SolidColor(Color.White),
                         modifier = Modifier.weight(1f)
                     )
                     if (currentDoc.isDirty) {
-                        Box(Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF41A5EE)))
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF41A5EE)))
                         Spacer(Modifier.width(8.dp))
                     }
                     if (currentDoc.readOnly) {
-                        Icon(Icons.Default.Lock, null, tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(16.dp))
+                        FluentIcon("lock_closed", "Read only", tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(8.dp))
                     }
-                    Icon(Icons.Default.Save, null, tint = Color.White, modifier = Modifier.size(20.dp).clickable {
+                    FluentIcon("search", "Find", tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(16.dp).clickable { showFindReplaceDialog = true })
+                    Spacer(Modifier.width(10.dp))
+                    FluentIcon("save", "Save", tint = Color.White, modifier = Modifier.size(17.dp).clickable {
                         if (currentDoc.kind == DocKind.RICH_TEXT && !currentDoc.readOnly) saveCurrent()
                     })
                 }
 
                 // ==================== RIBBON TABS ====================
-                Row(modifier = Modifier.fillMaxWidth().background(ribbonBg)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(28.dp)
+                        .background(if (isDark) WordTheme.darkSurface else WordTheme.ribbonWhite),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     listOf(
                         RibbonTab.FILE to "File", RibbonTab.HOME to "Home", RibbonTab.INSERT to "Insert",
-                        RibbonTab.REFERENCES to "References", RibbonTab.VIEW to "View"
+                        RibbonTab.LAYOUT to "Layout", RibbonTab.REFERENCES to "References", RibbonTab.REVIEW to "Review",
+                        RibbonTab.VIEW to "View"
                     ).forEach { (tab, label) ->
                         val selected = ribbonTab == tab
-                        Text(
-                            label, color = Color.White, fontSize = 13.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier.clickable { ribbonTab = tab }
-                                .background(if (selected) ribbonStripBg.copy(alpha = 0.25f) else Color.Transparent)
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
+                        Box(
+                            modifier = Modifier.fillMaxHeight()
+                                .clickable { ribbonTab = tab }
+                                .background(if (tab == RibbonTab.FILE && selected) WordTheme.wordBlue else Color.Transparent),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                label,
+                                color = if (tab == RibbonTab.FILE && selected) Color.White else textColor,
+                                fontSize = 10.sp,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                            if (selected && tab != RibbonTab.FILE) {
+                                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth(0.62f).height(2.dp).background(WordTheme.wordBlue))
+                            }
+                        }
                     }
                 }
 
@@ -665,6 +1271,8 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                         onSaveAs = { showSaveAsDialog = true },
                         onSaveCopy = { duplicateCurrent() },
                         onExportPdf = { exportPdfLauncher.launch("${currentDoc.title}.pdf") },
+                        onPrint = { printCurrentDocument() },
+                        onShare = { shareCurrentDocument() },
                         onProperties = { showPropertiesDialog = true },
                         onPageSetup = { showPageSetupDialog = true },
                         onSettings = { showSettingsDialog = true },
@@ -672,10 +1280,58 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                     )
                 } else {
                     Column(modifier = Modifier.fillMaxWidth().background(ribbonStripBg)) {
-                        when (ribbonTab) {
-                            RibbonTab.HOME -> HomeRibbon(
+                        when {
+                            contextualRibbon == ContextualRibbon.PICTURE -> PictureContextRibbon(
+                                onDelete = {
+                                    if (!currentDoc.readOnly && focusedTopIndex in currentDoc.blocks.indices && currentDoc.blocks[focusedTopIndex] is ImageBlock) {
+                                        currentDoc.pushUndoSnapshot(); currentDoc.blocks.removeAt(focusedTopIndex); contextualRibbon = null; currentDoc.isDirty = true
+                                    }
+                                },
+                                onScale = { scale ->
+                                    val image = currentDoc.blocks.getOrNull(focusedTopIndex) as? ImageBlock
+                                    if (image != null && !currentDoc.readOnly) { currentDoc.pushUndoSnapshot(); image.widthDp = (image.widthDp * scale).toInt().coerceIn(80, 900); currentDoc.isDirty = true }
+                                },
+                                onSetScale = { percent ->
+                                    val image = currentDoc.blocks.getOrNull(focusedTopIndex) as? ImageBlock
+                                    if (image != null && !currentDoc.readOnly) { currentDoc.pushUndoSnapshot(); image.widthDp = (300f * percent / 100f).toInt().coerceIn(80, 900); currentDoc.isDirty = true }
+                                },
+                                onAlign = { align ->
+                                    val image = currentDoc.blocks.getOrNull(focusedTopIndex) as? ImageBlock
+                                    if (image != null && !currentDoc.readOnly) { image.alignment = align; currentDoc.isDirty = true }
+                                },
+                                onClose = { contextualRibbon = null }
+                            )
+                            contextualRibbon == ContextualRibbon.TABLE -> TableContextRibbon(
+                                onAddRow = {
+                                    val table = currentDoc.blocks.getOrNull(focusedTopIndex) as? TableBlock
+                                    if (table != null && !currentDoc.readOnly) {
+                                        currentDoc.pushUndoSnapshot()
+                                        val cols = table.rows.firstOrNull()?.cells?.size ?: 1
+                                        table.rows.add(TableRow().apply { repeat(cols) { cells.add(TableCell().apply { blocks.add(ParagraphBlock()) }) } })
+                                        currentDoc.isDirty = true
+                                    }
+                                },
+                                onAddColumn = {
+                                    val table = currentDoc.blocks.getOrNull(focusedTopIndex) as? TableBlock
+                                    if (table != null && !currentDoc.readOnly) {
+                                        currentDoc.pushUndoSnapshot()
+                                        table.rows.forEach { it.cells.add(TableCell().apply { blocks.add(ParagraphBlock()) }) }
+                                        currentDoc.isDirty = true
+                                    }
+                                },
+                                onDelete = {
+                                    if (!currentDoc.readOnly && focusedTopIndex in currentDoc.blocks.indices && currentDoc.blocks[focusedTopIndex] is TableBlock) {
+                                        currentDoc.pushUndoSnapshot(); currentDoc.blocks.removeAt(focusedTopIndex); contextualRibbon = null; currentDoc.isDirty = true
+                                    }
+                                },
+                                onClose = { contextualRibbon = null }
+                            )
+                            ribbonTab == RibbonTab.HOME -> HomeRibbon(
                                 enabled = homeEnabled,
                                 typingOrSelectionStyle = toolbarStyle, alignment = toolbarAlign,
+                                mixedFormatting = selectionTargets.size > 1 || selectionTargets.any { (p, r) ->
+                                    p.spans.filter { it.end > r.min && it.start < r.max }.map { it.style }.distinct().size > 1
+                                },
                                 currentStyleId = toolbarStyleId, listType = toolbarListType,
                                 onBold = { toggleAttribute({ s -> s.bold }, { s, v -> s.copy(bold = v) }) },
                                 onItalic = { toggleAttribute({ s -> s.italic }, { s, v -> s.copy(italic = v) }) },
@@ -693,9 +1349,14 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                                 onIndentIncrease = { changeIndent(1) },
                                 onIndentDecrease = { changeIndent(-1) },
                                 onStyleChange = { applyParagraphStyle(it) },
-                                onClearFormatting = { clearFormatting() }
+                                onClearFormatting = { clearFormatting() },
+                                onCopy = { copySelection() },
+                                onCut = { cutSelection() },
+                                onPaste = { pasteClipboard() },
+                                onSpacingChange = { before, after -> setParagraphSpacing(before, after) },
+                                onLineSpacingChange = { setLineSpacing(it) }
                             )
-                            RibbonTab.INSERT -> InsertRibbon(
+                            ribbonTab == RibbonTab.INSERT -> InsertRibbon(
                                 onInsertDate = { insertTextAtCursor(SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date())) },
                                 onInsertDivider = { insertTextAtCursor("\n" + "─".repeat(32) + "\n") },
                                 onInsertTable = { showTableDialog = true },
@@ -703,23 +1364,43 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                                 onInsertPageBreak = { insertBlockAfterFocus(PageBreakBlock()) },
                                 onInsertLink = { showLinkDialog = true },
                                 onInsertBookmark = { showAddBookmarkDialog = true },
-                                onInsertPageNumberField = { insertTextAtCursor("{page}") }
+                                onInsertPageNumberField = { insertPageNumberFieldIntoFooter() },
+                                onToggleHeader = { toggleHeader() },
+                                onToggleFooter = { toggleFooter() },
+                                onInsertSymbol = { showSymbolDialog = true }
                             )
-                            RibbonTab.REFERENCES -> ReferencesRibbon(
+                            ribbonTab == RibbonTab.LAYOUT -> LayoutRibbon(
+                                onPageSetup = { showPageSetupDialog = true },
+                                onMargins = { showPageSetupDialog = true }
+                            )
+                            ribbonTab == RibbonTab.REFERENCES -> ReferencesRibbon(
                                 navPanelOpen = navPanelOpen,
                                 bookmarks = currentDoc.bookmarks,
                                 onInsertToc = { insertToc() },
                                 onJumpToBookmark = { jumpToBlockId(it) },
                                 onDeleteBookmark = { id -> currentDoc.bookmarks.removeAll { it.id == id } },
+                                onInsertFootnote = { pendingNoteIsEndnote = false; showNoteDialog = true },
+                                onInsertEndnote = { pendingNoteIsEndnote = true; showNoteDialog = true },
                                 onToggleNavPanel = { navPanelOpen = !navPanelOpen }
                             )
-                            RibbonTab.VIEW -> ViewRibbon(
-                                sidebarOpen = sidebarOpen, zoom = zoom,
-                                readOnly = currentDoc.readOnly, readingMode = readingMode,
+                            ribbonTab == RibbonTab.REVIEW -> ReviewRibbon(
+                                enabled = currentDoc.kind == DocKind.RICH_TEXT,
+                                onFind = { showFindReplaceDialog = true },
+                                onAddComment = { if (!currentDoc.readOnly) showCommentDialog = true },
+                                onShowComments = { showCommentsDialog = true },
+                                onToggleReadOnly = { currentDoc.readOnly = !currentDoc.readOnly }
+                            )
+                            ribbonTab == RibbonTab.VIEW -> ViewRibbon(
+                                sidebarOpen = sidebarOpen, thumbnailsOpen = showPageThumbnails, zoom = zoom,
+                                readOnly = currentDoc.readOnly, readingMode = readingMode, viewMode = viewMode,
+                                showRuler = showRuler,
                                 onToggleSidebar = { sidebarOpen = !sidebarOpen },
+                                onToggleThumbnails = { showPageThumbnails = !showPageThumbnails },
                                 onZoomChange = { zoom = it },
+                                onViewModeChange = { viewMode = it },
                                 onToggleReadOnly = { currentDoc.readOnly = !currentDoc.readOnly },
                                 onToggleReadingMode = { readingMode = true },
+                                onToggleRuler = { showRuler = !showRuler },
                                 onPageSetup = { showPageSetupDialog = true }
                             )
                             else -> {}
@@ -745,6 +1426,9 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                     AnimatedVisibility(visible = navPanelOpen) {
                         NavigationPanel(doc = currentDoc, textColor = textColor, onJump = { jumpToBlockId(it) })
                     }
+                    AnimatedVisibility(visible = showPageThumbnails) {
+                        PageThumbnailPanel(doc = currentDoc, textColor = textColor, onJump = { jumpToBlockId(it) })
+                    }
                 }
 
                 Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
@@ -753,20 +1437,63 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                     } else {
                         PagedDocumentView(
                             doc = currentDoc, zoom = zoom, pageColor = pageColor, textColor = textColor,
-                            readOnly = currentDoc.readOnly,
+                            readOnly = currentDoc.readOnly, showRuler = showRuler, focusedParagraph = focusedParagraph,
+                            focusTargetParagraphId = focusTargetParagraphId,
+                            onFocusTargetChange = { focusTargetParagraphId = it },
+                            onFocusTargetConsumed = { focusTargetParagraphId = null },
                             matches = matches, activeMatch = activeMatch,
                             jumpRequesters = jumpRequesters, jumpTargetIds = jumpTargetIds,
-                            onParagraphFocus = { p -> focusedParagraph = p },
+                            onParagraphFocus = { p -> focusedParagraph = p; selectedBlockId = p.id; contextualRibbon = null; showSelectionToolbar = false },
                             onTopIndexFocus = { i -> focusedTopIndex = i },
+                            onImageSelect = { selectedBlockId = currentDoc.blocks.getOrNull(focusedTopIndex)?.id; contextualRibbon = ContextualRibbon.PICTURE },
+                            onTableSelect = { selectedBlockId = currentDoc.blocks.getOrNull(focusedTopIndex)?.id; contextualRibbon = ContextualRibbon.TABLE },
+                            selectedBlockId = selectedBlockId,
+                            onTextEdit = { beginTypingUndo(currentDoc) },
+                            onCopy = { copySelection() },
+                            onCut = { cutSelection() },
+                            onPaste = { pasteClipboard() },
+                            onSelectAll = { selectAllText() },
+                            onSelectionChange = { block, range ->
+                                if (focusedParagraph?.id == block.id) {
+                                    if (range.collapsed) {
+                                        documentSelection = null
+                                        showSelectionToolbar = false
+                                    } else {
+                                        syncVisualSelection(DocumentSelection(block.id, range.start, block.id, range.end))
+                                        showSelectionToolbar = true
+                                    }
+                                }
+                            },
+                            onMoveAcrossParagraph = { block, index, forward, extend, byWord ->
+                                if (focusedParagraph?.id == block.id) moveCaretAcrossParagraph(forward, extend, byWord) else false
+                            },
+                            onDocumentSelectionDelete = { isDelete -> deleteDocumentSelection(!isDelete) },
+                            onLink = { showLinkDialog = true },
+                            onComment = { showCommentDialog = true },
                             onRegenerateToc = { regenerateToc(it) },
                             onJumpToBlock = { jumpToBlockId(it) }
+                        )
+                    }
+                    val selectedText = (documentSelection?.let { !it.collapsed } == true) ||
+                        (focusedParagraph?.let { !it.field.selection.collapsed && it.field.selection.min != it.field.selection.max } == true)
+                    if (selectedText && showSelectionToolbar && !currentDoc.readOnly) {
+                        TextSelectionMiniToolbar(
+                            style = toolbarStyle,
+                            enabled = homeEnabled,
+                            onBold = { toggleAttribute({ a -> a.bold }, { a, v -> a.copy(bold = v) }) },
+                            onItalic = { toggleAttribute({ a -> a.italic }, { a, v -> a.copy(italic = v) }) },
+                            onUnderline = { toggleAttribute({ a -> a.underline }, { a, v -> a.copy(underline = v) }) },
+                            onFontSizeChange = { applyFontSize(it) },
+                            onHighlight = { applyHighlight(Color(0xFFFFF59D)) },
+                            onColor = { applyColor(Color(0xFF1A1A1A)) },
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp)
                         )
                     }
                     if (readingMode) {
                         IconButton(
                             onClick = { readingMode = false },
                             modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f))
-                        ) { Icon(Icons.Default.FullscreenExit, "Exit reading mode", tint = Color.White) }
+                        ) { FluentIcon("full_screen_minimize", "Exit reading mode", tint = Color.White) }
                     }
                 }
             }
@@ -842,12 +1569,48 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
         )
     }
 
+    if (showSymbolDialog) {
+        SymbolDialog(
+            onDismiss = { showSymbolDialog = false },
+            onInsert = { symbol -> insertTextAtCursor(symbol); showSymbolDialog = false }
+        )
+    }
+
     if (showLinkDialog) {
         LinkDialog(onDismiss = { showLinkDialog = false }, onConfirm = { url -> insertLinkOnSelection(url); showLinkDialog = false })
     }
 
     if (showAddBookmarkDialog) {
         AddBookmarkDialog(onDismiss = { showAddBookmarkDialog = false }, onConfirm = { name -> addBookmarkAtFocus(name); showAddBookmarkDialog = false })
+    }
+
+    if (showCommentDialog) {
+        val quoted = focusedParagraph?.let { p ->
+            val r = p.field.selection
+            if (!r.collapsed) p.field.text.substring(r.min, r.max) else ""
+        } ?: ""
+        CommentDialog(
+            quotedText = quoted,
+            onDismiss = { showCommentDialog = false },
+            onConfirm = { addComment(it); showCommentDialog = false }
+        )
+    }
+
+    if (showCommentsDialog) {
+        CommentsDialog(
+            comments = currentDoc.comments,
+            onResolve = { id -> currentDoc.comments.firstOrNull { it.id == id }?.let { it.resolved = true; currentDoc.isDirty = true } },
+            onDelete = { id -> currentDoc.comments.removeAll { it.id == id }; currentDoc.isDirty = true },
+            onDismiss = { showCommentsDialog = false }
+        )
+    }
+
+    if (showNoteDialog) {
+        NoteDialog(
+            title = if (pendingNoteIsEndnote) "Insert Endnote" else "Insert Footnote",
+            onDismiss = { showNoteDialog = false },
+            onConfirm = { insertNote(it, pendingNoteIsEndnote); showNoteDialog = false }
+        )
     }
 
     if (showRecoveryDialog) {
@@ -946,23 +1709,24 @@ private fun StatusBar(doc: WordDocument, zoom: Float, textColor: Color, ribbonSt
     val paragraphs = doc.blocks.filterIsInstance<ParagraphBlock>()
     val wordCount = paragraphs.sumOf { p -> p.field.text.trim().split(Regex("\\s+")).count { it.isNotEmpty() } }
     val charCount = paragraphs.sumOf { it.field.text.length }
+    val pageCount = if (doc.kind == DocKind.PDF) 0 else paginate(doc).size.coerceAtLeast(1)
     Row(
-        modifier = Modifier.fillMaxWidth().background(ribbonStripBg).padding(horizontal = 12.dp, vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().height(24.dp).background(WordTheme.wordBlue).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             when {
-                doc.kind == DocKind.PDF -> "PDF document · read-only"
-                doc.readOnly -> "Read-only · $wordCount words · $charCount characters"
-                else -> "$wordCount words · $charCount characters · ${paragraphs.size} paragraphs"
+                doc.kind == DocKind.PDF -> "PDF document · Read-only"
+                doc.readOnly -> "Page 1 of $pageCount · Read-only · $wordCount words"
+                else -> "Page 1 of $pageCount · $wordCount words · $charCount characters"
             },
-            color = textColor.copy(alpha = 0.6f), fontSize = 11.sp, modifier = Modifier.weight(1f)
+            color = Color.White.copy(alpha = 0.95f), fontSize = 9.sp, modifier = Modifier.weight(1f)
         )
-        Icon(Icons.Default.ZoomOut, null, tint = textColor.copy(alpha = 0.6f), modifier = Modifier.size(14.dp).clickable { onZoomChange((zoom - 0.1f).coerceAtLeast(0.6f)) })
+        FluentIcon("zoom_out", null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(14.dp).clickable { onZoomChange((zoom - 0.1f).coerceAtLeast(0.6f)) })
         Slider(value = zoom, onValueChange = onZoomChange, valueRange = 0.6f..2f, modifier = Modifier.width(90.dp).padding(horizontal = 4.dp))
-        Icon(Icons.Default.ZoomIn, null, tint = textColor.copy(alpha = 0.6f), modifier = Modifier.size(14.dp).clickable { onZoomChange((zoom + 0.1f).coerceAtMost(2f)) })
+        FluentIcon("zoom_in", null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(14.dp).clickable { onZoomChange((zoom + 0.1f).coerceAtMost(2f)) })
         Spacer(Modifier.width(6.dp))
-        Text("${(zoom * 100).toInt()}%", color = textColor.copy(alpha = 0.6f), fontSize = 11.sp)
+        Text("${(zoom * 100).toInt()}%", color = Color.White.copy(alpha = 0.95f), fontSize = 11.sp)
     }
 }
 
@@ -971,50 +1735,83 @@ private fun FileBackstage(
     isDark: Boolean, textColor: Color, bg: Color, documents: List<WordDocument>, currentIndex: Int,
     onSelectDoc: (Int) -> Unit, onNew: () -> Unit, onOpen: () -> Unit, onOpenPdf: () -> Unit,
     onSave: () -> Unit, onSaveAs: () -> Unit, onSaveCopy: () -> Unit, onExportPdf: () -> Unit,
-    onProperties: () -> Unit, onPageSetup: () -> Unit, onSettings: () -> Unit, onClose: () -> Unit
+    onPrint: () -> Unit, onShare: () -> Unit, onProperties: () -> Unit, onPageSetup: () -> Unit,
+    onSettings: () -> Unit, onClose: () -> Unit
 ) {
-    Row(modifier = Modifier.fillMaxWidth().heightIn(min = 340.dp).background(bg)) {
+    var selectedSection by remember { mutableStateOf("Home") }
+    val leftBg = if (isDark) WordTheme.wordBlueDark else WordTheme.wordBlue
+    val surface = if (isDark) WordTheme.darkSurface else Color.White
+    val subtle = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFF3F2F1)
+    val secondary = if (isDark) Color.White.copy(alpha = 0.62f) else Color(0xFF666666)
+
+    Row(modifier = Modifier.fillMaxWidth().fillMaxHeight().background(surface)) {
         Column(
-            modifier = Modifier.width(200.dp).fillMaxHeight().verticalScroll(rememberScrollState())
-                .background(if (isDark) WordTheme.ribbonBlueDark else WordTheme.ribbonBlue)
-                .padding(vertical = 8.dp)
+            modifier = Modifier.width(142.dp).fillMaxHeight().background(leftBg).padding(vertical = 5.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
         ) {
-            BackstageAction(Icons.Default.NoteAdd, "New", onNew)
-            BackstageAction(Icons.Default.FolderOpen, "Open…", onOpen)
-            BackstageAction(Icons.Default.PictureAsPdf, "Open PDF…", onOpenPdf)
-            BackstageAction(Icons.Default.Save, "Save", onSave)
-            BackstageAction(Icons.Default.SaveAs, "Save As…", onSaveAs)
-            BackstageAction(Icons.Default.ContentCopy, "Save a Copy", onSaveCopy)
-            BackstageAction(Icons.Default.PictureAsPdf, "Export as PDF…", onExportPdf)
-            BackstageAction(Icons.Default.Info, "Properties", onProperties)
-            BackstageAction(Icons.Default.Description, "Page Setup", onPageSetup)
-            BackstageAction(Icons.Default.Tune, "Settings", onSettings)
-            Spacer(Modifier.weight(1f).heightIn(min = 8.dp))
-            BackstageAction(Icons.Default.Close, "Close", onClose)
+            BackstageAction("document_add", "New", onNew, compact = true)
+            BackstageAction("folder_open", "Open", onOpen, compact = true)
+            BackstageAction("save", "Save", onSave, compact = true, enabled = true)
+            BackstageAction("save_edit", "Save As", onSaveAs, compact = true)
+            BackstageAction("document_pdf", "Export", onExportPdf, compact = true)
+            BackstageAction("print", "Print", onPrint, compact = true)
+            BackstageAction("share", "Share", onShare, compact = true)
+            Spacer(Modifier.height(4.dp))
+            BackstageSectionButton("Home", selectedSection == "Home") { selectedSection = "Home" }
+            BackstageSectionButton("Info", selectedSection == "Info") { selectedSection = "Info" }
+            BackstageSectionButton("Options", selectedSection == "Options") { selectedSection = "Options" }
+            Spacer(Modifier.weight(1f))
+            BackstageAction("settings", "Settings", onSettings, compact = true)
+            BackstageAction("dismiss", "Close", onClose, compact = true)
         }
-        Column(modifier = Modifier.weight(1f).padding(16.dp)) {
-            Text("Recent", color = textColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Spacer(Modifier.height(8.dp))
-            documents.forEachIndexed { i, doc ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
-                        .clickable { onSelectDoc(i) }
-                        .background(if (i == currentIndex) bluebirdColors.AccentBlue.copy(alpha = 0.15f) else Color.Transparent)
-                        .padding(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        if (doc.kind == DocKind.PDF) Icons.Default.PictureAsPdf else Icons.Default.Description,
-                        null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(doc.title, color = textColor, fontSize = 13.sp)
-                        Text(
-                            SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(doc.lastModified)),
-                            color = textColor.copy(alpha = 0.5f), fontSize = 11.sp
-                        )
+
+        Column(modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(14.dp)) {
+            when (selectedSection) {
+                "Home" -> {
+                    Text("Document", color = textColor, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Create, open and manage your documents.", color = secondary, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        BackstageTile("document_add", "New", "Blank document", onNew)
+                        BackstageTile("folder_open", "Open", "Browse files", onOpen)
+                        BackstageTile("document_pdf", "Open PDF", "Read a PDF", onOpenPdf)
                     }
+                    Spacer(Modifier.height(14.dp))
+                    Text("Recent", color = textColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(5.dp))
+                    documents.forEachIndexed { i, doc ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
+                                .background(if (i == currentIndex) WordRibbonAccent.copy(alpha = 0.10f) else Color.Transparent)
+                                .clickable { onSelectDoc(i) }.padding(7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FluentIcon(if (doc.kind == DocKind.PDF) "document_pdf" else "document_text", null,
+                                tint = WordRibbonAccent, modifier = Modifier.size(17.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(doc.title, color = textColor, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(doc.lastModified)), color = secondary, fontSize = 9.sp)
+                            }
+                            if (doc.isDirty) FluentIcon("circle", null, tint = WordRibbonAccent, modifier = Modifier.size(6.dp))
+                        }
+                    }
+                }
+                "Info" -> {
+                    Text("Info", color = textColor, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(10.dp))
+                    BackstageInfoRow("Name", currentDocumentTitle(documents, currentIndex))
+                    BackstageInfoRow("Format", if (documents.getOrNull(currentIndex)?.kind == DocKind.PDF) "PDF" else "Bluebird Word Document")
+                    BackstageInfoRow("Status", if (documents.getOrNull(currentIndex)?.isDirty == true) "Unsaved changes" else "Saved")
+                    BackstageInfoRow("Pages", paginate(documents.getOrNull(currentIndex) ?: WordDocument("Document")).size.coerceAtLeast(1).toString())
+                    Spacer(Modifier.height(8.dp))
+                    BackstageAction("info", "Document Properties", onProperties, darkText = textColor, surface = subtle)
+                    BackstageAction("document_text", "Page Setup", onPageSetup, darkText = textColor, surface = subtle)
+                }
+                "Options" -> {
+                    Text("Word Impress Options", color = textColor, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Application and document preferences.", color = secondary, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
+                    BackstageAction("settings", "Settings", onSettings, darkText = textColor, surface = subtle)
+                    BackstageAction("document_text", "Page Setup", onPageSetup, darkText = textColor, surface = subtle)
                 }
             }
         }
@@ -1022,14 +1819,49 @@ private fun FileBackstage(
 }
 
 @Composable
-private fun BackstageAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun BackstageSectionButton(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(label, color = Color.White, fontSize = 10.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp))
+            .background(if (selected) Color.White.copy(alpha = 0.16f) else Color.Transparent)
+            .clickable { onClick() }.padding(horizontal = 11.dp, vertical = 6.dp))
+}
+
+@Composable
+private fun BackstageTile(icon: String, title: String, subtitle: String, onClick: () -> Unit) {
+    Column(modifier = Modifier.width(112.dp).height(78.dp).clip(RoundedCornerShape(4.dp)).border(1.dp, WordRibbonBorder)
+        .clickable { onClick() }.padding(8.dp), verticalArrangement = Arrangement.Center) {
+        FluentIcon(icon, null, tint = WordRibbonAccent, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.height(4.dp))
+        Text(title, fontSize = 10.sp, color = Color(0xFF202020), fontWeight = FontWeight.SemiBold)
+        Text(subtitle, fontSize = 8.sp, color = Color(0xFF666666), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun BackstageInfoRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+        Text(label, fontSize = 10.sp, color = Color(0xFF666666), modifier = Modifier.width(75.dp))
+        Text(value, fontSize = 10.sp, color = Color(0xFF202020), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+private fun currentDocumentTitle(documents: List<WordDocument>, index: Int): String =
+    documents.getOrNull(index)?.title ?: "Document"
+
+@Composable
+private fun BackstageAction(
+    icon: String, label: String, onClick: () -> Unit,
+    compact: Boolean = false, enabled: Boolean = true, darkText: Color? = null, surface: Color = Color.Transparent
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp))
+            .background(surface).clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = if (compact) 10.dp else 12.dp, vertical = if (compact) 6.dp else 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = Color.White, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(12.dp))
-        Text(label, color = Color.White, fontSize = 13.sp)
+        FluentIcon(icon, null, tint = darkText ?: Color.White.copy(alpha = if (enabled) 1f else 0.45f), modifier = Modifier.size(if (compact) 15.dp else 16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(label, color = darkText ?: Color.White.copy(alpha = if (enabled) 1f else 0.45f), fontSize = if (compact) 10.sp else 11.sp)
     }
 }
 
@@ -1047,7 +1879,7 @@ private fun DocumentSidebar(
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text("Documents", color = textColor, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = onNew, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Default.Add, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(18.dp))
+                FluentIcon("add", null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(14.dp))
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -1061,8 +1893,8 @@ private fun DocumentSidebar(
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        if (doc.kind == DocKind.PDF) Icons.Default.PictureAsPdf else Icons.Default.Description,
+                    FluentIcon(
+                        if (doc.kind == DocKind.PDF) "document_pdf" else "document_text",
                         null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(8.dp))
@@ -1073,7 +1905,7 @@ private fun DocumentSidebar(
                     )
                     Box {
                         IconButton(onClick = { showMenu = true }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.MoreVert, null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(14.dp))
+                            FluentIcon("more_vertical", null, tint = textColor.copy(alpha = 0.5f), modifier = Modifier.size(14.dp))
                         }
                         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                             DropdownMenuItem(text = { Text("Rename") }, onClick = { onRename(i); showMenu = false })
