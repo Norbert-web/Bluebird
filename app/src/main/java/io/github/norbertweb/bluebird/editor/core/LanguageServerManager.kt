@@ -5,29 +5,32 @@ import java.io.File
 /** Lifecycle holder for the optional project language server. */
 class LanguageServerManager {
     private var active: LanguageServerClient = NoOpLanguageServerClient
-    private var initialized = false
+    @Volatile private var initialized = false
+    private val lock = Any()
 
-    fun attach(client: LanguageServerClient, root: File): Boolean {
-        detach()
-        val ok = client.initialize(root.absolutePath)
+    fun attach(client: LanguageServerClient, root: File): Boolean = synchronized(lock) {
+        detachLocked()
+        val ok = runCatching { client.initialize(root.absolutePath) }.getOrDefault(false)
         if (!ok) {
-            client.shutdown()
-            return false
+            runCatching { client.shutdown() }
+            return@synchronized false
         }
         active = client
         initialized = true
-        return true
+        true
     }
 
-    fun detach() {
-        if (initialized) active.shutdown()
+    fun detach() = synchronized(lock) { detachLocked() }
+
+    private fun detachLocked() {
+        if (initialized) runCatching { active.shutdown() }
         active = NoOpLanguageServerClient
         initialized = false
     }
 
-    fun client(): LanguageServerClient = active
+    fun client(): LanguageServerClient = synchronized(lock) { active }
     fun isConnected(): Boolean = initialized
-    fun capabilities(): LspServerCapabilities = active.capabilities()
+    fun capabilities(): LspServerCapabilities = synchronized(lock) { active.capabilities() }
 
     fun requestCompletionAsync(filePath: String, text: String, offset: Int, callback: (List<LspCompletionItem>) -> Unit): Int? =
         (active as? StdioLanguageServerClient)?.requestCompletionAsync(filePath, text, offset, callback)

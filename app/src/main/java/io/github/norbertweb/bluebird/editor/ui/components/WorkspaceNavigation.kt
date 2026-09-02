@@ -23,6 +23,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.norbertweb.bluebird.editor.editor.core.PremiumEditorState
+import io.github.norbertweb.bluebird.editor.core.ShellActivity
 import io.github.norbertweb.bluebird.ui.components.FluentIcon
 import java.io.File
 
@@ -149,4 +150,99 @@ fun WorkspaceOutlineDialog(s: PremiumEditorState) {
         },
         confirmButton = { TextButton(onClick = { s.showWorkspaceOutline = false }) { Text("Close", color = c.accent) } }
     )
+}
+
+
+@Composable
+fun WorkspaceHomeDialog(s: PremiumEditorState) {
+    val c = s.colors
+    val root = s.workspaceRoot
+    val files = s.workspaceIndex.indexedFiles
+    val openFiles = s.tabs.filter { it.filePath.isNotBlank() }
+    val modified = openFiles.count { it.isModified }
+    val extensions = files.groupingBy { it.fileName.substringAfterLast('.', "file").lowercase() }.eachCount()
+        .entries.sortedByDescending { it.value }.take(5)
+
+    AlertDialog(
+        onDismissRequest = { s.showWorkspaceHome = false },
+        containerColor = c.surface,
+        shape = RoundedCornerShape(14.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Icon(FluentIcon.FolderOpen, null, tint = c.accent, modifier = Modifier.size(20.dp))
+                Column {
+                    Text("Workspace", color = c.text, fontSize = 16.sp)
+                    Text(root?.name ?: "Current project", color = c.textMuted, fontSize = 10.sp)
+                }
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    WorkspaceMetric("FILES", "${files.size}", c, Modifier.weight(1f))
+                    WorkspaceMetric("SYMBOLS", "${s.workspaceIndex.indexedSymbolCount}", c, Modifier.weight(1f))
+                    WorkspaceMetric("OPEN", "${openFiles.size}", c, Modifier.weight(1f))
+                    WorkspaceMetric("CHANGED", "$modified", c, Modifier.weight(1f))
+                }
+                Text("QUICK ACTIONS", color = c.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    WorkspaceHomeAction("Explorer", FluentIcon.FolderOpen, c) { s.showWorkspaceHome = false; s.shellActivity = ShellActivity.EXPLORER }
+                    WorkspaceHomeAction("Outline", FluentIcon.List, c) { s.showWorkspaceHome = false; s.showWorkspaceOutline() }
+                    WorkspaceHomeAction("Symbols", FluentIcon.Code, c) { s.showWorkspaceHome = false; s.showWorkspaceSymbolTree() }
+                }
+                Text("OPEN EDITORS", color = c.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                if (openFiles.isEmpty()) {
+                    Text("No files are open yet.", color = c.textMuted, fontSize = 11.sp)
+                } else {
+                    LazyColumn(Modifier.heightIn(max = 170.dp)) {
+                        items(openFiles, key = { it.id }) { tab ->
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(7.dp))
+                                    .clickable {
+                                        s.selectTabIdInGroup(s.activeEditorGroup, tab.id)
+                                        s.showWorkspaceHome = false
+                                    }.padding(horizontal = 8.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(FluentIcon.Document, null, tint = if (tab.isModified) c.warning else c.accent, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(7.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(tab.fileName.ifBlank { "Untitled" }, color = c.text, fontSize = 11.sp, maxLines = 1)
+                                    Text(tab.filePath, color = c.textMuted, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                if (tab.isModified) Text("●", color = c.warning, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+                if (extensions.isNotEmpty()) {
+                    Text("PROJECT PROFILE", color = c.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(extensions.joinToString("  ·  ") { ".${it.key} ${it.value}" }, color = c.textSecondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(s.workspaceIndexStatus, color = c.textMuted, fontSize = 9.sp)
+            }
+        },
+        confirmButton = { TextButton(onClick = { s.showWorkspaceHome = false }) { Text("Back to Editor", color = c.accent) } }
+    )
+}
+
+@Composable
+private fun WorkspaceMetric(label: String, value: String, c: io.github.norbertweb.bluebird.editor.ui.theme.EditorColors, modifier: Modifier) {
+    Column(modifier.background(c.surfaceHover, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 7.dp)) {
+        Text(value, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, color = c.textMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun WorkspaceHomeAction(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, c: io.github.norbertweb.bluebird.editor.ui.theme.EditorColors, onClick: () -> Unit) {
+    Row(
+        Modifier.clip(RoundedCornerShape(8.dp)).background(c.surfaceHover).clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(icon, null, tint = c.accent, modifier = Modifier.size(14.dp))
+        Text(label, color = c.text, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+    }
 }

@@ -205,6 +205,7 @@ private fun IdeTitleBar(s: PremiumEditorState, onSave: () -> Unit, onNewTab: () 
         Spacer(Modifier.weight(1f))
         ShellIconButton(FluentIcon.Add, "New", c) { onNewTab() }
         ShellIconButton(FluentIcon.Save, "Save", c, enabled = s.isModified) { onSave() }
+        ShellIconButton(FluentIcon.FolderOpen, "Workspace Overview", c) { s.showWorkspaceHome = true }
         ShellIconButton(FluentIcon.Search, "Command Palette", c) { s.showCommandPalette = true }
         if (isWebPreviewSupported(s.fileName)) {
             ShellIconButton(FluentIcon.Globe, if (s.showLivePreview) "Hide Live Preview" else "Live Preview", c) { s.showLivePreview = !s.showLivePreview }

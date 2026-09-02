@@ -20,6 +20,7 @@ class JsonRpcStdioTransport private constructor(
 ) {
     private val nextId = AtomicInteger(1)
     private val pending = ConcurrentHashMap<Int, PendingRequest>()
+    private val maxMessageBytes = 16L * 1024L * 1024L
     @Volatile private var running = true
     @Volatile var notificationHandler: ((String, JSONObject) -> Unit)? = null
 
@@ -100,7 +101,10 @@ class JsonRpcStdioTransport private constructor(
                         contentLength = line.substring(separator + 1).trim().toIntOrNull() ?: -1
                     }
                 }
-                if (contentLength < 0) continue
+                if (contentLength < 0 || contentLength.toLong() > maxMessageBytes) {
+                    running = false
+                    return
+                }
                 val bytes = ByteArray(contentLength)
                 var read = 0
                 while (read < contentLength) {
@@ -196,6 +200,7 @@ class StdioLanguageServerClient(
     override fun shutdown() {
         transport?.let { runCatching { it.request("shutdown", JSONObject(), 1000) }; runCatching { it.notify("exit") }; it.close() }
         transport = null
+        versions.clear()
     }
 
     @Volatile var diagnosticsHandler: ((Pair<String?, List<LspDiagnostic>>) -> Unit)? = null

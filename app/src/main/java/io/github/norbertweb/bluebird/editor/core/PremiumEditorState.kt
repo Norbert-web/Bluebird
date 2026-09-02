@@ -934,6 +934,8 @@ class PremiumEditorState(
     var autocompleteSuggestions by mutableStateOf<List<String>>(emptyList())
     var showAutocomplete by mutableStateOf(false)
     var showLivePreview by mutableStateOf(false)
+    /** Desktop-style workspace overview; keeps the editor shell available underneath. */
+    var showWorkspaceHome by mutableStateOf(false)
 
     fun acceptSuggestion(word: String) {
         val text = content.text
@@ -1111,7 +1113,7 @@ class PremiumEditorState(
             if (open != null) {
                 updateContentForTab(open.id, TextFieldValue(text, TextRange(text.length)))
             } else {
-                runCatching { File(path).writeText(text) }
+                runCatching { ProductionHardening.atomicWriteText(File(path), text) }
             }
         }
         rebuildWorkspaceIndex()
@@ -1192,7 +1194,7 @@ class PremiumEditorState(
                 trimTrailingWhitespace(content).newValue.text else content.text
             val withNewline = if (settings.insertFinalNewline && !finalContent.endsWith('\n'))
                 "$finalContent\n" else finalContent
-            File(path).writeText(withNewline, encoding.charset)
+            ProductionHardening.atomicWriteText(File(path), withNewline, encoding.charset)
             autosavePath(context.cacheDir, fileName).delete()
             updateTab { copy(isSaved = true, isModified = false, lastSavedContent = withNewline) }
             toast("Saved — $fileName")
@@ -1206,7 +1208,7 @@ class PremiumEditorState(
         try {
             val f = File(newPath)
             f.parentFile?.mkdirs()
-            f.writeText(content.text, encoding.charset)
+            ProductionHardening.atomicWriteText(f, content.text, encoding.charset)
             updateTab { copy(filePath = newPath, fileName = f.name, isSaved = true, isModified = false, lastSavedContent = content.text) }
             showSaveAsDialog = false
             toast("Saved as ${f.name}")
@@ -1218,7 +1220,8 @@ class PremiumEditorState(
     fun autosave(context: Context) {
         if (!settings.autosaveEnabled || !isModified) return
         try {
-            autosavePath(context.cacheDir, fileName).writeText(content.text)
+            val draft = autosavePath(context.cacheDir, fileName)
+            ProductionHardening.atomicWriteText(draft, content.text, encoding.charset, ProductionHardening.MAX_AUTOSAVE_BYTES)
         } catch (_: Exception) {}
     }
 

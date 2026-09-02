@@ -70,6 +70,7 @@ import io.github.norbertweb.bluebird.editor.ui.components.ReferencesDialog
 import io.github.norbertweb.bluebird.editor.ui.components.WorkspaceSearchDialog
 import io.github.norbertweb.bluebird.editor.ui.components.WorkspaceSymbolsDialog
 import io.github.norbertweb.bluebird.editor.ui.components.WorkspaceOutlineDialog
+import io.github.norbertweb.bluebird.editor.ui.components.WorkspaceHomeDialog
 import io.github.norbertweb.bluebird.editor.ui.components.CodeActionsDialog
 import io.github.norbertweb.bluebird.editor.ui.components.RenameSymbolDialog
 import io.github.norbertweb.bluebird.editor.ui.components.AutocompletePopup
@@ -255,6 +256,7 @@ fun PremiumTextEditorScreen(
         if (s.showWorkspaceSearch) WorkspaceSearchDialog(s)
         if (s.showWorkspaceSymbols) WorkspaceSymbolsDialog(s)
         if (s.showWorkspaceOutline) WorkspaceOutlineDialog(s)
+        if (s.showWorkspaceHome) WorkspaceHomeDialog(s)
         if (s.showCodeActions) CodeActionsDialog(s)
         if (s.showRenameSymbol) RenameSymbolDialog(s)
         if (s.showReferencesPanel) ReferencesDialog(s)
