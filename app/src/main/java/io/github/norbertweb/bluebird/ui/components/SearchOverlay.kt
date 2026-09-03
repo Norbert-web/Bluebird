@@ -3,8 +3,6 @@ package io.github.norbertweb.bluebird.ui.components
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,7 +25,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -48,6 +45,7 @@ import androidx.compose.ui.unit.*
 import io.github.norbertweb.bluebird.AppInfo
 import io.github.norbertweb.bluebird.LauncherUiState
 import io.github.norbertweb.bluebird.LauncherViewModel
+import io.github.norbertweb.bluebird.ui.theme.LocalIsDarkTheme
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.delay
 
@@ -110,8 +108,12 @@ fun SearchOverlay(
     LaunchedEffect(Unit) { viewModel.ensureInstalledAppsLoaded() }
 
     val context = LocalContext.current
-    val isDark = uiState.isDarkTheme
-    val textColor = if (isDark) Color.White else Color(0xFF1A1A1A)
+    // Single source of truth for light/dark (see Theme.kt / LocalIsDarkTheme)
+    // — was reading uiState.isDarkTheme, a flag that no longer drives theme
+    // anywhere else in the app, which is why Search Overlay had drifted out
+    // of sync with Start Menu/Taskbar/Action Center/Window Manager.
+    val isDark = LocalIsDarkTheme.current
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
     var localSearchQuery by rememberSaveable { mutableStateOf(uiState.searchQuery) }
 
     LaunchedEffect(uiState.searchQuery) {
@@ -147,16 +149,13 @@ fun SearchOverlay(
     // Recent searches — persisted so they survive the overlay closing (previously lost on close).
     val recentSearches = remember { mutableStateListOf<String>().apply { addAll(loadRecentSearches(context)) } }
 
-    // Animated width (ignored once fullscreen, which fills all available width instead)
-    val panelWidth by animateDpAsState(
-        targetValue = when (sizeMode) {
-            SearchSizeMode.COMPACT    -> 540.dp
-            SearchSizeMode.EXPANDED   -> 680.dp
-            SearchSizeMode.FULLSCREEN -> configuration.screenWidthDp.dp
-        },
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-        label = "panelWidth"
-    )
+    // Panel width — snaps directly to the target size instead of animating,
+    // consistent with the rest of the app now having no motion on layout changes.
+    val panelWidth = when (sizeMode) {
+        SearchSizeMode.COMPACT    -> 540.dp
+        SearchSizeMode.EXPANDED   -> 680.dp
+        SearchSizeMode.FULLSCREEN -> configuration.screenWidthDp.dp
+    }
     // In full screen we want the panel to occupy essentially the whole screen height too,
     // rather than the old `wrapContentHeight()` which let the keyboard cover most of it.
     val maxPanelHeight = when (sizeMode) {
@@ -236,7 +235,7 @@ fun SearchOverlay(
                         Brush.horizontalGradient(
                             listOf(
                                 bluebirdColors.AccentBlue,
-                                Color(0xFF8855FF),
+                                Color(0xFF7C5CFA),
                                 bluebirdColors.AccentBlue
                             )
                         )
@@ -263,7 +262,7 @@ fun SearchOverlay(
                             .weight(1f)
                             .height(40.dp)
                             .clip(RoundedCornerShape(20.dp))
-                            .background(if (isDark) Color(0xFF2E2E3E) else Color(0xFFE8E8F0))
+                            .background(if (isDark) DS.surfaceDark else DS.surfaceLight)
                             .border(
                                 1.dp,
                                 if (searchQuery.isNotEmpty()) bluebirdColors.AccentBlue.copy(0.5f) else surfaceBorder,
@@ -276,7 +275,7 @@ fun SearchOverlay(
                         Icon(
                             FluentIcon.Search,
                             contentDescription = null,
-                            tint = if (searchQuery.isEmpty()) Color(0xFF888888) else bluebirdColors.AccentBlue,
+                            tint = if (searchQuery.isEmpty()) textColor.copy(alpha = 0.4f) else bluebirdColors.AccentBlue,
                             modifier = Modifier.size(16.dp)
                         )
 
@@ -304,7 +303,8 @@ fun SearchOverlay(
                             }
                         )
 
-                        AnimatedVisibility(visible = searchQuery.isNotEmpty()) {
+                        // Shown/hidden instantly, no fade animation.
+                        if (searchQuery.isNotEmpty()) {
                             Icon(
                                 FluentIcon.Dismiss,
                                 contentDescription = "Clear",
@@ -323,7 +323,7 @@ fun SearchOverlay(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (isDark) Color(0xFF2E2E3E) else Color(0xFFE8E8F0))
+                                .background(if (isDark) DS.surfaceDark else DS.surfaceLight)
                                 .border(0.5.dp, surfaceBorder, RoundedCornerShape(10.dp))
                                 .clickable { showSizeMenu = true },
                             contentAlignment = Alignment.Center
@@ -376,8 +376,8 @@ fun SearchOverlay(
 
                 Spacer(Modifier.height(12.dp))
 
-                // ── Filter tabs (bluebird style) ──
-                AnimatedVisibility(visible = searchQuery.isNotEmpty() || isExpanded) {
+                // ── Filter tabs (bluebird style) — shown/hidden instantly ──
+                if (searchQuery.isNotEmpty() || isExpanded) {
                     Column {
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -592,7 +592,7 @@ private fun SearchResultsContent(
 
     // Web search section
     if (showWeb) {
-        HorizontalDivider(color = Color(0x14FFFFFF), modifier = Modifier.padding(vertical = 4.dp))
+        HorizontalDivider(color = if (isDark) DS.borderDark else DS.borderLight, modifier = Modifier.padding(vertical = 4.dp))
         Spacer(Modifier.height(4.dp))
 
         SectionHeader(title = "Web", icon = FluentIcon.Globe, textColor = textColor, action = null)
@@ -621,7 +621,7 @@ private fun SearchResultsContent(
 // ─────────────────────────────────────────────
 @Composable
 private fun BestMatchItem(app: AppInfo, isDark: Boolean, textColor: Color, onClick: () -> Unit) {
-    val bg = if (isDark) Color(0xFF2A2A3A) else Color(0xFFEAEAF5)
+    val bg = if (isDark) DS.surfaceDark else DS.surfaceLight
 
     Row(
         modifier = Modifier
@@ -680,7 +680,7 @@ private fun BestMatchItem(app: AppInfo, isDark: Boolean, textColor: Color, onCli
 @Composable
 private fun AppResultRow(app: AppInfo, query: String, isDark: Boolean, textColor: Color, onClick: () -> Unit) {
     var hovered by remember { mutableStateOf(false) }
-    val bg = if (hovered) (if (isDark) Color(0xFF2A2A3A) else Color(0xFFEAEAF5)) else Color.Transparent
+    val bg = if (hovered) (if (isDark) DS.surfaceDark else DS.surfaceLight) else Color.Transparent
 
     Row(
         modifier = Modifier
@@ -847,16 +847,14 @@ private fun SearchFilterChip(
     isDark: Boolean,
     onClick: () -> Unit
 ) {
-    val bg by animateColorAsState(
-        targetValue = when {
-            isSelected -> bluebirdColors.AccentBlue
-            isDark -> Color(0xFF2A2A3A)
-            else -> Color(0xFFE0E0EE)
-        },
-        animationSpec = tween(150),
-        label = "chipBg"
-    )
-    val textColor = if (isSelected) Color.White else if (isDark) Color.White.copy(0.7f) else Color.Black.copy(0.6f)
+    val bg = when {
+        isSelected -> bluebirdColors.AccentBlue
+        isDark -> DS.surfaceDark
+        else -> DS.surfaceLight
+    }
+    val textColor = if (isSelected) Color.White
+        else if (isDark) bluebirdColors.TextPrimary.copy(0.7f)
+        else bluebirdColors.TextPrimaryLight.copy(0.6f)
 
     Row(
         modifier = Modifier
@@ -864,7 +862,7 @@ private fun SearchFilterChip(
             .background(bg)
             .border(
                 width = if (isSelected) 0.dp else 0.5.dp,
-                color = if (isDark) Color(0x22FFFFFF) else Color(0x22000000),
+                color = if (isDark) DS.borderDark else DS.borderLight,
                 shape = RoundedCornerShape(20.dp)
             )
             .clickable(onClick = onClick)
@@ -882,13 +880,7 @@ private fun SearchFilterChip(
 // ─────────────────────────────────────────────
 @Composable
 private fun TopAppItem(app: AppInfo, isDark: Boolean, onClick: () -> Unit) {
-    val textColor = if (isDark) Color.White else Color(0xFF1A1A1A)
-    var pressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.88f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "topAppScale"
-    )
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -897,13 +889,11 @@ private fun TopAppItem(app: AppInfo, isDark: Boolean, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             .padding(4.dp)
     ) {
-        Box(modifier = Modifier.scale(scale)) {
-            AppIconSmall(
-                drawable = app.icon,
-                contentDescription = app.name,
-                modifier = Modifier.size(34.dp).clip(RoundedCornerShape(8.dp))
-            )
-        }
+        AppIconSmall(
+            drawable = app.icon,
+            contentDescription = app.name,
+            modifier = Modifier.size(34.dp).clip(RoundedCornerShape(8.dp))
+        )
         Spacer(Modifier.height(3.dp))
         Text(
             app.name,
@@ -923,13 +913,13 @@ private fun TopAppItem(app: AppInfo, isDark: Boolean, onClick: () -> Unit) {
 @Composable
 private fun QuickSearchChip(label: String, icon: ImageVector, isDark: Boolean, onClick: () -> Unit) {
     val bgColor = if (isDark) DS.surfaceDark else DS.surfaceLight // was a local one-off color pair
-    val textColor = if (isDark) Color.White else Color(0xFF1A1A1A)
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
 
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
             .background(bgColor)
-            .border(0.5.dp, if (isDark) Color(0x18FFFFFF) else Color(0x18000000), RoundedCornerShape(20.dp))
+            .border(0.5.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(20.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
