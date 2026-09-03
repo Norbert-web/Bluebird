@@ -134,6 +134,30 @@ class DesktopPreferences(context: Context) {
         } catch (_: Exception) { emptyMap() }
     }
 
+    // ── Stable desktop order ───────────────────────────────────────
+    // Filesystem enumeration is not a stable desktop ordering. Keep the user's
+    // established order when Sort by = None; removed ids disappear and new ids append.
+    fun saveDesktopOrder(order: List<String>) {
+        val arr = JSONArray()
+        order.forEach { arr.put(it) }
+        prefs.edit().putString("desktop_order_v1", arr.toString()).apply()
+    }
+
+    fun loadDesktopOrder(): List<String> {
+        val json = prefs.getString("desktop_order_v1", null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(json)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val id = arr.optString(i, "")
+                    if (id.isNotBlank()) add(id)
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     fun clearCustomPositions() {
         prefs.edit().remove("custom_positions").apply()
     }

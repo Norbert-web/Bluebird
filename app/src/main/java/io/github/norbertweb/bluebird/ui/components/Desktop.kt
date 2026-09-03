@@ -4,6 +4,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
@@ -86,6 +87,13 @@ import kotlin.math.roundToInt
 // ─────────────────────────────────────────────────────────────────
 // Wallpaper Gradients  (used in APPARENT mode)
 // ─────────────────────────────────────────────────────────────────
+private data class DesktopWallpaperRenderState(
+    val mode: DesktopWallpaperMode,
+    val gradientIndex: Int,
+    val imageIndex: Int,
+    val customUri: String
+)
+
 val wallpaperGradients = listOf(
     listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)),
     listOf(Color(0xFF141E30), Color(0xFF243B55)),
@@ -1179,6 +1187,7 @@ fun Desktop(
         var ctrlMouseSelection  by remember { mutableStateOf(false) }
         var shiftMouseSelection by remember { mutableStateOf(false) }
         var iconSize            by remember { mutableStateOf(prefs.iconSize) }
+        var desktopOrder        by remember { mutableStateOf(prefs.loadDesktopOrder()) }
 
         // Self-contained store for two new settings — kept separate from the existing
         // DesktopPreferences class (not among the files I have access to, so I can't
@@ -1254,6 +1263,22 @@ fun Desktop(
         var gradientIndex         by remember { mutableStateOf(prefs.wallpaperGradientIndex) }
         var defaultImageIndex     by remember { mutableStateOf(prefs.wallpaperImageIndex) }
         var customWallpaperUri    by remember { mutableStateOf(prefs.customWallpaperUri) }
+
+        // Settings edits the same DesktopPreferences file while this desktop stays mounted.
+        // Observe the shared store so wallpaper selectors update immediately.
+        DisposableEffect(context) {
+            val shared = context.getSharedPreferences("desktop_prefs", Context.MODE_PRIVATE)
+            val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                when (key) {
+                    "wallpaper_mode" -> wallpaperMode = prefs.wallpaperMode
+                    "wallpaper_gradient_index" -> gradientIndex = prefs.wallpaperGradientIndex
+                    "wallpaper_image_index" -> defaultImageIndex = prefs.wallpaperImageIndex
+                    "custom_wallpaper_uri" -> customWallpaperUri = prefs.customWallpaperUri
+                }
+            }
+            shared.registerOnSharedPreferenceChangeListener(listener)
+            onDispose { shared.unregisterOnSharedPreferenceChangeListener(listener) }
+        }
 
         // Override from WallpaperState if a custom URI was just set externally
         LaunchedEffect(wallpaper.homeWallpaperUri) {
@@ -1357,70 +1382,9 @@ fun Desktop(
         val maxYBound = (workspaceHeightPx - cellHPx - padTopPx).coerceAtLeast(padTopPx)
         val desktopCapacity = (workspaceRows * workspaceCols).coerceAtLeast(1)
 
-        // Keep manual grid spacing identical to Auto Arrange. Auto Arrange derives every
-        // position from the current cell metrics; manual mode stores absolute offsets, so
-        // coordinates saved by an older layout can retain wider spacing. Re-project visible
-        // manual-grid positions onto the same current cells without changing the chosen cell.
-        fun normalizeManualGridPositions() {
-            if (autoArrange || !alignToGrid || customPositions.isEmpty()) return
-
-            val occupied = mutableSetOf<Pair<Int, Int>>()
-            val normalized = mutableMapOf<String, Offset>()
-
-            customPositions.entries.forEach { (id, stored) ->
-                // Positions outside the fixed viewport are overflow records. Leave them in
-                // storage so a later larger viewport can restore them; File Explorer remains
-                // the way to access them while they do not fit on this screen.
-                if (stored.x < padLeftPx || stored.y < padTopPx ||
-                    stored.x > maxXBound || stored.y > maxYBound
-                ) {
-                    normalized[id] = stored
-                    return@forEach
-                }
-
-                val preferred = posToCell(
-                    stored, cellWPx, cellHPx, padLeftPx, padTopPx,
-                    workspaceCols, workspaceRows
-                )
-
-                val chosen = if (preferred !in occupied) {
-                    preferred
-                } else {
-                    // Resolve an old collision using the same nearest-cell rule as snapping.
-                    var best: Pair<Int, Int>? = null
-                    var bestDistance = Float.POSITIVE_INFINITY
-                    for (row in 0 until workspaceRows) {
-                        for (col in 0 until workspaceCols) {
-                            val cell = col to row
-                            if (cell in occupied) continue
-                            val dx = (col - preferred.first).toFloat()
-                            val dy = (row - preferred.second).toFloat()
-                            val distance = dx * dx + dy * dy
-                            if (distance < bestDistance) {
-                                bestDistance = distance
-                                best = cell
-                            }
-                        }
-                    }
-                    best
-                }
-
-                if (chosen != null) {
-                    occupied += chosen
-                    normalized[id] = Offset(
-                        padLeftPx + chosen.first * cellWPx,
-                        padTopPx + chosen.second * cellHPx
-                    )
-                }
-            }
-
-            val current = customPositions.toMap()
-            if (normalized != current) {
-                customPositions.clear()
-                customPositions.putAll(normalized)
-                prefs.saveCustomPositions(customPositions)
-            }
-        }
+        // Manual icon positions are user data. Never re-project them when icon size or
+        // viewport geometry changes. This prevents size changes from moving/reordering
+        // existing icons; items that no longer fit remain in Desktop for Explorer.
 
         // Deliberately no resize/rotation repair effect. Positions are user data.
         // The viewport is fixed; overflow is surfaced through the Desktop-full prompt.
@@ -1466,6 +1430,15 @@ fun Desktop(
         // disk I/O and making rapid create/delete/rename sequences more expensive.
         LaunchedEffect(items) {
             val liveIds = items.asSequence().map { it.id }.toSet()
+            val incomingIds = items.map { it.id }
+            val reconciledOrder = buildList {
+                desktopOrder.forEach { id -> if (id in liveIds) add(id) }
+                incomingIds.forEach { id -> if (id !in this) add(id) }
+            }
+            if (reconciledOrder != desktopOrder) {
+                desktopOrder = reconciledOrder
+                prefs.saveDesktopOrder(reconciledOrder)
+            }
             var positionsChanged = false
             customPositions.keys.toList().forEach { id ->
                 if (id !in liveIds) {
@@ -1537,14 +1510,13 @@ fun Desktop(
             lastManualRefreshTick = tick
         }
 
-        val sortedItems = remember(items, sortMode, sortAscending) {
+        val sortedItems = remember(items, desktopOrder, sortMode, sortAscending) {
             if (sortMode == DesktopSortMode.NONE) {
-                // No active sort — items keep whatever order the file system/ViewModel
-                // gave them in. Ascending/descending is meaningless here, and since every
-                // icon now gets a stable, persisted position (see the earlier fix), this
-                // order no longer even affects where anything visually appears — it only
-                // matters as a rendering/tab-order detail.
-                items
+                val orderIndex = desktopOrder.withIndex().associate { it.value to it.index }
+                items.sortedWith(
+                    compareBy<DesktopFileInfo> { orderIndex[it.id] ?: Int.MAX_VALUE }
+                        .thenBy { it.id }
+                )
             } else {
                 val s = when (sortMode) {
                     DesktopSortMode.NAME          -> items.sortedWith(compareBy<DesktopFileInfo> { it.name.lowercase(java.util.Locale.ROOT) }.thenBy { it.id })
@@ -1628,6 +1600,13 @@ fun Desktop(
                 customPositions[dest.absolutePath] = oldPosition
                 prefs.saveCustomPositions(customPositions)
             }
+            val orderIndex = desktopOrder.indexOf(oldId)
+            if (orderIndex >= 0) {
+                val migratedOrder = desktopOrder.toMutableList()
+                migratedOrder[orderIndex] = dest.absolutePath
+                desktopOrder = migratedOrder
+                prefs.saveDesktopOrder(migratedOrder)
+            }
             if (oldId in selectedIds) {
                 selectedIds = selectedIds - oldId + dest.absolutePath
             }
@@ -1660,15 +1639,24 @@ fun Desktop(
                 )
             } else {
             Crossfade(
-                targetState = Triple(wallpaperMode, gradientIndex, defaultImageIndex),
+                targetState = DesktopWallpaperRenderState(
+                    mode = wallpaperMode,
+                    gradientIndex = gradientIndex,
+                    imageIndex = defaultImageIndex,
+                    customUri = customWallpaperUri
+                ),
                 animationSpec = tween(800),
                 label = "wallpaper_crossfade"
-            ) { (mode, gIdx, dIdx) ->
+            ) { state ->
+                val mode = state.mode
+                val gIdx = state.gradientIndex
+                val dIdx = state.imageIndex
+                val customUri = state.customUri
                 when (mode) {
                     DesktopWallpaperMode.CUSTOM -> {
-                        if (customWallpaperUri.isNotEmpty()) {
+                        if (customUri.isNotEmpty()) {
                             AsyncImage(
-                                model = Uri.parse(customWallpaperUri),
+                                model = Uri.parse(customUri),
                                 contentDescription = null,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
@@ -1822,7 +1810,11 @@ fun Desktop(
             // since it's also needed by placeNewItemAtClickPosition and the stable-
             // position effect further down, both of which run regardless of whether
             // icons are currently shown.
-            val occupiedCells by remember(autoArrange, workspaceRows, workspaceCols, workspaceWidthPx, workspaceHeightPx) {
+            val occupiedCells by remember(
+                autoArrange, sortedItems, workspaceRows, workspaceCols,
+                workspaceWidthPx, workspaceHeightPx, cellWPx, cellHPx,
+                padLeftPx, padTopPx, maxXBound, maxYBound
+            ) {
                 derivedStateOf {
                     buildSet {
                         sortedItems.forEachIndexed { idx, item ->
@@ -1863,15 +1855,18 @@ fun Desktop(
                     // Build positions once per recomposition key instead of
                     // recomputing from scratch for every icon (was O(n²)).
                     val autoArrangePositions = remember(sortedItems, autoArrange, workspaceRows, workspaceCols, iconSize, workspaceWidthPx, workspaceHeightPx) {
-                        if (!autoArrange) return@remember emptyMap<String, Offset>()
-                        val taken = mutableSetOf<Pair<Int, Int>>()
-                        buildMap {
-                            sortedItems.forEachIndexed { i, item ->
-                                val p = autoGridPos(i, workspaceRows, workspaceCols, cellWPx, cellHPx,
-                                    padLeftPx, padTopPx, taken)
-                                if (p != null) {
-                                    put(item.id, p)
-                                    taken.add(posToCell(p, cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows))
+                        if (!autoArrange) {
+                            emptyMap<String, Offset>()
+                        } else {
+                            val taken = mutableSetOf<Pair<Int, Int>>()
+                            buildMap {
+                                sortedItems.forEachIndexed { i, item ->
+                                    val p = autoGridPos(i, workspaceRows, workspaceCols, cellWPx, cellHPx,
+                                        padLeftPx, padTopPx, taken)
+                                    if (p != null) {
+                                        put(item.id, p)
+                                        taken.add(posToCell(p, cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows))
+                                    }
                                 }
                             }
                         }
@@ -1954,7 +1949,7 @@ fun Desktop(
                         Box(
                             Modifier
                                 .offset { IntOffset(animatedPos.x.roundToInt(), animatedPos.y.roundToInt()) }
-                                .scale(dragScale)
+                                .size(cellWDp.dp, cellHDp.dp)
                                 .zIndex(if (isDragged) 50f else if (isInGroup) 40f else 1f)
                                 .pointerInput(item.id) {
                                     detectPressDragGestures(
@@ -2273,16 +2268,29 @@ fun Desktop(
                                     inlineRename?.let { r -> commitRename(r, liveRenameText) } ?: Unit
                                 }
                             }
-                            DesktopIconRender(
-                                item                  = item,
-                                isSelected            = item.id in selectedIds,
-                                iconSize              = iconSize,
-                                inlineRenaming        = inlineRename?.targetId == item.id,
-                                initialRenameText     = inlineRename?.initialName ?: item.name,
-                                onLiveTextChange      = iconOnLiveTextChange,
-                                onInlineRenameConfirm = iconOnRenameConfirm,
-                                refreshFlickerAlpha   = desktopFlickerAlpha.value
-                            )
+                            Box(Modifier.fillMaxSize().scale(dragScale), contentAlignment = Alignment.TopCenter) {
+
+                                DesktopIconRender(
+
+                                    item                  = item,
+
+                                    isSelected            = item.id in selectedIds,
+
+                                    iconSize              = iconSize,
+
+                                    inlineRenaming        = inlineRename?.targetId == item.id,
+
+                                    initialRenameText     = inlineRename?.initialName ?: item.name,
+
+                                    onLiveTextChange      = iconOnLiveTextChange,
+
+                                    onInlineRenameConfirm = iconOnRenameConfirm,
+
+                                    refreshFlickerAlpha   = desktopFlickerAlpha.value
+
+                                )
+
+                            }
                         }
                         } // basePos != null
                         } // stable key: item.id
@@ -2409,17 +2417,6 @@ fun Desktop(
             if (changed) prefs.saveCustomPositions(customPositions)
         }
 
-        // Manual grid mode uses the exact same spacing/cell geometry as Auto Arrange.
-        // This runs when entering manual mode and when the viewport/icon geometry changes,
-        // but not after a normal drag, so user placement remains under their control.
-        LaunchedEffect(
-            autoArrange, alignToGrid, items.map { it.id },
-            cellWPx, cellHPx, padLeftPx, padTopPx, workspaceRows, workspaceCols
-        ) {
-            if (!autoArrange && alignToGrid) {
-                normalizeManualGridPositions()
-            }
-        }
 
             // Prompt when the fixed desktop cannot show the complete Desktop directory.
             // The prompt is keyed to the current item-set/capacity so it does not loop after
