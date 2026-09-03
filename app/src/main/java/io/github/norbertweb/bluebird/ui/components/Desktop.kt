@@ -800,10 +800,13 @@ fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFi
             val iconBmp: Bitmap? = iconRel?.let {
                 try {
                     val f = File(context.filesDir, it)
-                    if (!f.exists()) return@let null
-                    val cacheKey = "webapp:$it:${f.lastModified()}"
-                    DesktopIconCache.get(cacheKey)
-                        ?: BitmapFactory.decodeFile(f.absolutePath)?.let { bmp -> DesktopIconCache.put(cacheKey, bmp) }
+                    if (f.exists()) {
+                        val cacheKey = "webapp:$it:${f.lastModified()}"
+                        DesktopIconCache.get(cacheKey)
+                            ?: BitmapFactory.decodeFile(f.absolutePath)?.let { bmp -> DesktopIconCache.put(cacheKey, bmp) }
+                    } else {
+                        null
+                    }
                 } catch (_: Exception) { null }
             }
             DesktopFileInfo(
@@ -1353,6 +1356,71 @@ fun Desktop(
         val maxXBound = (workspaceWidthPx - cellWPx - padLeftPx).coerceAtLeast(padLeftPx)
         val maxYBound = (workspaceHeightPx - cellHPx - padTopPx).coerceAtLeast(padTopPx)
         val desktopCapacity = (workspaceRows * workspaceCols).coerceAtLeast(1)
+
+        // Keep manual grid spacing identical to Auto Arrange. Auto Arrange derives every
+        // position from the current cell metrics; manual mode stores absolute offsets, so
+        // coordinates saved by an older layout can retain wider spacing. Re-project visible
+        // manual-grid positions onto the same current cells without changing the chosen cell.
+        fun normalizeManualGridPositions() {
+            if (autoArrange || !alignToGrid || customPositions.isEmpty()) return
+
+            val occupied = mutableSetOf<Pair<Int, Int>>()
+            val normalized = mutableMapOf<String, Offset>()
+
+            customPositions.entries.forEach { (id, stored) ->
+                // Positions outside the fixed viewport are overflow records. Leave them in
+                // storage so a later larger viewport can restore them; File Explorer remains
+                // the way to access them while they do not fit on this screen.
+                if (stored.x < padLeftPx || stored.y < padTopPx ||
+                    stored.x > maxXBound || stored.y > maxYBound
+                ) {
+                    normalized[id] = stored
+                    return@forEach
+                }
+
+                val preferred = posToCell(
+                    stored, cellWPx, cellHPx, padLeftPx, padTopPx,
+                    workspaceCols, workspaceRows
+                )
+
+                val chosen = if (preferred !in occupied) {
+                    preferred
+                } else {
+                    // Resolve an old collision using the same nearest-cell rule as snapping.
+                    var best: Pair<Int, Int>? = null
+                    var bestDistance = Float.POSITIVE_INFINITY
+                    for (row in 0 until workspaceRows) {
+                        for (col in 0 until workspaceCols) {
+                            val cell = col to row
+                            if (cell in occupied) continue
+                            val dx = (col - preferred.first).toFloat()
+                            val dy = (row - preferred.second).toFloat()
+                            val distance = dx * dx + dy * dy
+                            if (distance < bestDistance) {
+                                bestDistance = distance
+                                best = cell
+                            }
+                        }
+                    }
+                    best
+                }
+
+                if (chosen != null) {
+                    occupied += chosen
+                    normalized[id] = Offset(
+                        padLeftPx + chosen.first * cellWPx,
+                        padTopPx + chosen.second * cellHPx
+                    )
+                }
+            }
+
+            val current = customPositions.toMap()
+            if (normalized != current) {
+                customPositions.clear()
+                customPositions.putAll(normalized)
+                prefs.saveCustomPositions(customPositions)
+            }
+        }
 
         // Deliberately no resize/rotation repair effect. Positions are user data.
         // The viewport is fixed; overflow is surfaced through the Desktop-full prompt.
@@ -2339,6 +2407,18 @@ fun Desktop(
                 }
             }
             if (changed) prefs.saveCustomPositions(customPositions)
+        }
+
+        // Manual grid mode uses the exact same spacing/cell geometry as Auto Arrange.
+        // This runs when entering manual mode and when the viewport/icon geometry changes,
+        // but not after a normal drag, so user placement remains under their control.
+        LaunchedEffect(
+            autoArrange, alignToGrid, items.map { it.id },
+            cellWPx, cellHPx, padLeftPx, padTopPx, workspaceRows, workspaceCols
+        ) {
+            if (!autoArrange && alignToGrid) {
+                normalizeManualGridPositions()
+            }
         }
 
             // Prompt when the fixed desktop cannot show the complete Desktop directory.
