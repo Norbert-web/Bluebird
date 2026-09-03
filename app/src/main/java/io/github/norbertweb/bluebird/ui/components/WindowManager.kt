@@ -972,7 +972,11 @@ fun WindowContent(
             val extras = windowState.extras
             when (windowState.screen) {
                 LauncherScreen.PremiumTextEditorScreen -> PremiumTextEditorScreen(isDark, filePath = extras["filePath"] ?: "")
-                LauncherScreen.SETTINGS      -> SettingsScreen(isDark, viewModel)
+                LauncherScreen.SETTINGS      -> SettingsScreen(
+                    isDark = isDark,
+                    viewModel = viewModel,
+                    initialCategory = extras["category"]
+                )
                 LauncherScreen.FILE_EXPLORER -> FileExplorerScreen(isDark, viewModel, startPath = extras["path"])
                 LauncherScreen.BROWSER       -> BrowserScreen(isDark)
                 LauncherScreen.CALCULATOR    -> CalculatorScreen(isDark)
