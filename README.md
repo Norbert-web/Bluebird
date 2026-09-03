@@ -53,6 +53,12 @@
 
 **Bluebird** transforms your Android device into a Windows 11 desktop. It is a fully functional **home screen launcher** — set it as your default launcher and your phone becomes a PC-style productivity device.
 
+Bluebird isn't trying to convince you it's a real operating system running underneath Android — it doesn't pretend to be a dual-boot or a virtualized desktop. What it *is* is the most complete, carefully scaled desktop **simulation** available for Android: every window, icon, and menu is built from scratch in Jetpack Compose to feel and behave like the real thing, right down to floating windows you can drag and stack, a real file system underneath, and a taskbar that tracks what's actually running.
+
+The detail Bluebird cares about most is one most "Windows launchers" get wrong: **density scaling**. Most desktop-style launchers are designed and screenshotted in landscape or on tablets, then look cramped, oversized, or broken the moment a real user opens them one-handed on a phone in portrait — which is how the overwhelming majority of Android users actually hold their device. Bluebird's icon grid, windows, and text scale to match the user's actual screen size and density, so the desktop looks intentional and correctly proportioned in both portrait and landscape — not too small, not oversized, just right for the screen it's on.
+
+Bluebird is also built to run well on modest hardware. The release APK is around 27MB and stays smooth even on 2GB RAM devices, which matters because the people most drawn to a free, offline, desktop-style Android experience are often on budget phones with limited storage and data — not flagship devices with RAM to spare.
+
 - A **floating windowed app system** where every app opens in a draggable, resizable window
 - A **real Windows 11 taskbar** with clock, pinned apps, system tray, and Action Center
 - A **Start Menu** with app grid, search, user profile, and power options
@@ -133,6 +139,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the full, detailed changelog.
 
 ## Features
 
+Everything below is grouped by the part of the shell it lives in. Where it's useful, each section notes *how* the feature is actually implemented (real Android APIs vs. simulated behavior), since one of Bluebird's core design goals is to be a real, functioning environment rather than a set of screens that only look like one.
+
 ### Desktop Environment
 
 | Feature | Description |
@@ -180,6 +188,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the full, detailed changelog.
 
 ### File Explorer (Real Filesystem)
 
+This is a genuine file manager, not a themed shortcut list. It's backed by `BluebirdFileSystem`, which sits directly on top of Android's `File` API, so every folder, file size, and modified date shown is real — the same data you'd see in any other file manager, just presented the Windows 11 way (breadcrumbs, Quick Access, sortable columns).
+
 | Feature | Description |
 |---------|-------------|
 | **True filesystem browsing** | Uses `BluebirdFileSystem`, backed by the Android `File` API — real files, real sizes, real dates |
@@ -200,10 +210,12 @@ See [CHANGELOG.md](CHANGELOG.md) for the full, detailed changelog.
 
 ### Bluebird App Store & Web Apps (New in v1.8)
 
+Bluebird's installer mimics a real Windows-style software installation instead of just launching a bookmark. A web app's HTML/CSS/JS assets are packaged into a zip with the correct internal file structure, then renamed to Bluebird's own `.bpk` package extension. Bluebird recognizes `.bpk` files as installable programs — opening one triggers a real "install" flow (icon, name, permissions) rather than just opening a URL, so installed web apps behave like first-class desktop programs instead of glorified browser tabs.
+
 | Feature | Description |
 |---------|-------------|
 | **Bluebird App Store** | Browse and install apps directly inside the launcher |
-| **Custom HTML/CSS/JS app installation** | Package and install your own lightweight web-based apps as first-class desktop apps |
+| **Custom HTML/CSS/JS app installation** | Package your own lightweight web-based apps as a `.bpk` installer and install them as first-class desktop apps |
 | **Install from URL** | Install any web app directly from a URL |
 | **Web App Manager** | Manage all installed web apps in one place — update, remove, relaunch |
 | **Web App Viewer** | Dedicated runtime window for installed web apps, separate from the main browser |
@@ -221,12 +233,16 @@ See [CHANGELOG.md](CHANGELOG.md) for the full, detailed changelog.
 
 ### Terminal (New in v1.8+)
 
+A real command surface for the desktop, not a decorative black box — commands run through Bluebird's own shell bridge and behave like a standard floating window, so it can sit alongside File Explorer or Word Impress like any other app.
+
 | Feature | Description |
 |---------|-------------|
 | **On-device shell access** | Run shell commands directly from the desktop |
 | **Dedicated Terminal window** | Opens as a standard floating Bluebird window like any other app |
 
 ### Text Editor
+
+A lightweight code/text editor for quick edits without leaving the desktop — think Notepad++ rather than a full IDE, aimed at fast edits to config files, notes, or code snippets on the go.
 
 | Feature | Description |
 |---------|-------------|
@@ -350,6 +366,8 @@ Reversible actions across the shell surface an undo affordance with a clear, hum
 ---
 
 ## Built-in Apps
+
+Every app below runs as its own floating window inside Bluebird's window manager — none of them are separate installable APKs. That's what makes the multi-window experience possible: File Explorer, Word Impress, Terminal, and Settings can all be open and visible at once, each independently draggable, resizable, minimizable, and closable, exactly like real desktop applications.
 
 | App | Description |
 |-----|-------------|
@@ -767,6 +785,8 @@ If you want to publish your own fork, change the package name in:
 
 ## Known Limitations
 
+Most of the limitations below aren't Bluebird-specific bugs — they're restrictions Android itself places on any third-party app, launcher or not. They're listed here in full because a transparent limitations list is more trustworthy than pretending a home-screen replacement can override the OS it's running on.
+
 | Limitation | Reason | Workaround |
 |-----------|--------|-----------|
 | **Wi-Fi cannot be toggled programmatically** | Removed in Android 10 (API 29) by Google | Tapping Wi-Fi opens system Wi-Fi Settings |
@@ -809,7 +829,7 @@ If you want to publish your own fork, change the package name in:
 
 ## Contributing
 
-Contributions are warmly welcome! Here's how to get started:
+Contributions are warmly welcome! Full guidelines — including dev environment setup, coding standards, and the PR process — live in [CONTRIBUTING.md](CONTRIBUTING.md). Quick summary below:
 
 ### Bug Reports
 
