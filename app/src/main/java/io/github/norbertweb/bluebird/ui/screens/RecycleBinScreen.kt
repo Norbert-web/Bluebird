@@ -8,8 +8,6 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
@@ -22,6 +20,7 @@ import androidx.compose.ui.unit.*
 import androidx.core.content.ContextCompat
 import io.github.norbertweb.bluebird.LauncherViewModel
 import io.github.norbertweb.bluebird.RecycleBinItem
+import io.github.norbertweb.bluebird.ui.components.FluentIcon
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import io.github.norbertweb.bluebird.wordprocessor.formatDate
 import io.github.norbertweb.bluebird.wordprocessor.formatFileSize
@@ -32,19 +31,19 @@ import java.io.File
 private fun getFileIconForName(name: String): ImageVector {
     val ext = File(name).extension.lowercase()
     return when {
-        ext in listOf("jpg", "jpeg", "png", "gif", "webp", "bmp") -> Icons.Default.Image
-        ext in listOf("mp4", "mkv", "avi", "mov", "webm") -> Icons.Default.OndemandVideo
-        ext in listOf("mp3", "wav", "ogg", "flac", "aac") -> Icons.Default.AudioFile
-        ext == "pdf" -> Icons.Default.PictureAsPdf
-        ext in listOf("apk") -> Icons.Default.Android
-        ext in listOf("zip", "rar", "7z") -> Icons.Default.Archive
-        ext in listOf("txt", "log", "md") -> Icons.Default.Description
-        ext in listOf("doc", "docx") -> Icons.Default.Article
-        ext in listOf("xls", "xlsx") -> Icons.Default.TableChart
-        ext in listOf("ppt", "pptx") -> Icons.Default.Slideshow
-        ext in listOf("html", "htm") -> Icons.Default.Code
-        name.contains(".") -> Icons.Default.InsertDriveFile
-        else -> Icons.Default.Folder
+        ext in listOf("jpg", "jpeg", "png", "gif", "webp", "bmp") -> FluentIcon.Image
+        ext in listOf("mp4", "mkv", "avi", "mov", "webm") -> FluentIcon.Video
+        ext in listOf("mp3", "wav", "ogg", "flac", "aac") -> FluentIcon.AudioFile
+        ext == "pdf" -> FluentIcon.DocumentPdf
+        ext in listOf("apk") -> FluentIcon.Android
+        ext in listOf("zip", "rar", "7z") -> FluentIcon.Archive
+        ext in listOf("txt", "log", "md") -> FluentIcon.Description
+        ext in listOf("doc", "docx") -> FluentIcon.Article
+        ext in listOf("xls", "xlsx") -> FluentIcon.Table
+        ext in listOf("ppt", "pptx") -> FluentIcon.Slideshow
+        ext in listOf("html", "htm") -> FluentIcon.Code
+        name.contains(".") -> FluentIcon.Document
+        else -> FluentIcon.Folder
     }
 }
 
@@ -124,7 +123,7 @@ fun RecycleBinScreen(isDark: Boolean, viewModel: LauncherViewModel) {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(
-                Icons.Default.Delete,
+                FluentIcon.Delete,
                 contentDescription = null,
                 tint = accent,
                 modifier = Modifier.size(20.dp)
@@ -140,7 +139,7 @@ fun RecycleBinScreen(isDark: Boolean, viewModel: LauncherViewModel) {
             Box {
                 var showSortMenu by remember { mutableStateOf(false) }
                 IconButton(onClick = { showSortMenu = true }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.SortByAlpha, contentDescription = "Sort", tint = textColor.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
+                    Icon(FluentIcon.SortByAlpha, contentDescription = "Sort", tint = textColor.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
                 }
                 DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                     listOf("name", "date", "size", "type").forEach { sort ->
@@ -154,7 +153,7 @@ fun RecycleBinScreen(isDark: Boolean, viewModel: LauncherViewModel) {
                             leadingIcon = {
                                 if (sortMode == sort) {
                                     Icon(
-                                        if (sortAscending) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                        if (sortAscending) FluentIcon.KeyboardArrowUp else FluentIcon.KeyboardArrowDown,
                                         null,
                                         tint = accent,
                                         modifier = Modifier.size(16.dp)
@@ -175,7 +174,7 @@ fun RecycleBinScreen(isDark: Boolean, viewModel: LauncherViewModel) {
                     modifier = Modifier.height(32.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                 ) {
-                    Icon(Icons.Default.RestoreFromTrash, null, modifier = Modifier.size(14.dp))
+                    Icon(FluentIcon.Restore, null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Restore all", fontSize = 12.sp)
                 }
@@ -189,7 +188,7 @@ fun RecycleBinScreen(isDark: Boolean, viewModel: LauncherViewModel) {
                     modifier = Modifier.height(32.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                 ) {
-                    Icon(Icons.Default.DeleteForever, null, modifier = Modifier.size(14.dp))
+                    Icon(FluentIcon.DeleteForever, null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Empty Bin", fontSize = 12.sp)
                 }
@@ -215,7 +214,7 @@ fun RecycleBinScreen(isDark: Boolean, viewModel: LauncherViewModel) {
                     selectedIds.forEach { viewModel.restoreFromRecycleBin(it) }
                     selectedIds = emptySet()
                 }) {
-                    Icon(Icons.Default.RestoreFromTrash, null, modifier = Modifier.size(14.dp))
+                    Icon(FluentIcon.Restore, null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Restore", fontSize = 12.sp)
                 }
@@ -223,13 +222,13 @@ fun RecycleBinScreen(isDark: Boolean, viewModel: LauncherViewModel) {
                     selectedIds.forEach { viewModel.permanentlyDelete(it) }
                     selectedIds = emptySet()
                 }) {
-                    Icon(Icons.Default.DeleteForever, null, tint = bluebirdColors.DangerRed, modifier = Modifier.size(14.dp))
+                    Icon(FluentIcon.DeleteForever, null, tint = bluebirdColors.DangerRed, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Delete permanently", color = bluebirdColors.DangerRed, fontSize = 12.sp)
                 }
                 Spacer(modifier = Modifier.weight(1f))
                 IconButton(onClick = { selectedIds = emptySet() }, modifier = Modifier.size(20.dp)) {
-                    Icon(Icons.Default.Close, null, tint = textColor.copy(alpha = 0.6f))
+                    Icon(FluentIcon.Close, null, tint = textColor.copy(alpha = 0.6f))
                 }
             }
         }
@@ -259,7 +258,7 @@ fun RecycleBinScreen(isDark: Boolean, viewModel: LauncherViewModel) {
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Icon(
-                        Icons.Default.DeleteOutline,
+                        FluentIcon.Delete,
                         null,
                         tint = textColor.copy(alpha = 0.15f),
                         modifier = Modifier.size(80.dp)
@@ -403,7 +402,7 @@ private fun RecycleBinItemRow(
                 modifier = Modifier.size(28.dp)
             ) {
                 Icon(
-                    Icons.Default.MoreVert,
+                    FluentIcon.MoreVert,
                     null,
                     tint = textColor.copy(alpha = 0.5f),
                     modifier = Modifier.size(16.dp)
@@ -421,7 +420,7 @@ private fun RecycleBinItemRow(
                     },
                     leadingIcon = {
                         Icon(
-                            Icons.Default.RestoreFromTrash,
+                            FluentIcon.Restore,
                             null,
                             tint = bluebirdColors.AccentBlue,
                             modifier = Modifier.size(16.dp)
@@ -436,7 +435,7 @@ private fun RecycleBinItemRow(
                     },
                     leadingIcon = {
                         Icon(
-                            Icons.Default.DeleteForever,
+                            FluentIcon.DeleteForever,
                             null,
                             tint = bluebirdColors.DangerRed,
                             modifier = Modifier.size(16.dp)

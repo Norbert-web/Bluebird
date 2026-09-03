@@ -19,9 +19,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
@@ -39,6 +36,7 @@ import androidx.compose.ui.unit.*
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
+import io.github.norbertweb.bluebird.ui.components.FluentIcon
 import io.github.norbertweb.bluebird.LauncherViewModel
 import io.github.norbertweb.bluebird.WallpaperTarget
 import kotlinx.coroutines.Dispatchers
@@ -273,7 +271,7 @@ private fun PhotoPermissionGate(isDark: Boolean, onGranted: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(Icons.Default.PhotoLibrary, null, tint = textColor, modifier = Modifier.size(52.dp))
+            Icon(FluentIcon.ImageMultiple, null, tint = textColor, modifier = Modifier.size(52.dp))
             Text("Photo access needed", color = textColor, style = MaterialTheme.typography.titleLarge)
             Text(
                 "Allow Bluebird to view your photos and videos. On Android 14+, you can choose only the media you want to share.",
@@ -445,8 +443,8 @@ private fun AlbumsView(
             title = "Photos",
             isDark = isDark, surface = surface, border = border, tc = tc, tcm = tcm,
             actions = {
-                PIconBtn(Icons.Default.Refresh, "Rescan", tc) { onRescan() }
-                PIconBtn(Icons.Default.GridView, "All Photos", tc) {
+                PIconBtn(FluentIcon.Refresh, "Rescan", tc) { onRescan() }
+                PIconBtn(FluentIcon.Grid, "All Photos", tc) {
                     state.activeAlbum = null; state.view = PhotoView.GRID
                 }
             }
@@ -517,7 +515,7 @@ private fun AlbumsView(
                                 },
                                 contentScale = ContentScale.Crop,
                                 loading = { Box(Modifier.fillMaxSize().background(if (isDark) Ph.DSurfaceH else Ph.LSurfaceH)) },
-                                error = { Box(Modifier.fillMaxSize().background(if (isDark) Ph.DSurfaceH else Ph.LSurfaceH)) { Icon(Icons.Default.BrokenImage, null, tint = tcm, modifier = Modifier.align(Alignment.Center).size(24.dp)) } }
+                                error = { Box(Modifier.fillMaxSize().background(if (isDark) Ph.DSurfaceH else Ph.LSurfaceH)) { Icon(FluentIcon.BrokenImage, null, tint = tcm, modifier = Modifier.align(Alignment.Center).size(24.dp)) } }
                             )
                         }
                     }
@@ -548,7 +546,7 @@ private fun AllPhotosHero(state: PhotosState, isDark: Boolean, tc: Color, tcs: C
             AsyncImage(state.allPhotos[0].file, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
             Box(Modifier.fillMaxSize().background(if (isDark) Ph.DSurfaceH else Ph.LSurfaceH), contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.PhotoLibrary, null, tint = tcm, modifier = Modifier.size(48.dp))
+                Icon(FluentIcon.ImageMultiple, null, tint = tcm, modifier = Modifier.size(48.dp))
             }
         }
         // Gradient + label
@@ -559,7 +557,7 @@ private fun AllPhotosHero(state: PhotosState, isDark: Boolean, tc: Color, tcs: C
         }
         // Play icon overlay
         Box(Modifier.align(Alignment.TopEnd).padding(12.dp).size(36.dp).background(Color.Black.copy(0.5f), CircleShape), contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.ArrowForward, null, tint = Color.White, modifier = Modifier.size(18.dp))
+            Icon(FluentIcon.ArrowForward, null, tint = Color.White, modifier = Modifier.size(18.dp))
         }
     }
 }
@@ -571,9 +569,9 @@ private fun StatsRow(state: PhotosState, tc: Color, tcm: Color, surface: Color, 
     val totalSize = state.allPhotos.sumOf { it.sizeBytes }
 
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        StatCard("Photos", "$photos", Icons.Outlined.Photo, Ph.Accent, surface, tc, tcm, Modifier.weight(1f))
-        StatCard("Videos", "$videos", Icons.Default.Videocam, Ph.Green, surface, tc, tcm, Modifier.weight(1f))
-        StatCard("Storage", fmtSize(totalSize), Icons.Default.Storage, Ph.Gold, surface, tc, tcm, Modifier.weight(1f))
+        StatCard("Photos", "$photos", FluentIcon.Image, Ph.Accent, surface, tc, tcm, Modifier.weight(1f))
+        StatCard("Videos", "$videos", FluentIcon.Video, Ph.Green, surface, tc, tcm, Modifier.weight(1f))
+        StatCard("Storage", fmtSize(totalSize), FluentIcon.Storage, Ph.Gold, surface, tc, tcm, Modifier.weight(1f))
     }
 }
 
@@ -596,7 +594,7 @@ private fun AlbumCard(album: PhotoAlbum, isDark: Boolean, tc: Color, tcs: Color,
                 AsyncImage(album.coverUri, null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             } else {
                 Box(Modifier.fillMaxSize().background(if (isDark) Ph.DSurfaceH else Ph.LSurfaceH), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.PhotoAlbum, null, tint = tcm, modifier = Modifier.size(36.dp))
+                    Icon(FluentIcon.ImageMultiple, null, tint = tcm, modifier = Modifier.size(36.dp))
                 }
             }
             // Count badge
@@ -642,12 +640,12 @@ private fun FirstLaunchPrompt(tc: Color, tcm: Color, onScan: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Box(Modifier.size(80.dp).background(Ph.Accent.copy(0.1f), CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.PhotoLibrary, null, tint = Ph.Accent, modifier = Modifier.size(40.dp))
+                Icon(FluentIcon.ImageMultiple, null, tint = Ph.Accent, modifier = Modifier.size(40.dp))
             }
             Text("Welcome to Photos", color = tc, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Text("Scan your device to find all your photos and videos.", color = tcm, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 32.dp))
             Button(onClick = onScan, colors = ButtonDefaults.buttonColors(containerColor = Ph.Accent), shape = RoundedCornerShape(8.dp)) {
-                Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(8.dp)); Text("Scan Device")
+                Icon(FluentIcon.Search, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(8.dp)); Text("Scan Device")
             }
         }
     }
@@ -687,7 +685,7 @@ private fun GridView(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(Icons.Default.Search, null, tint = tcm, modifier = Modifier.size(13.dp))
+                    Icon(FluentIcon.Search, null, tint = tcm, modifier = Modifier.size(13.dp))
                     Box(Modifier.weight(1f)) {
                         if (state.searchQuery.isEmpty()) Text("Search", color = tcm, fontSize = 11.sp)
                         androidx.compose.foundation.text.BasicTextField(
@@ -700,23 +698,23 @@ private fun GridView(
                 }
                 Spacer(Modifier.width(4.dp))
                 // Grid size
-                PIconBtn(when (state.gridSize) { GridSize.SMALL -> Icons.Default.GridOn; GridSize.MEDIUM -> Icons.Default.GridView; GridSize.LARGE -> Icons.Default.ViewModule }, "Grid size", tc) {
+                PIconBtn(when (state.gridSize) { GridSize.SMALL -> FluentIcon.GridSmall; GridSize.MEDIUM -> FluentIcon.GridMedium; GridSize.LARGE -> FluentIcon.GridLarge }, "Grid size", tc) {
                     state.gridSize = GridSize.values()[(state.gridSize.ordinal + 1) % 3]
                 }
                 // Sort
                 Box {
-                    PIconBtn(Icons.Default.Sort, "Sort", tc) { state.showSortMenu = true }
+                    PIconBtn(FluentIcon.Sort, "Sort", tc) { state.showSortMenu = true }
                     DropdownMenu(expanded = state.showSortMenu, onDismissRequest = { state.showSortMenu = false }) {
                         listOf(PhotoSort.DATE_NEW to "Newest first", PhotoSort.DATE_OLD to "Oldest first", PhotoSort.NAME to "By name", PhotoSort.SIZE to "By size").forEach { (sort, label) ->
                             DropdownMenuItem(
                                 text = { Text(label, color = if (state.sortMode == sort) Ph.Accent else tc, fontSize = 13.sp) },
-                                leadingIcon = { if (state.sortMode == sort) Icon(Icons.Default.Check, null, tint = Ph.Accent, modifier = Modifier.size(16.dp)) },
+                                leadingIcon = { if (state.sortMode == sort) Icon(FluentIcon.Checkmark, null, tint = Ph.Accent, modifier = Modifier.size(16.dp)) },
                                 onClick = { state.sortMode = sort; state.showSortMenu = false }
                             )
                         }
                     }
                 }
-                PIconBtn(Icons.Default.Refresh, "Rescan", tc) { onRescan() }
+                PIconBtn(FluentIcon.Refresh, "Rescan", tc) { onRescan() }
             }
         )
 
@@ -726,13 +724,13 @@ private fun GridView(
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("${state.selected.size} selected", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SelectionAction(Icons.Default.Share, "Share") {
+                    SelectionAction(FluentIcon.Share, "Share") {
                         sharePhotos(ctx, state.selected.mapNotNull { key -> state.allPhotos.firstOrNull { it.key == key }?.uri })
                     }
-                    SelectionAction(Icons.Default.Delete, "Delete") {
+                    SelectionAction(FluentIcon.Delete, "Delete") {
                         state.showDeleteDialog = true
                     }
-                    SelectionAction(Icons.Default.Close, "Cancel") {
+                    SelectionAction(FluentIcon.Close, "Cancel") {
                         state.selected = emptySet(); state.selectionMode = false
                     }
                 }
@@ -751,7 +749,7 @@ private fun GridView(
         if (photos.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(Icons.Outlined.PhotoLibrary, null, tint = tcm, modifier = Modifier.size(48.dp))
+                    Icon(FluentIcon.ImageMultiple, null, tint = tcm, modifier = Modifier.size(48.dp))
                     Text("No photos found", color = tc, fontSize = 16.sp)
                     if (state.searchQuery.isNotEmpty()) Text("Try a different search term", color = tcm, fontSize = 12.sp)
                 }
@@ -855,21 +853,21 @@ private fun GridPhotoCell(
             contentScale = ContentScale.Crop,
             loading = { Box(Modifier.fillMaxSize().background(if (isDark) Ph.DSurfaceH else Ph.LSurfaceH)) },
             error = { Box(Modifier.fillMaxSize().background(if (isDark) Ph.DSurfaceH else Ph.LSurfaceH), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.BrokenImage, null, tint = Ph.DTextMuted, modifier = Modifier.size(20.dp))
+                Icon(FluentIcon.BrokenImage, null, tint = Ph.DTextMuted, modifier = Modifier.size(20.dp))
             }}
         )
         // Video badge
         if (photo.isVideo) {
             Box(Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Black.copy(0.65f), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp, vertical = 2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(10.dp))
+                    Icon(FluentIcon.Play, null, tint = Color.White, modifier = Modifier.size(10.dp))
                     Text("VIDEO", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
         // Favorite
         if (isFavorite) {
-            Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(14.dp).align(Alignment.TopEnd).padding(3.dp))
+            Icon(FluentIcon.Favorite, null, tint = Color.Red, modifier = Modifier.size(14.dp).align(Alignment.TopEnd).padding(3.dp))
         }
         // Selection indicator
         if (inSelectionMode) {
@@ -877,7 +875,7 @@ private fun GridPhotoCell(
             Box(Modifier.align(Alignment.TopStart).padding(6.dp).size(22.dp)
                 .background(if (isSelected) Ph.Accent else Color.Black.copy(0.4f), CircleShape)
                 .border(2.dp, Color.White, CircleShape), contentAlignment = Alignment.Center) {
-                if (isSelected) Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                if (isSelected) Icon(FluentIcon.Checkmark, null, tint = Color.White, modifier = Modifier.size(14.dp))
             }
         }
     }
@@ -940,12 +938,12 @@ private fun ViewerView(
             // Swipe arrows (sides)
             AnimatedVisibility(state.showControls && state.viewerIndex > 0, modifier = Modifier.align(Alignment.CenterStart)) {
                 Box(Modifier.padding(start = 8.dp).size(40.dp).background(Color.Black.copy(0.5f), CircleShape).clickable { state.viewerIndex--; rotation = 0f }, contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.ChevronLeft, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                    Icon(FluentIcon.ChevronLeft, null, tint = Color.White, modifier = Modifier.size(24.dp))
                 }
             }
             AnimatedVisibility(state.showControls && state.viewerIndex < photos.size - 1, modifier = Modifier.align(Alignment.CenterEnd)) {
                 Box(Modifier.padding(end = 8.dp).size(40.dp).background(Color.Black.copy(0.5f), CircleShape).clickable { state.viewerIndex++; rotation = 0f }, contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.ChevronRight, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                    Icon(FluentIcon.ChevronRight, null, tint = Color.White, modifier = Modifier.size(24.dp))
                 }
             }
         }
@@ -958,7 +956,7 @@ private fun ViewerView(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Box(Modifier.size(36.dp).clip(CircleShape).clickable { state.view = PhotoView.GRID; state.showControls = true }, contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.ArrowBack, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    Icon(FluentIcon.ArrowBack, null, tint = Color.White, modifier = Modifier.size(20.dp))
                 }
                 Column(Modifier.weight(1f)) {
                     Text(photo?.name ?: "", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -973,9 +971,9 @@ private fun ViewerView(
                 // Favorite
                 photo?.let { p ->
                     val isFav = p.key in state.favorites
-                    Icon(if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (isFav) Color.Red else Color.White, modifier = Modifier.size(22.dp).clickable { state.toggleFavorite(p.key) })
+                    Icon(if (isFav) FluentIcon.Favorite else FluentIcon.FavoriteBorder, null, tint = if (isFav) Color.Red else Color.White, modifier = Modifier.size(22.dp).clickable { state.toggleFavorite(p.key) })
                 }
-                Icon(Icons.Default.Info, null, tint = Color.White, modifier = Modifier.size(22.dp).clickable { state.showInfo = !state.showInfo })
+                Icon(FluentIcon.Info, null, tint = Color.White, modifier = Modifier.size(22.dp).clickable { state.showInfo = !state.showInfo })
             }
         }
 
@@ -1013,9 +1011,9 @@ private fun ViewerView(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    ViewerAction(Icons.Default.RotateLeft, "Rotate L") { rotation = (rotation - 90f) % 360f }
-                    ViewerAction(Icons.Default.RotateRight, "Rotate R") { rotation = (rotation + 90f) % 360f }
-                    ViewerAction(Icons.Default.Share, "Share") {
+                    ViewerAction(FluentIcon.RotateLeft, "Rotate L") { rotation = (rotation - 90f) % 360f }
+                    ViewerAction(FluentIcon.RotateRight, "Rotate R") { rotation = (rotation + 90f) % 360f }
+                    ViewerAction(FluentIcon.Share, "Share") {
                         photo?.let { p ->
                             try {
                                 val uri = p.uri
@@ -1023,10 +1021,10 @@ private fun ViewerView(
                             } catch (_: Exception) {}
                         }
                     }
-                    ViewerAction(Icons.Default.Wallpaper, "Wallpaper") {
+                    ViewerAction(FluentIcon.WallpaperIcon, "Wallpaper") {
                         photo?.let { p -> viewModel?.setCustomWallpaper(p.uri.toString(), WallpaperTarget.HOME, ctx) }
                     }
-                    ViewerAction(Icons.Default.OpenWith, "Open With") {
+                    ViewerAction(FluentIcon.OpenWith, "Open With") {
                         photo?.let { p ->
                             try {
                                 val uri = p.uri
@@ -1034,7 +1032,7 @@ private fun ViewerView(
                             } catch (_: Exception) {}
                         }
                     }
-                    ViewerAction(Icons.Default.Delete, "Delete", Ph.DangerRed) {
+                    ViewerAction(FluentIcon.Delete, "Delete", Ph.DangerRed) {
                         photo?.let { p ->
                             val deleted = if (p.file != null) {
                                 if (viewModel != null) {
@@ -1062,10 +1060,10 @@ private fun ViewerView(
             Surface(Modifier.padding(end = 10.dp).width(210.dp), shape = RoundedCornerShape(14.dp), color = Color(0xEA1A1A1A), shadowElevation = 12.dp) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.Info, null, tint = Ph.Accent, modifier = Modifier.size(16.dp))
+                        Icon(FluentIcon.Info, null, tint = Ph.Accent, modifier = Modifier.size(16.dp))
                         Text("File Info", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.weight(1f))
-                        Icon(Icons.Default.Close, null, tint = Ph.DTextMuted, modifier = Modifier.size(16.dp).clickable { state.showInfo = false })
+                        Icon(FluentIcon.Close, null, tint = Ph.DTextMuted, modifier = Modifier.size(16.dp).clickable { state.showInfo = false })
                     }
                     Divider(color = Ph.DBorder)
                     photo?.let { p ->
@@ -1110,11 +1108,11 @@ private fun PhotosTopBar(
         ) {
             if (onBack != null) {
                 Box(Modifier.size(34.dp).clip(CircleShape).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.ArrowBack, null, tint = tc, modifier = Modifier.size(18.dp))
+                    Icon(FluentIcon.ArrowBack, null, tint = tc, modifier = Modifier.size(18.dp))
                 }
             } else {
                 Box(Modifier.size(28.dp).background(Ph.Accent, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.PhotoLibrary, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Icon(FluentIcon.ImageMultiple, null, tint = Color.White, modifier = Modifier.size(16.dp))
                 }
             }
             Text(title, color = tc, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)

@@ -16,8 +16,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
+import io.github.norbertweb.bluebird.ui.components.FluentIcon
 import io.github.norbertweb.bluebird.ui.components.LocalWindowRuntime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -330,7 +329,7 @@ fun CalculatorScreen(isDark: Boolean) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 IconButton(onClick = { showHistory = !showHistory }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.History, null, tint = subtle, modifier = Modifier.size(18.dp))
+                    Icon(FluentIcon.History, null, tint = subtle, modifier = Modifier.size(18.dp))
                 }
                 Text(if (isScientific) "Scientific" else "Standard",
                     style = MaterialTheme.typography.labelMedium, color = subtle)
@@ -574,7 +573,7 @@ fun CalendarScreen(isDark: Boolean) {
                 colors = ButtonDefaults.buttonColors(containerColor = Mac.blue),
                 contentPadding = PaddingValues(horizontal = 12.dp)
             ) {
-                Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                Icon(FluentIcon.Add, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
                 Text("New Event", style = MaterialTheme.typography.labelMedium)
             }
@@ -655,12 +654,12 @@ fun CalendarScreen(isDark: Boolean) {
                     IconButton(onClick = {
                         if (displayMonth == 0) { displayMonth = 11; displayYear-- } else displayMonth--
                     }, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Default.ChevronLeft, null, tint = subtle, modifier = Modifier.size(18.dp))
+                        Icon(FluentIcon.ChevronLeft, null, tint = subtle, modifier = Modifier.size(18.dp))
                     }
                     IconButton(onClick = {
                         if (displayMonth == 11) { displayMonth = 0; displayYear++ } else displayMonth++
                     }, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Default.ChevronRight, null, tint = subtle, modifier = Modifier.size(18.dp))
+                        Icon(FluentIcon.ChevronRight, null, tint = subtle, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -822,7 +821,7 @@ fun CalendarScreen(isDark: Boolean) {
                                     if (ev.location.isNotEmpty()) {
                                         Row(verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            Icon(Icons.Default.LocationOn, null,
+                                            Icon(FluentIcon.Location, null,
                                                 modifier = Modifier.size(10.dp), tint = subtle)
                                             Text(ev.location, style = MaterialTheme.typography.labelSmall, color = subtle)
                                         }
@@ -883,7 +882,7 @@ fun CalendarScreen(isDark: Boolean) {
                     shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(8.dp)
                 ) {
-                    Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
+                    Icon(FluentIcon.Add, null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Add Event", style = MaterialTheme.typography.labelSmall)
                 }
@@ -988,9 +987,9 @@ fun PhotosScreen(isDark: Boolean) {
                 ) {
                     Icon(
                         when (tab) {
-                            "Library"   -> Icons.Default.PhotoLibrary
-                            "Favorites" -> Icons.Default.Favorite
-                            else        -> Icons.Default.PhotoAlbum
+                            "Library"   -> FluentIcon.ImageMultiple
+                            "Favorites" -> FluentIcon.Favorite
+                            else        -> FluentIcon.ImageMultiple
                         },
                         null,
                         modifier = Modifier.size(16.dp),
@@ -1048,7 +1047,7 @@ fun PhotosScreen(isDark: Boolean) {
                         Row(Modifier.fillMaxSize().padding(horizontal = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(Icons.Default.Search, null, tint = subtle, modifier = Modifier.size(14.dp))
+                            Icon(FluentIcon.Search, null, tint = subtle, modifier = Modifier.size(14.dp))
                             BasicTextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
@@ -1064,13 +1063,13 @@ fun PhotosScreen(isDark: Boolean) {
                         }
                     }
                     IconButton(onClick = { isSearching = false; searchQuery = "" }, Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Close, null, tint = subtle, modifier = Modifier.size(16.dp))
+                        Icon(FluentIcon.Close, null, tint = subtle, modifier = Modifier.size(16.dp))
                     }
                 } else {
                     Text("${displayed.size} Photos", style = MaterialTheme.typography.labelMedium, color = subtle)
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = { isSearching = true }, Modifier.size(34.dp)) {
-                        Icon(Icons.Default.Search, null, tint = subtle, modifier = Modifier.size(18.dp))
+                        Icon(FluentIcon.Search, null, tint = subtle, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -1096,7 +1095,7 @@ fun PhotosScreen(isDark: Boolean) {
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(Brush.radialGradient(listOf(photo.secondaryColor, photo.color)))
                         ) {
-                            Icon(Icons.Default.Photo, null,
+                            Icon(FluentIcon.Image, null,
                                 tint = Color.White.copy(alpha = 0.2f),
                                 modifier = Modifier.align(Alignment.Center).size(80.dp))
                         }
@@ -1111,7 +1110,7 @@ fun PhotosScreen(isDark: Boolean) {
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         IconButton(onClick = { selectedPhoto = null }, Modifier.size(32.dp)) {
-                            Icon(Icons.Default.ArrowBack, null, tint = subtle, modifier = Modifier.size(18.dp))
+                            Icon(FluentIcon.ArrowBack, null, tint = subtle, modifier = Modifier.size(18.dp))
                         }
                         Text(photo.label, style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.SemiBold), color = text)
@@ -1122,10 +1121,10 @@ fun PhotosScreen(isDark: Boolean) {
 
                         // Actions
                         listOf(
-                            Icons.Default.Favorite to if (photo.isFavorite) "Remove Favorite" else "Add to Favorites",
-                            Icons.Default.Share to "Share",
-                            Icons.Default.Download to "Save to Device",
-                            Icons.Default.Delete to "Delete"
+                            FluentIcon.Favorite to if (photo.isFavorite) "Remove Favorite" else "Add to Favorites",
+                            FluentIcon.Share to "Share",
+                            FluentIcon.ArrowDownload to "Save to Device",
+                            FluentIcon.Delete to "Delete"
                         ).forEach { (icon, label) ->
                             Row(
                                 modifier = Modifier
@@ -1192,11 +1191,11 @@ fun PhotosScreen(isDark: Boolean) {
                                                 detectTapGestures(onTap = { selectedPhoto = photo })
                                             }
                                     ) {
-                                        Icon(Icons.Default.Photo, null,
+                                        Icon(FluentIcon.Image, null,
                                             tint = Color.White.copy(alpha = 0.15f),
                                             modifier = Modifier.align(Alignment.Center).size(24.dp))
                                         if (photo.isFavorite) {
-                                            Icon(Icons.Default.Favorite, null,
+                                            Icon(FluentIcon.Favorite, null,
                                                 tint = Mac.pink,
                                                 modifier = Modifier.align(Alignment.TopEnd)
                                                     .padding(4.dp).size(12.dp))
@@ -1394,7 +1393,7 @@ private fun ProcessesTab(
                         fontWeight = if (sortCol == col) FontWeight.SemiBold else FontWeight.Normal)
                     if (sortCol == col) {
                         Icon(
-                            if (sortAsc) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                            if (sortAsc) FluentIcon.ArrowUpward else FluentIcon.ArrowDownward,
                             null, tint = Mac.blue, modifier = Modifier.size(10.dp)
                         )
                     }
@@ -1425,9 +1424,9 @@ private fun ProcessesTab(
                     // Type icon
                     Icon(
                         when (proc.type) {
-                            "System" -> Icons.Default.Settings
-                            "Background" -> Icons.Default.Refresh
-                            else -> Icons.Default.Apps
+                            "System" -> FluentIcon.Settings
+                            "Background" -> FluentIcon.Refresh
+                            else -> FluentIcon.Apps
                         },
                         null,
                         tint = when (proc.type) {
@@ -1755,7 +1754,7 @@ private fun NetworkTab(isDark: Boolean, netHistory: List<Float>, text: Color, su
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Row(verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(Icons.Default.Wifi, null, tint = color, modifier = Modifier.size(16.dp))
+                            Icon(FluentIcon.Wifi, null, tint = color, modifier = Modifier.size(16.dp))
                             Text(name, style = MaterialTheme.typography.labelMedium.copy(
                                 fontWeight = FontWeight.SemiBold), color = text)
                         }

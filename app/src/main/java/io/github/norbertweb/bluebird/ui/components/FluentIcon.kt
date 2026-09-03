@@ -6,9 +6,13 @@ import fluent.ui.system.icons.regular.Airplane
 import fluent.ui.system.icons.regular.Alert
 import fluent.ui.system.icons.regular.AlertOff
 import fluent.ui.system.icons.regular.Apps
+import fluent.ui.system.icons.regular.Archive
 import fluent.ui.system.icons.regular.ArrowAutofitWidth
 import fluent.ui.system.icons.regular.ArrowDownload
+import fluent.ui.system.icons.regular.ArrowLeft
+import fluent.ui.system.icons.regular.ArrowMove
 import fluent.ui.system.icons.regular.ArrowReply
+import fluent.ui.system.icons.regular.ArrowRight
 import fluent.ui.system.icons.regular.ArrowRotateClockwise
 import fluent.ui.system.icons.regular.ArrowSort
 import fluent.ui.system.icons.regular.ArrowSync
@@ -28,6 +32,7 @@ import fluent.ui.system.icons.regular.CalendarLtr
 import fluent.ui.system.icons.regular.Checkmark
 import fluent.ui.system.icons.regular.CheckmarkCircle
 import fluent.ui.system.icons.regular.ChevronDown
+import fluent.ui.system.icons.regular.ChevronLeft
 import fluent.ui.system.icons.regular.ChevronRight
 import fluent.ui.system.icons.regular.ChevronUp
 import fluent.ui.system.icons.regular.ClipboardPaste
@@ -62,8 +67,11 @@ import fluent.ui.system.icons.regular.FullScreenMaximize
 import fluent.ui.system.icons.regular.FullScreenMinimize
 import fluent.ui.system.icons.regular.Globe
 import fluent.ui.system.icons.regular.Grid
+import fluent.ui.system.icons.regular.GridDots
+import fluent.ui.system.icons.regular.Heart
 import fluent.ui.system.icons.regular.Image
 import fluent.ui.system.icons.regular.ImageMultiple
+import fluent.ui.system.icons.regular.ImageOff
 import fluent.ui.system.icons.regular.Info
 import fluent.ui.system.icons.regular.Link
 import fluent.ui.system.icons.regular.List
@@ -72,6 +80,7 @@ import fluent.ui.system.icons.regular.LocationOff
 import fluent.ui.system.icons.regular.LockClosed
 import fluent.ui.system.icons.regular.Mic
 import fluent.ui.system.icons.regular.MoreHorizontal
+import fluent.ui.system.icons.regular.MoreVertical
 import fluent.ui.system.icons.regular.MusicNote2
 import fluent.ui.system.icons.regular.Next
 import fluent.ui.system.icons.regular.Open
@@ -88,14 +97,18 @@ import fluent.ui.system.icons.regular.Print
 import fluent.ui.system.icons.regular.Prohibited
 import fluent.ui.system.icons.regular.Rename
 import fluent.ui.system.icons.regular.Resize
+import fluent.ui.system.icons.regular.RotateLeft
 import fluent.ui.system.icons.regular.Search
+import fluent.ui.system.icons.regular.Server
 import fluent.ui.system.icons.regular.Settings
 import fluent.ui.system.icons.regular.Share
 import fluent.ui.system.icons.regular.Shield
+import fluent.ui.system.icons.regular.SlideText
 import fluent.ui.system.icons.regular.Sparkle
 import fluent.ui.system.icons.regular.Speaker1
 import fluent.ui.system.icons.regular.Speaker2
 import fluent.ui.system.icons.regular.SpeakerMute
+import fluent.ui.system.icons.regular.SquareMultiple
 import fluent.ui.system.icons.regular.Stack
 import fluent.ui.system.icons.regular.Subtract
 import fluent.ui.system.icons.regular.SwipeRight
@@ -103,9 +116,12 @@ import fluent.ui.system.icons.regular.TabDesktopMultiple
 import fluent.ui.system.icons.regular.Table
 import fluent.ui.system.icons.regular.TaskListSquareLtr
 import fluent.ui.system.icons.regular.TextFont
+import fluent.ui.system.icons.regular.TextSortAscending
 import fluent.ui.system.icons.regular.TopSpeed
 import fluent.ui.system.icons.regular.Trophy
 import fluent.ui.system.icons.regular.VehicleCar
+import fluent.ui.system.icons.regular.Video
+import fluent.ui.system.icons.regular.Wallpaper
 import fluent.ui.system.icons.regular.Warning
 import fluent.ui.system.icons.regular.WeatherCloudy
 import fluent.ui.system.icons.regular.WeatherMoon
@@ -252,6 +268,11 @@ object FluentIcon {
     val ChevronUp       = FluentIcons.Regular.ChevronUp
     val ChevronDown     = FluentIcons.Regular.ChevronDown
     val ChevronRight    = FluentIcons.Regular.ChevronRight
+    val ChevronLeft     = FluentIcons.Regular.ChevronLeft
+
+    // Directional arrows (back/forward navigation, distinct from Chevrons above)
+    val ArrowBack       = FluentIcons.Regular.ArrowLeft
+    val ArrowForward    = FluentIcons.Regular.ArrowRight
 
     // System tray / quick actions
     val PhoneAndroid    = FluentIcons.Regular.Phone
@@ -339,6 +360,35 @@ object FluentIcon {
     val Snip            = FluentIcons.Regular.Crop
     val AutoRotate      = FluentIcons.Regular.ArrowRotateClockwise
     val AutofitWidth    = FluentIcons.Regular.ArrowAutofitWidth
+
+    // ── Media gallery / file-type / gallery-app icons ──────────────────────
+    // Added to replace Material icons across ImageViewerScreen.kt,
+    // RecycleBinScreen.kt, and AppScreens.kt so every icon in the app
+    // resolves through this single Fluent-only source of truth.
+    val Archive         = FluentIcons.Regular.Archive
+    val Article         = FluentIcons.Regular.DocumentText
+    val AudioFile       = FluentIcons.Regular.MusicNote2
+    val BrokenImage     = FluentIcons.Regular.ImageOff
+    val Description     = FluentIcons.Regular.DocumentText
+    val Favorite        = FluentIcons.Regular.Heart
+    val FavoriteBorder  = FluentIcons.Regular.Heart
+    val MoreVert        = FluentIcons.Regular.MoreVertical
+    val OpenWith        = FluentIcons.Regular.ArrowMove
+    val Refresh         = FluentIcons.Regular.ArrowSync
+    val RotateLeft      = FluentIcons.Regular.RotateLeft
+    val RotateRight     = FluentIcons.Regular.ArrowRotateClockwise
+    val Slideshow       = FluentIcons.Regular.SlideText
+    val SortByAlpha     = FluentIcons.Regular.TextSortAscending
+    val Storage         = FluentIcons.Regular.Server
+    val Video           = FluentIcons.Regular.Video
+    val WallpaperIcon   = FluentIcons.Regular.Wallpaper
+
+    // Grid density toggle (small/medium/large thumbnail size) — three
+    // visually distinct glyphs so the state change is legible, mirroring
+    // the old GridOn/GridView/ViewModule three-way Material toggle.
+    val GridSmall       = FluentIcons.Regular.GridDots
+    val GridMedium      = FluentIcons.Regular.Grid
+    val GridLarge       = FluentIcons.Regular.SquareMultiple
 }
 
 /**
