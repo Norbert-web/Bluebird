@@ -36,8 +36,19 @@ class DesktopPreferences(context: Context) {
 
     // ── Layout ─────────────────────────────────────────────────────
     var autoArrange: Boolean
-        get() = prefs.getBoolean("auto_arrange", true)
-        set(v) = prefs.edit().putBoolean("auto_arrange", v).apply()
+        get() = if (prefs.getBoolean("auto_arrange_v2_initialized", false)) {
+            prefs.getBoolean("auto_arrange", false)
+        } else {
+            // Bluebird's desktop is manual-placement-first. Existing installs that
+            // inherited the old default=true are migrated to the sane default once.
+            false
+        }
+        set(v) {
+            prefs.edit()
+                .putBoolean("auto_arrange", v)
+                .putBoolean("auto_arrange_v2_initialized", true)
+                .apply()
+        }
 
     var showIconsOnDesktop: Boolean
         get() = prefs.getBoolean("show_icons", true)
@@ -82,6 +93,19 @@ class DesktopPreferences(context: Context) {
     var customWallpaperUri: String
         get() = prefs.getString("custom_wallpaper_uri", "") ?: ""
         set(v) = prefs.edit().putString("custom_wallpaper_uri", v).apply()
+
+
+    // ── Settings deep-link ─────────────────────────────────────────
+    // A one-shot category requested by Desktop/Taskbar before Settings opens.
+    fun setSettingsStartCategory(category: String) {
+        prefs.edit().putString("settings_start_category", category).apply()
+    }
+
+    fun consumeSettingsStartCategory(): String? {
+        val value = prefs.getString("settings_start_category", null)
+        prefs.edit().remove("settings_start_category").apply()
+        return value
+    }
 
     // ── Custom icon positions ──────────────────────────────────────
     // Stored as a JSON array: [{"id":"...","x":0.0,"y":0.0}, ...]

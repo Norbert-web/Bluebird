@@ -3,6 +3,8 @@ package io.github.norbertweb.bluebird.ui.screens
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
@@ -270,10 +272,12 @@ fun SettingsScreen(
     // Lets callers deep-link straight into a category — e.g. Desktop.kt's
     // right-click "Personalize" now opens Settings at APPEARANCE instead of
     // showing its own dialog, and Taskbar.kt's settings gear opens TASKBAR.
-    var selectedCategory by remember {
-        mutableStateOf(
+    val selectedCategoryState = remember {
+        mutableStateOf<SettingsCategory>(
             initialCategory
                 ?.let { name -> SettingsCategory.entries.find { it.name == name } }
+                ?: DesktopPreferences(context).consumeSettingsStartCategory()
+                    ?.let { name -> SettingsCategory.entries.find { it.name == name } }
                 ?: SettingsCategory.SYSTEM
         )
     }
@@ -298,7 +302,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(4.dp))
-                        .clickable { selectedCategory = SettingsCategory.ACCOUNTS }
+                        .clickable { selectedCategoryState.value = SettingsCategory.ACCOUNTS }
                         .padding(horizontal = 12.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -370,14 +374,14 @@ fun SettingsScreen(
 
             LazyColumn(modifier = Modifier.weight(1f)) {
                 items(visibleCategories, key = { it.name }) { cat ->
-                val isSelected = selectedCategory == cat
+                val isSelected = selectedCategoryState.value == cat
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 1.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(if (isSelected) specialAccent.copy(alpha = 0.15f) else Color.Transparent)
-                        .clickable { selectedCategory = cat }
+                        .clickable { selectedCategoryState.value = cat }
                         .padding(horizontal = 10.dp, vertical = 11.dp),
                     verticalAlignment  = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -414,8 +418,8 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(selectedCategory.icon, null, tint = resolvedText, modifier = Modifier.size(24.dp))
-                Text(selectedCategory.label,
+                Icon(selectedCategoryState.value.icon, null, tint = resolvedText, modifier = Modifier.size(24.dp))
+                Text(selectedCategoryState.value.label,
                     style      = MaterialTheme.typography.headlineSmall,
                     color      = resolvedText,
                     fontWeight = FontWeight.SemiBold,
@@ -426,7 +430,7 @@ fun SettingsScreen(
             val args = ScreenArgs(effectiveDark, resolvedText, resolvedSurface, specialAccent, uiState, viewModel, context,
                 scale = uiState?.textScale ?: 1f)
 
-            when (selectedCategory) {
+            when (selectedCategoryState.value) {
                 SettingsCategory.SYSTEM       -> SystemSettings(args)
                 SettingsCategory.SOUND        -> SoundSettings(args)
                 SettingsCategory.BLUETOOTH    -> BluetoothSettings(args)
@@ -784,19 +788,10 @@ private fun SoundSettings(a: ScreenArgs) {
 private fun BluetoothSettings(a: ScreenArgs) {
     SettingsGroup("Bluetooth", a) {
         SToggle(FluentIcons.Regular.Bluetooth, "Bluetooth", "Enable Bluetooth radio",
-            a, a.uiState?.isBluetoothOn ?: false) {
-            a.vm?.openBluetoothSettings(a.ctx)
-            a.vm?.toggleBluetooth()
-        }
+            a, a.uiState?.isBluetoothOn ?: false) { a.vm?.toggleBluetooth() }
     }
 
     SettingsGroup("Connected devices", a) {
-        if (a.uiState?.isBluetoothOn == true) {
-            SNav(FluentIcons.Regular.Bluetooth, "Pair new device", "Scan for nearby Bluetooth devices", a = a) {
-                a.vm?.openBluetoothSettings(a.ctx)
-            }
-            Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        }
         Box(modifier = Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
             Text(
                 if (a.uiState?.isBluetoothOn == true) "No devices paired yet"
@@ -807,27 +802,12 @@ private fun BluetoothSettings(a: ScreenArgs) {
         }
     }
 
-    SettingsGroup("Other devices", a) {
-        SNav(FluentIcons.Regular.Cursor, "Mouse & touchpad", "Pointer speed, buttons", a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Keyboard, "Keyboard", "Layout, language, shortcuts", a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_INPUT_METHOD_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Print, "Printers & scanners", "Manage connected printers", a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.UsbStick, "USB", "USB preferences and connected drives", a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Cast, "Wireless displays", "Connect to a screen or TV wirelessly", a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_CAST_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-    }
+    // "Other devices" group removed — every row in it (Mouse & touchpad,
+    // Printers & scanners, USB, Wireless displays) only opened the Android
+    // system settings app rather than anything Bluebird itself controls, and
+    // three of the four even pointed at the generic Settings home screen
+    // rather than a specific pane. Settings now only shows things the app
+    // actually has state/control over.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -839,14 +819,10 @@ private fun NetworkSettings(a: ScreenArgs) {
     SettingsGroup("Wi-Fi", a) {
         SToggle(FluentIcons.Regular.Bluetooth, "Wi-Fi",
             if (a.uiState?.isWifiOn == true) "Connected" else "Off",
-            a, a.uiState?.isWifiOn ?: false) {
-            a.vm?.openWifiSettings(a.ctx)
-            a.vm?.toggleWifi()
-        }
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Bluetooth, "Manage networks", "Saved, available Wi-Fi networks", a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
+            a, a.uiState?.isWifiOn ?: false) { a.vm?.toggleWifi() }
+        // "Manage networks" row removed — it only opened the Android system
+        // Wi-Fi settings rather than anything Bluebird tracks (saved networks,
+        // signal strength, etc. aren't app state here).
     }
 
     SettingsGroup("Mobile & data", a) {
@@ -877,10 +853,8 @@ private fun NetworkSettings(a: ScreenArgs) {
         SToggle(FluentIcons.Regular.Key, "VPN",
             if (a.uiState?.vpnEnabled == true) "Connected" else "Not connected",
             a, a.uiState?.vpnEnabled ?: false) { a.vm?.setVpn(!(a.uiState?.vpnEnabled ?: false)) }
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Add, "Add a VPN", "Configure a new VPN connection", a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
+        // "Add a VPN" row removed — it only opened the Android system VPN
+        // settings rather than anything Bluebird itself configures.
     }
 
     SettingsGroup("DNS", a) {
@@ -894,10 +868,8 @@ private fun NetworkSettings(a: ScreenArgs) {
         }
     }
 
-    SettingsGroup("Proxy", a) {
-        SNav(FluentIcons.Regular.Settings, "Proxy settings",
-            "Manual proxy configuration for this network", a = a)
-    }
+    // "Proxy" group removed — its row had no onClick and no backing state;
+    // tapping it did nothing.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -940,10 +912,29 @@ private fun PersonalizationSection(a: ScreenArgs) {
     val effectsState = a.uiState
     val bgEffects = effectsState?.backgroundEffects ?: BackgroundEffectsState()
 
+    // Use Android's document picker directly here.  The old implementation
+    // changed the mode before a URI existed and relied on a ViewModel result
+    // path that did not always update the already-mounted Desktop.
+    val customWallpaperLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                a.ctx.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            val uriString = uri.toString()
+            prefs.customWallpaperUri = uriString
+            prefs.wallpaperMode = DesktopWallpaperMode.CUSTOM
+            prefs.wallpaperModeEverSet = true
+            wallpaperMode = DesktopWallpaperMode.CUSTOM
+        }
+    }
+
     val pickCustomWallpaper = {
-        a.vm?.openWallpaperPicker(WallpaperTarget.HOME)
-        wallpaperMode = DesktopWallpaperMode.CUSTOM
-        prefs.wallpaperMode = DesktopWallpaperMode.CUSTOM
+        customWallpaperLauncher.launch(arrayOf("image/*"))
     }
 
     SettingsGroup("Personalization", a) {
@@ -1338,20 +1329,13 @@ private fun AppearanceSettings(a: ScreenArgs) {
     // Light/Special). It now always follows the Android system's own light/dark
     // setting and, on Android 12+, the system's Material You dynamic color
     // palette — exactly like the real Settings app and every other system
-    // surface. There's nothing to pick here anymore; this section just tells
-    // the user where to go, with a shortcut, instead of silently having no UI
-    // for something people will still look for.
+    // surface. This is informational only, not a control: Settings only shows
+    // things Bluebird itself manages, and theme isn't one of those anymore, so
+    // there's no button/link to Android's Display settings here either.
     SettingsGroup("Theme", a) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(4.dp))
-                .clickable {
-                    a.ctx.startActivity(
-                        android.content.Intent(android.provider.Settings.ACTION_DISPLAY_SETTINGS)
-                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                }
                 .padding(horizontal = 14.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -1365,8 +1349,6 @@ private fun AppearanceSettings(a: ScreenArgs) {
                     color = a.textColor.copy(alpha = 0.55f), fontSize = (12 * (a.scale)).sp
                 )
             }
-            Text("Open display settings", color = a.accent, fontSize = (12 * (a.scale)).sp)
-            Icon(FluentIcons.Regular.ChevronRight, null, tint = a.textColor.copy(alpha = 0.3f), modifier = Modifier.size(16.dp))
         }
     }
 
@@ -1544,19 +1526,7 @@ private fun GestureSettings(a: ScreenArgs) {
 
 @Composable
 private fun AppsSettings(a: ScreenArgs) {
-    val pm    = a.ctx.packageManager
-    val scale = a.scale
-
-    // Load apps once; not inside LazyColumn to avoid repeated recomposition
-    val apps = remember {
-        val intent = Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
-        pm.queryIntentActivities(intent, 0).sortedBy { it.loadLabel(pm).toString() }
-    }
-    var searchQuery  by remember { mutableStateOf("") }
-    var sortOrder    by remember { mutableStateOf("A–Z") }
-    val filtered = apps
-        .filter { it.loadLabel(pm).toString().contains(searchQuery, ignoreCase = true) }
-        .let { list -> if (sortOrder == "Z–A") list.reversed() else list }
+    var sortOrder by remember { mutableStateOf("A–Z") }
 
     SettingsGroup("App drawer", a) {
         SDropdown(FluentIcons.Regular.ArrowSort, "Sort order",
@@ -1569,92 +1539,11 @@ private fun AppsSettings(a: ScreenArgs) {
             a, a.uiState?.hideAppsEnabled ?: false) { a.vm?.setHideApps(!(a.uiState?.hideAppsEnabled ?: false)) }
     }
 
-    SettingsGroup("Search apps (${filtered.size} / ${apps.size})", a) {
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(FluentIcons.Regular.Search, null, tint = a.textColor.copy(alpha = 0.4f), modifier = Modifier.size(18.dp))
-            BasicTextField(
-                value        = searchQuery,
-                onValueChange = { searchQuery = it },
-                singleLine   = true,
-                textStyle    = androidx.compose.ui.text.TextStyle(color = a.textColor, fontSize = (13 * scale).sp),
-                modifier     = Modifier.weight(1f),
-                decorationBox = { inner ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (searchQuery.isEmpty()) Text("Search installed apps…", color = a.textColor.copy(alpha = 0.3f), fontSize = (13 * scale).sp)
-                        inner()
-                    }
-                }
-            )
-            if (searchQuery.isNotEmpty()) {
-                Icon(FluentIcons.Regular.Dismiss, null,
-                    tint     = a.textColor.copy(alpha = 0.4f),
-                    modifier = Modifier.size(16.dp).clickable { searchQuery = "" })
-            }
-        }
-    }
-
-    // PERF FIX: this used to be a plain Column + verticalScroll, which composes and
-    // measures a row for *every* installed app up front even though only ~10 are
-    // ever visible at once (on a phone with 150+ apps that's 150+ Image/Text/Icon
-    // trees built for nothing). A LazyColumn only composes what's on screen, and a
-    // stable `key` means re-filtering/re-sorting doesn't have to rebuild rows that
-    // didn't change position. It still works nested inside the outer verticalScroll
-    // Column because it's height-bounded (heightIn(max = 360.dp)) instead of
-    // fillMaxHeight — a bounded LazyColumn inside a scrollable parent is safe;
-    // an unbounded one is what causes the classic "infinite constraints" crash.
-    SettingsGroup("Installed apps", a) {
-        LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
-            items(filtered, key = { it.activityInfo.packageName }) { info ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(4.dp))
-                        .clickable {
-                            try {
-                                a.ctx.startActivity(
-                                    Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                                        .setData(Uri.parse("package:${info.activityInfo.packageName}"))
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                )
-                            } catch (_: Exception) {}
-                        }
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Image(
-                        painter     = DrawablePainter(info.loadIcon(pm)),
-                        contentDescription = null,
-                        modifier    = Modifier.size(32.dp)
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(info.loadLabel(pm).toString(), color = a.textColor, fontSize = (13 * scale).sp)
-                        Text(info.activityInfo.packageName, color = a.textColor.copy(alpha = 0.4f),
-                            fontSize = (10 * scale).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    Icon(FluentIcons.Regular.ChevronRight, null, tint = a.textColor.copy(alpha = 0.3f), modifier = Modifier.size(16.dp))
-                }
-                Divider(color = divColor(a).copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 12.dp))
-            }
-        }
-    }
-
-    SettingsGroup("App defaults", a) {
-        SNav(FluentIcons.Regular.Globe, "Default browser",  "Choose which browser opens links",       a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Mail,          "Default email app", "Choose which app handles mailto links", a = a)
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Map,            "Default map app",   "Choose map application",                a = a)
-    }
-
-    SettingsGroup("Install sources", a) {
-        SNav(FluentIcons.Regular.Shield, "Install unknown apps", "Allow sideloading from other sources", a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-    }
+    // "Search apps" box removed — it only fed a filtered/sorted list that was
+    // rendered in the "Installed apps" section below it, which has also been
+    // removed (its rows opened Android's per-app info screen rather than
+    // anything Bluebird controls). Without that list, the search box had
+    // nothing left to actually show results in.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1742,29 +1631,10 @@ private fun AccountsSettings(a: ScreenArgs) {
         }
     }
 
-    SettingsGroup("Sign-in options", a) {
-        SNav(FluentIcons.Regular.Key,         "PIN",            "Set up a numeric PIN for quick sign-in",      a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Grid,     "Screen pattern", "Draw a pattern to unlock",                    a = a)
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Key,    "Password",       "Use a full text password",                    a = a)
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Fingerprint, "Fingerprint",    "Register fingerprint for biometric unlock",   a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_FINGERPRINT_ENROLL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Scan,        "Face unlock",    "Use facial recognition",                      a = a)
-    }
-
-    SettingsGroup("Linked accounts", a) {
-        SNav(FluentIcons.Regular.Person,  "Google account",    "Sync, apps and services",    value = "Not linked", a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_SYNC_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Cloud,       "Microsoft account", "OneDrive, Outlook and more", value = "Not linked", a = a)
-    }
+    // "Sign-in options" and "Linked accounts" removed — none of it was backed
+    // by real app state. PIN/Fingerprint redirected to Android's own security
+    // settings, and Screen pattern/Password/Face unlock/Microsoft account had
+    // no onClick at all — tapping them did nothing.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1820,10 +1690,8 @@ private fun TimeLanguageSettings(a: ScreenArgs) {
             Text("System language", color = a.textColor, fontSize = (13 * scale).sp)
             Text(Locale.getDefault().displayLanguage, color = a.textColor.copy(alpha = 0.5f), fontSize = (12 * scale).sp)
         }
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Translate, "Add a language", "Install additional language packs", a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_LOCALE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
+        // "Add a language" row removed — it only opened Android's own locale
+        // settings rather than anything Bluebird manages.
     }
 }
 
@@ -1932,12 +1800,8 @@ private fun AccessibilitySettings(a: ScreenArgs) {
             a, a.uiState?.captionsEnabled ?: false) { a.vm?.setCaptionsEnabled(!(a.uiState?.captionsEnabled ?: false)) }
     }
 
-    SettingsGroup("System", a) {
-        SNav(FluentIcons.Regular.Accessibility, "More accessibility options",
-            "Open Android's full accessibility settings", a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-    }
+    // "System" group removed — its one row explicitly opened Android's own
+    // full accessibility settings rather than anything Bluebird controls.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1972,11 +1836,8 @@ private fun PrivacySecuritySettings(a: ScreenArgs) {
         SToggle(FluentIcons.Regular.Mic, "Microphone access",
             "Allow apps to use the microphone",
             a, a.uiState?.micAccess ?: true) { a.vm?.setMicAccess(!(a.uiState?.micAccess ?: true)) }
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.PersonSettings, "Manage per-app permissions",
-            "Fine-grained control per application", a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
+        // "Manage per-app permissions" row removed — it only opened Android's
+        // own application settings rather than anything Bluebird tracks.
     }
 
     SettingsGroup("Data & diagnostics", a) {
@@ -1985,19 +1846,9 @@ private fun PrivacySecuritySettings(a: ScreenArgs) {
             a, a.uiState?.usageDiagnostics ?: false) { a.vm?.setUsageDiagnostics(!(a.uiState?.usageDiagnostics ?: false)) }
     }
 
-    SettingsGroup("Privacy dashboard", a) {
-        SNav(FluentIcons.Regular.Shield, "View permission usage",
-            "See which apps used each permission recently", a = a) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                a.ctx.startActivity(Intent(android.provider.Settings.ACTION_PRIVACY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }
-        }
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Delete, "Clear app data",
-            "Wipe stored data for specific apps", a = a) {
-            a.ctx.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-    }
+    // "Privacy dashboard" group removed — both rows (View permission usage,
+    // Clear app data) only opened Android's own settings screens rather than
+    // anything Bluebird itself manages.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2233,9 +2084,15 @@ private fun AboutSettings(a: ScreenArgs) {
             a.ctx.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:nlamn.dev@outlook.com?subject=Bug%20Report")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
         Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.Shield,    "Privacy policy",       "All data is stored locally on your device", a = a)
-        Divider(color = divColor(a), modifier = Modifier.padding(horizontal = 12.dp))
-        SNav(FluentIcons.Regular.DocumentText,     "Open source licenses", "Third-party library attributions",         a = a)
+        // Not a nav row — it's a one-line privacy statement, not a link to
+        // anything, so it shouldn't look clickable.
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Icon(FluentIcons.Regular.Shield, null, tint = a.textColor.copy(alpha = 0.8f), modifier = Modifier.size(18.dp))
+            Text("All data is stored locally on your device", color = a.textColor, fontSize = (13 * scale).sp)
+        }
+        // "Open source licenses" row removed — it had no content or onClick
+        // behind it.
     }
 }
 

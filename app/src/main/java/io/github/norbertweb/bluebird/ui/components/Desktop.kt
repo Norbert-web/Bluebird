@@ -980,8 +980,8 @@ private fun snapToGrid(
     // out of taskbars/navigation overlays and makes portrait/landscape transitions agree
     // with the same bounds used by dragging.
     val usableHeight = (screenHeightPx - bottomSafeAreaPx).coerceAtLeast(topPaddingPx + cellHeightPx)
-    val maxCols = ((screenWidthPx - startPaddingPx) / cellWidthPx).toInt().coerceAtLeast(1)
-    val maxRows = ((usableHeight - topPaddingPx) / cellHeightPx).toInt().coerceAtLeast(1)
+    val maxCols = ((screenWidthPx - startPaddingPx * 2) / cellWidthPx).toInt().coerceAtLeast(1)
+    val maxRows = ((usableHeight - topPaddingPx * 2) / cellHeightPx).toInt().coerceAtLeast(1)
 
     val preferredCol = ((pos.x - startPaddingPx) / cellWidthPx).roundToInt()
         .coerceIn(0, maxCols - 1)
@@ -1228,8 +1228,9 @@ fun Desktop(
         // at drag start and never mutated afterward — the fix for the bug above.
         val groupRelativeOffsets = remember { mutableStateMapOf<String, Offset>() }
 
-        // ── Desktop-full toast ─────────────────────────────────────────
-        var showDesktopFullToast  by remember { mutableStateOf(false) }
+        // ── Desktop-full prompt ────────────────────────────────────────
+        var showDesktopFullDialog by remember { mutableStateOf(false) }
+        var lastDesktopFullPromptKey by remember { mutableStateOf<Any?>(null) }
 
         // ── File-access toast (shown when storage permission denied) ───
         var showFileAccessToast   by remember { mutableStateOf(false) }
@@ -1258,27 +1259,6 @@ fun Desktop(
                 wallpaperMode = DesktopWallpaperMode.CUSTOM
                 prefs.customWallpaperUri = wallpaper.homeWallpaperUri
                 prefs.wallpaperMode = DesktopWallpaperMode.CUSTOM
-            }
-        }
-
-        // Re-sync from prefs when the Settings window closes. Personalization
-        // (mode/gradient/image/live-wallpaper/effects) is now edited from
-        // SettingsScreen.kt's PersonalizationSection rather than an in-place
-        // dialog here, and it writes straight to the same DesktopPreferences —
-        // but this composable's wallpaperMode/gradientIndex/defaultImageIndex
-        // are plain `remember` state read only once at first composition, so
-        // without this they'd silently keep showing the old wallpaper choice
-        // after the user backs out of Settings. Keyed on "is Settings open"
-        // rather than every uiState change, so it only re-reads at the one
-        // moment it actually matters.
-        val isSettingsOpen = vmUiState.openWindows.any { it.screen == LauncherScreen.SETTINGS }
-        LaunchedEffect(isSettingsOpen) {
-            if (!isSettingsOpen) {
-                wallpaperMode = if (prefs.wallpaperMode == DesktopWallpaperMode.APPARENT && !prefs.wallpaperModeEverSet)
-                    DesktopWallpaperMode.DEFAULT else prefs.wallpaperMode
-                gradientIndex = prefs.wallpaperGradientIndex
-                defaultImageIndex = prefs.wallpaperImageIndex
-                customWallpaperUri = prefs.customWallpaperUri
             }
         }
 
@@ -1364,75 +1344,18 @@ fun Desktop(
         val padLeftPx = with(density) { gridPadLeft.dp.toPx() }
         val padTopPx  = with(density) { gridPadTop.dp.toPx() }
 
-        val rows = remember(screenHPxTotal, iconSize, bottomSafeAreaPx) {
-            ((screenHPxTotal - padTopPx * 2 - bottomSafeAreaPx) / cellHPx).toInt().coerceAtLeast(1)
-        }
+        val viewportRows = ((screenHPxTotal - padTopPx * 2 - bottomSafeAreaPx) / cellHPx).toInt().coerceAtLeast(1)
+        val maxCols = ((screenWPxTotal - padLeftPx * 2) / cellWPx).toInt().coerceAtLeast(1)
+        val workspaceRows = viewportRows
+        val workspaceCols = maxCols
+        val workspaceWidthPx = screenWPxTotal
+        val workspaceHeightPx = (screenHPxTotal - bottomSafeAreaPx).coerceAtLeast(cellHPx + padTopPx * 2)
+        val maxXBound = (workspaceWidthPx - cellWPx - padLeftPx).coerceAtLeast(padLeftPx)
+        val maxYBound = (workspaceHeightPx - cellHPx - padTopPx).coerceAtLeast(padTopPx)
+        val desktopCapacity = (workspaceRows * workspaceCols).coerceAtLeast(1)
 
-        val maxCols = remember(screenWPxTotal, iconSize) {
-            ((screenWPxTotal - padLeftPx) / cellWPx).toInt().coerceAtLeast(1)
-        }
-        val maxRows = remember(screenHPxTotal, iconSize) { rows }
-
-        // Single shared Y-drag-bound, used everywhere an icon's vertical drag position is
-        // clamped. Previously this was recomputed inline as `screenHPxTotal - cellHPx` at
-        // five different call sites, with ZERO bottom margin — while `rows` above reserves
-        // `padTopPx * 2`. That meant free-dragging let an icon go a bit further down than
-        // any auto-arrange row would ever place it, and (once bottomSafeAreaPx is wired to
-        // a real taskbar height by the caller) is what let dragged icons end up hidden
-        // behind/under the taskbar instead of stopping above it — "goes off screen" during
-        // a downward drag. Keeping one shared value means every drag/clamp site now agrees.
-        val maxYBound = screenHPxTotal - cellHPx - padTopPx - bottomSafeAreaPx
-
-        // Screen-aware layout repair. Saved positions are pixel coordinates, so a
-        // portrait/landscape change can make two previously separate icons collapse onto
-        // the same edge. Clamp first, then (when grid alignment is enabled) resolve cells
-        // in stable visual order. This preserves as much of the user's arrangement as the
-        // new viewport permits instead of blindly stacking icons at the boundary.
-        LaunchedEffect(screenWPxTotal, screenHPxTotal, bottomSafeAreaPx, iconSize, alignToGrid) {
-            if (customPositions.isEmpty()) return@LaunchedEffect
-            val maxX = (screenWPxTotal - cellWPx).coerceAtLeast(padLeftPx)
-            val maxY = maxYBound.coerceAtLeast(padTopPx)
-            var changed = false
-
-            if (!alignToGrid) {
-                customPositions.keys.toList().forEach { id ->
-                    val old = customPositions[id] ?: return@forEach
-                    val clamped = Offset(
-                        old.x.coerceIn(padLeftPx, maxX),
-                        old.y.coerceIn(padTopPx, maxY)
-                    )
-                    if (clamped != old) { customPositions[id] = clamped; changed = true }
-                }
-            } else {
-                val occupied = mutableSetOf<Pair<Int, Int>>()
-                customPositions.toList()
-                    .sortedWith(compareBy({ it.second.y }, { it.second.x }, { it.first }))
-                    .forEach { (id, oldPos) ->
-                        val snapped = snapToGrid(
-                            oldPos, cellWPx, cellHPx, padLeftPx, padTopPx,
-                            screenWPxTotal, screenHPxTotal, occupied, bottomSafeAreaPx
-                        )
-                        val finalPos = snapped?.let {
-                            Offset(
-                                it.x.coerceIn(padLeftPx, maxX),
-                                it.y.coerceIn(padTopPx, maxY)
-                            )
-                        } ?: Offset(
-                            oldPos.x.coerceIn(padLeftPx, maxX),
-                            oldPos.y.coerceIn(padTopPx, maxY)
-                        )
-                        val cell = posToCell(finalPos, cellWPx, cellHPx, padLeftPx, padTopPx,
-                            maxCols, maxRows)
-                        if (finalPos != oldPos) { customPositions[id] = finalPos; changed = true }
-                        occupied.add(cell)
-                    }
-            }
-            if (changed) prefs.saveCustomPositions(customPositions)
-        }
-
-        // Icon-size changes are handled by the same screen-aware repair above. Keeping
-        // one layout-repair effect avoids two coroutines competing to rewrite the same
-        // SnapshotStateMap during a rotation or settings change.
+        // Deliberately no resize/rotation repair effect. Positions are user data.
+        // The viewport is fixed; overflow is surfaced through the Desktop-full prompt.
 
         // ── Debounced refresh (only used for explicit user-triggered mutations —
         //    e.g. right after a rename/delete/paste — so the UI feels instant instead
@@ -1730,10 +1653,12 @@ fun Desktop(
                 )
             }
 
-            // ── Background gesture layer — single unified detector (was two competing ones) ──
+            // ── Fixed desktop viewport ───────────────────────────────────
+            // Never scroll the desktop. It remains the same size as the screen/taskbar area.
             Box(
                 Modifier
                     .fillMaxSize()
+                    .clipToBounds()
                     .onGloballyPositioned { desktopLayerCoords = it }
                     .pointerInput(Unit) {
                         detectPressDragGestures(
@@ -1794,9 +1719,12 @@ fun Desktop(
                                     )
                                     selectedIds = sortedItems.filter { item ->
                                         val idx = indexMap[item.id] ?: return@filter false
-                                        val pos = customPositions[item.id]
-                                            ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
-                                            ?: return@filter false  // icon has no cell (grid full)
+                                        val pos = if (autoArrange) {
+                                            autoGridPos(idx, workspaceRows, workspaceCols, cellWPx, cellHPx, padLeftPx, padTopPx)
+                                                ?: return@filter false
+                                        } else {
+                                            customPositions[item.id] ?: return@filter false
+                                        }
                                         Rect(pos.x, pos.y, pos.x + cellWPx, pos.y + cellHPx).overlaps(rect)
                                     }.map { it.id }.toSet()
                                 }
@@ -1826,17 +1754,19 @@ fun Desktop(
             // since it's also needed by placeNewItemAtClickPosition and the stable-
             // position effect further down, both of which run regardless of whether
             // icons are currently shown.
-            val occupiedCells by remember(autoArrange, rows, maxCols, screenWPxTotal, screenHPxTotal) {
+            val occupiedCells by remember(autoArrange, workspaceRows, workspaceCols, workspaceWidthPx, workspaceHeightPx) {
                 derivedStateOf {
                     buildSet {
                         sortedItems.forEachIndexed { idx, item ->
                             val p = if (autoArrange) {
-                                autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
+                                autoGridPos(idx, workspaceRows, workspaceCols, cellWPx, cellHPx, padLeftPx, padTopPx)
                             } else {
-                                customPositions[item.id]
-                                    ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
-                            } ?: return@forEachIndexed  // grid full — skip icon
-                            add(posToCell(p, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                                customPositions[item.id]?.takeIf {
+                                    it.x >= padLeftPx && it.y >= padTopPx &&
+                                        it.x <= maxXBound && it.y <= maxYBound
+                                }
+                            }
+                            if (p != null) add(posToCell(p, cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows))
                         }
                     }
                 }
@@ -1864,16 +1794,16 @@ fun Desktop(
                     // ── Performance: O(n) cached auto-arrange positions ──
                     // Build positions once per recomposition key instead of
                     // recomputing from scratch for every icon (was O(n²)).
-                    val autoArrangePositions = remember(sortedItems, autoArrange, rows, maxCols, iconSize, screenWPxTotal, screenHPxTotal) {
+                    val autoArrangePositions = remember(sortedItems, autoArrange, workspaceRows, workspaceCols, iconSize, workspaceWidthPx, workspaceHeightPx) {
                         if (!autoArrange) return@remember emptyMap<String, Offset>()
                         val taken = mutableSetOf<Pair<Int, Int>>()
                         buildMap {
                             sortedItems.forEachIndexed { i, item ->
-                                val p = autoGridPos(i, rows, maxCols, cellWPx, cellHPx,
+                                val p = autoGridPos(i, workspaceRows, workspaceCols, cellWPx, cellHPx,
                                     padLeftPx, padTopPx, taken)
                                 if (p != null) {
                                     put(item.id, p)
-                                    taken.add(posToCell(p, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                                    taken.add(posToCell(p, cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows))
                                 }
                             }
                         }
@@ -1882,20 +1812,38 @@ fun Desktop(
                     sortedItems.forEachIndexed { idx, item ->
                         androidx.compose.runtime.key(item.id) {
                         // O(1) lookup from cached map
-                        val basePos: Offset = if (autoArrange) {
-                            autoArrangePositions[item.id] ?: return@forEachIndexed  // grid full → skip
+                        val storedPos = customPositions[item.id]
+                        val basePos: Offset? = if (autoArrange) {
+                            autoArrangePositions[item.id]
                         } else {
+                            storedPos?.takeIf {
+                                it.x >= padLeftPx && it.y >= padTopPx &&
+                                    it.x <= maxXBound && it.y <= maxYBound
+                            }
+                        }
+                        if (basePos != null) {
+                        val resolvedBasePos = basePos
+
+                        var pos by remember(item.id, workspaceRows, workspaceCols, iconSize, autoArrange, workspaceWidthPx, workspaceHeightPx) {
+                            mutableStateOf(resolvedBasePos)
+                        }
+
+                        LaunchedEffect(
+                            autoArrange,
+                            idx,
+                            workspaceRows,
+                            workspaceCols,
+                            iconSize,
+                            workspaceWidthPx,
+                            workspaceHeightPx,
+                            isDraggingGroup,
                             customPositions[item.id]
-                                ?: autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
-                                ?: return@forEachIndexed
-                        }
-
-                        var pos by remember(item.id, rows, maxCols, iconSize, autoArrange, screenWPxTotal, screenHPxTotal) {
-                            mutableStateOf(if (autoArrange) basePos else customPositions[item.id] ?: basePos)
-                        }
-
-                        LaunchedEffect(autoArrange, idx, rows, maxCols, iconSize, screenWPxTotal, screenHPxTotal, isDraggingGroup) {
-                            if (autoArrange) pos = basePos
+                        ) {
+                            if (autoArrange) {
+                                pos = resolvedBasePos
+                            } else if (draggedId != item.id && !isDraggingGroup) {
+                                pos = customPositions[item.id] ?: resolvedBasePos
+                            }
                         }
 
                         val isDragged    = draggedId == item.id
@@ -2020,7 +1968,7 @@ fun Desktop(
                                                     val otherIdx = indexMap[otherId] ?: 0
                                                     val otherPos = customPositions[otherId]
                                                         ?: autoArrangePositions[otherId]
-                                                        ?: autoGridPos(otherIdx.coerceAtLeast(0), rows, maxCols,
+                                                        ?: autoGridPos(otherIdx.coerceAtLeast(0), workspaceRows, workspaceCols,
                                                             cellWPx, cellHPx, padLeftPx, padTopPx)
                                                         ?: return@forEach
                                                     groupRelativeOffsets[otherId] = otherPos - pos
@@ -2028,7 +1976,7 @@ fun Desktop(
                                             }
                                         },
                                         onDrag = { _, amt ->
-                                            val maxX = screenWPxTotal - cellWPx
+                                            val maxX = maxXBound
                                             val maxY = maxYBound
                                             if (isDraggingGroup) {
                                                 // Clamp the WHOLE group's movement as one rigid unit, based on
@@ -2084,7 +2032,7 @@ fun Desktop(
                                             draggedId = null
                                             val wasGroup = isDraggingGroup
                                             isDraggingGroup = false
-                                            val maxX = screenWPxTotal - cellWPx
+                                            val maxX = maxXBound
                                             val maxY = maxYBound
 
                                             // A dragged item/group dropped directly onto another desktop icon
@@ -2096,11 +2044,11 @@ fun Desktop(
                                             val anchorCenter = Offset(pos.x + cellWPx / 2f, pos.y + cellHPx / 2f)
                                             val actualDropTarget = sortedItems.firstOrNull { candidate ->
                                                 if (candidate.id in selectedIds) return@firstOrNull false
-                                                val targetPos = if (autoArrange) autoArrangePositions[candidate.id]
-                                                else customPositions[candidate.id] ?: autoGridPos(
-                                                    indexMap[candidate.id] ?: 0, rows, maxCols, cellWPx, cellHPx,
-                                                    padLeftPx, padTopPx
-                                                )
+                                                val targetPos = if (autoArrange) {
+                                                    autoArrangePositions[candidate.id]
+                                                } else {
+                                                    customPositions[candidate.id]
+                                                }
                                                 targetPos != null &&
                                                     anchorCenter.x >= targetPos.x && anchorCenter.x <= targetPos.x + cellWPx &&
                                                     anchorCenter.y >= targetPos.y && anchorCenter.y <= targetPos.y + cellHPx
@@ -2126,10 +2074,10 @@ fun Desktop(
                                                 // receive the restoration through the same broadcast mechanism used
                                                 // during dragging; keep that broadcast alive for one frame so their
                                                 // LaunchedEffect cannot miss it when isDraggingGroup flips false.
-                                                pos = basePos
+                                                pos = resolvedBasePos
                                                 if (wasGroup) {
                                                     groupRelativeOffsets.forEach { (otherId, rel) ->
-                                                        dragGroupOffsets[otherId] = basePos + rel
+                                                        dragGroupOffsets[otherId] = resolvedBasePos + rel
                                                     }
                                                     val restoreIds = groupRelativeOffsets.keys.toList()
                                                     scope.launch {
@@ -2140,7 +2088,7 @@ fun Desktop(
                                                 dragMoved = false
                                                 groupRelativeOffsets.clear()
                                             } else if (autoArrange) {
-                                                pos = basePos  // snap-back animation plays automatically
+                                                pos = resolvedBasePos  // snap-back animation plays automatically
                                             } else if (!alignToGrid) {
                                                 // Align-to-grid off: free pixel placement, like real Windows
                                                 // with that box unchecked — no snapping, and icons ARE
@@ -2152,18 +2100,18 @@ fun Desktop(
                                                 prefs.saveCustomPositions(customPositions)
                                             } else {
                                                 val otherCells = occupiedCells - posToCell(
-                                                    customPositions[item.id] ?: basePos,
-                                                    cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows
+                                                    customPositions[item.id] ?: resolvedBasePos,
+                                                    cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows
                                                 )
                                                 val snapped = snapToGrid(
                                                     pos, cellWPx, cellHPx, padLeftPx, padTopPx,
-                                                    screenWPxTotal, screenHPxTotal, otherCells, bottomSafeAreaPx
+                                                    workspaceWidthPx, workspaceHeightPx, otherCells, 0f
                                                 )
                                                 @Suppress("SENSELESS_COMPARISON")
                                                 if (snapped == null) {
                                                     // Grid full — animate back to origin
-                                                    pos = customPositions[item.id] ?: basePos
-                                                    showDesktopFullToast = true
+                                                    pos = customPositions[item.id] ?: resolvedBasePos
+                                                    showDesktopFullDialog = true
                                                 } else {
                                                     val finalPos = Offset(
                                                         snapped.x.coerceIn(padLeftPx, maxX),
@@ -2181,17 +2129,17 @@ fun Desktop(
                                             if (wasGroup && !autoArrange && alignToGrid) {
                                                 val occupiedNow = occupiedCells.toMutableSet()
                                                 customPositions[item.id]?.let {
-                                                    occupiedNow.add(posToCell(it, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                                                    occupiedNow.add(posToCell(it, cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows))
                                                 }
                                                 groupRelativeOffsets.keys.forEach { otherId ->
                                                     val lastPos = dragGroupOffsets[otherId] ?: return@forEach
                                                     val freeCells = occupiedNow - posToCell(
                                                         customPositions[otherId] ?: lastPos,
-                                                        cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows
+                                                        cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows
                                                     )
                                                     val snapped = snapToGrid(
                                                         lastPos, cellWPx, cellHPx, padLeftPx, padTopPx,
-                                                        screenWPxTotal, screenHPxTotal, freeCells, bottomSafeAreaPx
+                                                        workspaceWidthPx, workspaceHeightPx, freeCells, 0f
                                                     )
                                                     val finalPos = snapped?.let {
                                                         Offset(
@@ -2204,7 +2152,7 @@ fun Desktop(
                                                     )
                                                     customPositions[otherId] = finalPos
                                                     dragGroupOffsets[otherId] = finalPos  // last broadcast: followers apply this final settle
-                                                    occupiedNow.add(posToCell(finalPos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
+                                                    occupiedNow.add(posToCell(finalPos, cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows))
                                                 }
                                                 prefs.saveCustomPositions(customPositions)
                                             } else if (wasGroup && !autoArrange && !alignToGrid) {
@@ -2234,7 +2182,7 @@ fun Desktop(
                                             dragGroupOffsets.clear()
                                             groupRelativeOffsets.clear()
                                             dragMoved = false
-                                            if (autoArrange) pos = basePos
+                                            if (autoArrange) pos = resolvedBasePos
                                         }
                                     )
                                 }
@@ -2268,32 +2216,12 @@ fun Desktop(
                                 refreshFlickerAlpha   = desktopFlickerAlpha.value
                             )
                         }
+                        } // basePos != null
                         } // stable key: item.id
                     }
 
-                    // ── Desktop-full toast ────────────────────────────────
-                    if (showDesktopFullToast) {
-                        LaunchedEffect(Unit) {
-                            delay(2500)
-                            showDesktopFullToast = false
-                        }
-                        Box(
-                            Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 72.dp)
-                                .background(Color(0xFF1C1C1C).copy(alpha = 0.92f), RoundedCornerShape(8.dp))
-                                .border(0.5.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 16.dp, vertical = 10.dp)
-                        ) {
-                            Text(
-                                "No space available on desktop",
-                                color    = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Normal
-                            )
-                        }
-                    }
-
+                    // Desktop-full is a deliberate dialog, not a transient toast: the
+                    // user needs a clear path to the complete Desktop directory.
                     // ── File-access toast ──────────────────────────────────
                     if (showFileAccessToast) {
                         LaunchedEffect(Unit) {
@@ -2358,64 +2286,78 @@ fun Desktop(
         // lands on top of an existing icon. Previously new items got no position
         // assigned at all, so they fell back to pure index-based auto-placement
         // (wherever their alphabetical/sort position happened to put them).
-        fun placeNewItemAtClickPosition(id: String) {
-            if (autoArrange) return  // auto-arrange mode computes positions from index by design
-            val maxX = screenWPxTotal - cellWPx
-            val finalPos = if (alignToGrid) {
+        fun placeNewItemAtClickPosition(id: String): Boolean {
+            if (autoArrange) return false
+            val maxX = maxXBound
+            val finalPos: Offset? = if (alignToGrid) {
                 val snapped = snapToGrid(
                     desktopCtxLocalOffset, cellWPx, cellHPx, padLeftPx, padTopPx,
-                    screenWPxTotal, screenHPxTotal, occupiedCells, bottomSafeAreaPx
+                    workspaceWidthPx, workspaceHeightPx, occupiedCells, 0f
                 )
                 snapped?.let {
                     Offset(it.x.coerceIn(padLeftPx, maxX), it.y.coerceIn(padTopPx, maxYBound))
-                } ?: Offset(
-                    desktopCtxLocalOffset.x.coerceIn(padLeftPx, maxX),
-                    desktopCtxLocalOffset.y.coerceIn(padTopPx, maxYBound)
-                )
+                }
             } else {
-                // Align-to-grid off: place at the exact click point, like real Windows —
-                // no snapping.
+                // Free placement still cannot create an icon outside the fixed viewport.
                 Offset(
                     desktopCtxLocalOffset.x.coerceIn(padLeftPx, maxX),
                     desktopCtxLocalOffset.y.coerceIn(padTopPx, maxYBound)
-                )
+                ).takeIf {
+                    posToCell(it, cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows) !in occupiedCells
+                }
+            }
+            if (finalPos == null) {
+                showDesktopFullDialog = true
+                return false
             }
             customPositions[id] = finalPos
             prefs.saveCustomPositions(customPositions)
+            return true
         }
 
-        // Assigns every un-positioned item a STABLE, persisted grid cell the moment it
-        // first appears — fixes a real bug where icons with no customPositions entry
-        // (e.g. default shortcuts, or anything created before this fix existed) fell
-        // back to autoGridPos(idx, ...) for their visual position. Since idx is just
-        // that item's position within the current sort order, inserting or removing ANY
-        // item could shift everyone else's idx and visibly reshuffle the whole desktop —
-        // which is what made creating one new file look like it "disorganized
-        // everything". Once an item has a real customPositions entry (assigned here, or
-        // from a drag, or from placeNewItemAtClickPosition above), it never depends on
-        // idx again, so later insertions/removals can't move it.
-        LaunchedEffect(items, autoArrange) {
+        // Assign every newly discovered item one persistent position exactly once.
+        LaunchedEffect(items, autoArrange, workspaceRows, workspaceCols) {
             if (autoArrange) return@LaunchedEffect
-            val maxX = screenWPxTotal - cellWPx
-            val occupied = occupiedCells.toMutableSet()
+            val occupied = customPositions.values.mapTo(mutableSetOf()) {
+                posToCell(it, cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows)
+            }
             var changed = false
-            sortedItems.forEachIndexed { idx, item ->
-                if (customPositions.containsKey(item.id)) return@forEachIndexed
-                val fallback = autoGridPos(idx, rows, maxCols, cellWPx, cellHPx, padLeftPx, padTopPx)
-                    ?: return@forEachIndexed  // grid full — nothing we can do yet
-                val snapped = snapToGrid(
-                    fallback, cellWPx, cellHPx, padLeftPx, padTopPx,
-                    screenWPxTotal, screenHPxTotal, occupied, bottomSafeAreaPx
-                )
-                val finalPos = snapped?.let {
-                    Offset(it.x.coerceIn(padLeftPx, maxX), it.y.coerceIn(padTopPx, maxYBound))
-                } ?: fallback
-                customPositions[item.id] = finalPos
-                occupied.add(posToCell(finalPos, cellWPx, cellHPx, padLeftPx, padTopPx, maxCols, maxRows))
-                changed = true
+            sortedItems.forEach { item ->
+                if (customPositions.containsKey(item.id)) return@forEach
+                var chosen: Pair<Int, Int>? = null
+                outer@ for (col in 0 until workspaceCols) {
+                    for (row in 0 until workspaceRows) {
+                        val cell = col to row
+                        if (cell !in occupied) { chosen = cell; break@outer }
+                    }
+                }
+                if (chosen != null) {
+                    val pos = Offset(padLeftPx + chosen.first * cellWPx, padTopPx + chosen.second * cellHPx)
+                    customPositions[item.id] = pos
+                    occupied.add(chosen)
+                    changed = true
+                }
             }
             if (changed) prefs.saveCustomPositions(customPositions)
         }
+
+            // Prompt when the fixed desktop cannot show the complete Desktop directory.
+            // The prompt is keyed to the current item-set/capacity so it does not loop after
+            // the user dismisses it, but a new overflow event can surface it again.
+            LaunchedEffect(items.map { it.id }.hashCode(), desktopCapacity, iconSize, autoArrange) {
+                val visibleManualCount = items.count { item ->
+                    val p = customPositions[item.id]
+                    p != null && p.x >= padLeftPx && p.y >= padTopPx &&
+                        p.x <= maxXBound && p.y <= maxYBound
+                }
+                val shownCapacity = if (autoArrange) minOf(items.size, desktopCapacity) else visibleManualCount
+                val overflow = items.size > desktopCapacity || shownCapacity < items.size
+                val key = listOf(items.map { it.id }.hashCode(), desktopCapacity, iconSize, autoArrange).hashCode()
+                if (overflow && key != lastDesktopFullPromptKey) {
+                    lastDesktopFullPromptKey = key
+                    showDesktopFullDialog = true
+                }
+            }
 
             // ── Desktop context menu ──
             if (showDesktopCtx) {
@@ -2442,7 +2384,7 @@ fun Desktop(
                     autoArrange         = autoArrange,
                     onAutoArrangeToggle = {
                         autoArrange = it; prefs.autoArrange = it
-                        if (it) { customPositions.clear(); prefs.clearCustomPositions() }
+                        // Keep manual placements intact while Auto Arrange is enabled.
                         showDesktopCtx = false
                     },
                     alignToGrid         = alignToGrid,
@@ -2456,22 +2398,30 @@ fun Desktop(
                     },
                     hasPaste            = vmUiState.clipboardFiles.isNotEmpty(),
                     onNewFolder         = {
-                        val name   = uniqueName(desktopDir, "New folder")
-                        val newDir = File(desktopDir, name)
-                        newDir.mkdirs()
-                        placeNewItemAtClickPosition(newDir.absolutePath)
-                        pendingRenameId = newDir.absolutePath
-                        showDesktopCtx  = false
-                        scheduleRefresh()
+                        if (!autoArrange && occupiedCells.size >= desktopCapacity) {
+                            showDesktopCtx = false
+                            showDesktopFullDialog = true
+                        } else {
+                            val name   = uniqueName(desktopDir, "New folder")
+                            val newDir = File(desktopDir, name)
+                            newDir.mkdirs()
+                            if (placeNewItemAtClickPosition(newDir.absolutePath)) pendingRenameId = newDir.absolutePath
+                            showDesktopCtx  = false
+                            scheduleRefresh()
+                        }
                     },
                     onNewTextFile       = {
-                        val name    = uniqueName(desktopDir, "New Text Document", "txt")
-                        val newFile = File(desktopDir, name)
-                        try { newFile.createNewFile() } catch (_: Exception) {}
-                        placeNewItemAtClickPosition(newFile.absolutePath)
-                        pendingRenameId = newFile.absolutePath
-                        showDesktopCtx  = false
-                        scheduleRefresh()
+                        if (!autoArrange && occupiedCells.size >= desktopCapacity) {
+                            showDesktopCtx = false
+                            showDesktopFullDialog = true
+                        } else {
+                            val name    = uniqueName(desktopDir, "New Text Document", "txt")
+                            val newFile = File(desktopDir, name)
+                            try { newFile.createNewFile() } catch (_: Exception) {}
+                            if (placeNewItemAtClickPosition(newFile.absolutePath)) pendingRenameId = newFile.absolutePath
+                            showDesktopCtx  = false
+                            scheduleRefresh()
+                        }
                     },
                     onNewShortcut       = { showShortcutDialog  = true; showDesktopCtx = false },
                     onAddAppShortcut    = { showAppPickerDialog = true; showDesktopCtx = false },
@@ -2486,6 +2436,30 @@ fun Desktop(
                     },
                     onDisplaySettings   = { viewModel.openWindow(LauncherScreen.SETTINGS); showDesktopCtx = false },
                     onDismiss           = { showDesktopCtx = false }
+                )
+            }
+
+            if (showDesktopFullDialog) {
+                AlertDialog(
+                    onDismissRequest = { showDesktopFullDialog = false },
+                    icon = { Icon(FluentIcon.Folder, contentDescription = null) },
+                    title = { Text("Desktop is full") },
+                    text = {
+                        Text(
+                            "There isn't enough space to show everything on the desktop at this screen size. The files are still in the Desktop folder. Open File Explorer to see the full contents."
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                showDesktopFullDialog = false
+                                viewModel.openWindow(LauncherScreen.FILE_EXPLORER)
+                            }
+                        ) { Text("Open File Explorer") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDesktopFullDialog = false }) { Text("Close") }
+                    }
                 )
             }
 

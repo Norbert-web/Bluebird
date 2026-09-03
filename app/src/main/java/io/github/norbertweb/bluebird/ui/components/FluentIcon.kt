@@ -140,6 +140,56 @@ import fluent.ui.system.icons.regular.WindowConsole
 // FluentIcons.Regular.… will also show the closest real name.
 // ─────────────────────────────────────────────────────────
 object FluentIcon {
+    // Editor aliases used by the IDE shell. Keep these mapped to real icons from 1.0.1.
+    val Code = FluentIcons.Regular.WindowConsole
+    val Analytics = FluentIcons.Regular.DataUsage
+    val ArrowDownward = FluentIcons.Regular.ChevronDown
+    val ArrowUpward = FluentIcons.Regular.ChevronUp
+    val Bookmark = FluentIcons.Regular.Pin
+    val BookmarkBorder = FluentIcons.Regular.Pin
+    val CheckBox = FluentIcons.Regular.CheckmarkCircle
+    val CheckBoxOutlineBlank = FluentIcons.Regular.CheckmarkCircle
+    val Comment = FluentIcons.Regular.MoreHorizontal
+    val ContentCopy = FluentIcons.Regular.Copy
+    val ContentCut = FluentIcons.Regular.Cut
+    val ContentPaste = FluentIcons.Regular.ClipboardPaste
+    val DeleteForever = FluentIcons.Regular.Delete
+    val FilterList = FluentIcons.Regular.List
+    val FindReplace = FluentIcons.Regular.Search
+    val FormatIndentIncrease = FluentIcons.Regular.ArrowAutofitWidth
+    val FormatListBulleted = FluentIcons.Regular.List
+    val FormatListNumbered = FluentIcons.Regular.TaskListSquareLtr
+    val History = FluentIcons.Regular.ArrowRotateClockwise
+    val KeyboardArrowDown = FluentIcons.Regular.ChevronDown
+    val KeyboardArrowUp = FluentIcons.Regular.ChevronUp
+    val Lock = FluentIcons.Regular.LockClosed
+    val LockOpen = FluentIcons.Regular.LockClosedKey
+    val NavigateBefore = FluentIcons.Regular.Previous
+    val NavigateNext = FluentIcons.Regular.Next
+    val Notes = FluentIcons.Regular.DocumentText
+    val PushPin = FluentIcons.Regular.Pin
+    val Redo = FluentIcons.Regular.ArrowRotateClockwise
+    val Restore = FluentIcons.Regular.ArrowRotateClockwise
+    val Schedule = FluentIcons.Regular.ClockAlarm
+    val SelectAll = FluentIcons.Regular.CheckmarkCircle
+    val Sort = FluentIcons.Regular.ArrowSort
+    val SpaceBar = FluentIcons.Regular.Keyboard
+    val Subject = FluentIcons.Regular.TextFont
+    val TextDecrease = FluentIcons.Regular.TextFont
+    val TextFields = FluentIcons.Regular.TextFont
+    val TextIncrease = FluentIcons.Regular.TextFont
+    val Undo = FluentIcons.Regular.ArrowReply
+    val WrapText = FluentIcons.Regular.TextFont
+    val ZoomIn = FluentIcons.Regular.FullScreenMaximize
+    val ZoomOut = FluentIcons.Regular.FullScreenMinimize
+    val ZoomOutMap = FluentIcons.Regular.FullScreenMinimize
+    val Save = FluentIcons.Regular.Checkmark
+    val SaveAs = FluentIcons.Regular.Open
+    val Close = FluentIcons.Regular.Dismiss
+    val Extension = FluentIcons.Regular.Apps
+    val VerticalAlignCenter = FluentIcons.Regular.Resize
+    val Error = FluentIcons.Regular.Alert
+    val CheckCircle = FluentIcons.Regular.CheckmarkCircle
     // Apps / navigation
     val Settings        = FluentIcons.Regular.Settings
     val Calculator      = FluentIcons.Regular.Calculator
