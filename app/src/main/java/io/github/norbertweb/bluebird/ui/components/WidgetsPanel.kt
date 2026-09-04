@@ -10,6 +10,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Bundle
 import android.media.session.MediaSessionManager
 import android.net.TrafficStats
 import android.net.Uri
@@ -34,6 +35,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 // Icons come from the shared FluentIcon object (FluentIcon.kt), which wraps
 // the io.github.niyajali:fluentui-system-icons Compose Multiplatform library.
 // Dependency (module build.gradle.kts):
@@ -51,6 +53,8 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -89,8 +93,11 @@ private fun saveTodos(context: Context, tasks: List<TodoTask>) {
     val json = org.json.JSONArray().apply {
         tasks.forEach { t ->
             put(JSONObject().apply {
+                put("id", t.id)
                 put("text", t.text)
                 put("done", t.done)
+                put("priority", t.priority.name)
+                put("dueAt", t.dueAt ?: JSONObject.NULL)
             })
         }
     }
@@ -98,16 +105,66 @@ private fun saveTodos(context: Context, tasks: List<TodoTask>) {
 }
 
 private fun loadTodos(context: Context): List<TodoTask> {
-    val raw = context.widgetPrefs().getString("todos", null) ?: return listOf(
-        TodoTask("Review pull request", true),
-        TodoTask("Update documentation", false),
-        TodoTask("Send weekly report", false),
-    )
+    val raw = context.widgetPrefs().getString("todos", null) ?: return emptyList()
     return try {
         val arr = org.json.JSONArray(raw)
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
-            TodoTask(o.getString("text"), o.getBoolean("done"))
+            // "id"/"priority"/"dueAt" are new fields — fall back gracefully so
+            // to-dos saved by older versions of this widget still load fine.
+            TodoTask(
+                id       = o.optString("id").ifBlank { UUID.randomUUID().toString() },
+                text     = o.getString("text"),
+                done     = o.getBoolean("done"),
+                priority = try {
+                    TaskPriority.valueOf(o.optString("priority", TaskPriority.NONE.name))
+                } catch (e: Exception) { TaskPriority.NONE },
+                dueAt    = if (o.isNull("dueAt")) null else o.optLong("dueAt").takeIf { it > 0 }
+            )
+        }
+    } catch (e: Exception) { emptyList() }
+}
+
+private fun saveTodoSortByPriority(context: Context, enabled: Boolean) {
+    context.widgetPrefs().edit().putBoolean("todo_sort_by_priority", enabled).apply()
+}
+
+private fun loadTodoSortByPriority(context: Context): Boolean =
+    context.widgetPrefs().getBoolean("todo_sort_by_priority", false)
+
+private fun saveTodoFilter(context: Context, filter: String) {
+    context.widgetPrefs().edit().putString("todo_filter", filter).apply()
+}
+
+private fun loadTodoFilter(context: Context): String =
+    context.widgetPrefs().getString("todo_filter", "all") ?: "all"
+
+// ─── Sticky notes ───────────────────────────────────────────────────────────
+
+private fun saveStickyNotes(context: Context, notes: List<StickyNote>) {
+    val json = org.json.JSONArray().apply {
+        notes.forEach { n ->
+            put(JSONObject().apply {
+                put("id", n.id)
+                put("text", n.text)
+                put("color", n.colorHex)
+            })
+        }
+    }
+    context.widgetPrefs().edit().putString("sticky_notes", json.toString()).apply()
+}
+
+private fun loadStickyNotes(context: Context): List<StickyNote> {
+    val raw = context.widgetPrefs().getString("sticky_notes", null) ?: return emptyList()
+    return try {
+        val arr = org.json.JSONArray(raw)
+        (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            StickyNote(
+                id       = o.optString("id").ifBlank { UUID.randomUUID().toString() },
+                text     = o.getString("text"),
+                colorHex = o.optString("color", StickyNoteColors.default)
+            )
         }
     } catch (e: Exception) { emptyList() }
 }
@@ -117,7 +174,7 @@ private fun saveWidgetOrder(context: Context, order: List<String>) {
 }
 
 private fun loadWidgetOrder(context: Context): List<String> {
-    val default = listOf("clock","weather","music","steps","stocks","news","calendar","photos","todo","alarm","network","screentime")
+    val default = listOf("clock","weather","music","steps","stocks","news","calendar","photos","todo","notes","alarm","network","screentime")
     val saved = context.widgetPrefs().getString("widget_order", null) ?: return default
     val savedList = saved.split(",").filter { it.isNotBlank() }
     // merge: keep saved order, append any new ones not yet in list (external
@@ -201,7 +258,24 @@ private fun loadWorldClocks(context: Context): List<WorldClock> {
 
 // ─── Data classes ─────────────────────────────────────────────────────────────
 
-private data class TodoTask(val text: String, val done: Boolean)
+private enum class TaskPriority(val label: String, val color: Color) {
+    NONE("No priority", Color(0xFF9E9E9E)),
+    LOW("Low", Color(0xFF66BB6A)),
+    MEDIUM("Medium", Color(0xFFFFA726)),
+    HIGH("High", Color(0xFFEF5350));
+
+    /** Cycles NONE → LOW → MEDIUM → HIGH → NONE, used by the quick priority tap. */
+    fun next(): TaskPriority = values()[(ordinal + 1) % values().size]
+}
+
+private data class TodoTask(
+    val id: String = UUID.randomUUID().toString(),
+    val text: String,
+    val done: Boolean,
+    val priority: TaskPriority = TaskPriority.NONE,
+    val dueAt: Long? = null
+)
+
 private data class WorldClock(val label: String, val tz: String)
 private data class WeatherData(
     val city: String, val condition: String, val temp: Int,
@@ -212,6 +286,27 @@ private data class StockTicker(val symbol: String, val change: String, val price
 private data class NewsArticle(val title: String, val source: String, val url: String)
 private data class CalendarEvent(val title: String, val time: String, val color: Color)
 
+// ─── Sticky notes ───────────────────────────────────────────────────────────
+
+private data class StickyNote(val id: String, val text: String, val colorHex: String)
+
+/** Classic pastel sticky-note palette, referenced by hex so it round-trips through JSON cleanly. */
+private object StickyNoteColors {
+    val palette = listOf(
+        "#FFF9C4", // yellow
+        "#F8BBD0", // pink
+        "#BBDEFB", // blue
+        "#C8E6C9", // green
+        "#E1BEE7", // purple
+        "#FFE0B2", // orange
+    )
+    val default get() = palette[0]
+}
+
+private fun stickyColor(hex: String): Color = try {
+    Color(android.graphics.Color.parseColor(hex))
+} catch (e: Exception) { Color(0xFFFFF9C4) }
+
 // ─── Widget IDs ───────────────────────────────────────────────────────────────
 
 // Built-in widget ids. Third-party app widgets bound via AppWidgetHost are
@@ -220,7 +315,7 @@ private data class CalendarEvent(val title: String, val time: String, val color:
 private val ALL_WIDGET_IDS = listOf(
     "clock", "weather", "music", "steps", "stocks",
     "news", "calendar", "photos",
-    "todo", "alarm", "network", "screentime"
+    "todo", "notes", "alarm", "network", "screentime"
 )
 
 private val WIDGET_LABELS = mapOf(
@@ -233,6 +328,7 @@ private val WIDGET_LABELS = mapOf(
     "calendar"   to "Calendar",
     "photos"     to "Photos",
     "todo"       to "To Do",
+    "notes"      to "Sticky Notes",
     "alarm"      to "Next Alarm",
     "network"    to "Network Speed",
     "screentime" to "Screen Time"
@@ -377,10 +473,15 @@ fun WidgetsPanel(
         LocalWidgetAccent provides accentColor,
         LocalWidgetDensity provides density
     ) {
-    AcrylicSurface(
-        modifier = modifier.width(380.dp).fillMaxHeight(),
-        isDark = isDark, alpha = 0.96f, cornerRadius = 0.dp
-    ) {
+    // Panel width scales with the available window instead of a fixed 380dp,
+    // so widget cards (and any hosted third-party widget) get more breathing
+    // room on larger phones/foldables, clamped to a sane range either way.
+    BoxWithConstraints(modifier.fillMaxHeight()) {
+        val panelWidth = (maxWidth * 0.34f).coerceIn(PANEL_MIN_WIDTH, PANEL_MAX_WIDTH)
+        AcrylicSurface(
+            modifier = Modifier.width(panelWidth).fillMaxHeight(),
+            isDark = isDark, alpha = 0.96f, cornerRadius = PANEL_CORNER
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -489,6 +590,7 @@ fun WidgetsPanel(
                         id == "calendar"   -> CalendarWidget(isDark, context, effectiveTextScale)
                         id == "photos"     -> PhotosWidget(isDark, context, effectiveTextScale)
                         id == "todo"       -> TodoWidget(isDark, context, effectiveTextScale)
+                        id == "notes"      -> StickyNotesWidget(isDark, context, effectiveTextScale)
                         id == "alarm"      -> AlarmWidget(isDark, context, effectiveTextScale)
                         id == "network"    -> NetworkSpeedWidget(isDark, effectiveTextScale)
                         id == "screentime" -> ScreenTimeWidget(isDark, context, effectiveTextScale)
@@ -503,6 +605,7 @@ fun WidgetsPanel(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+        }
         }
     }
     }
@@ -520,22 +623,45 @@ private fun ExternalAppWidget(
     isDark: Boolean
 ) {
     val info = remember(widgetId) { manager.getAppWidgetInfo(widgetId) } ?: return
-    val border = if (isDark) DS.borderDark else DS.borderLight
-    val cardBg = if (isDark) bluebirdColors.WidgetBg else bluebirdColors.WidgetBgLight
+    val density = LocalDensity.current
+
+    // Most third-party widgets already ship their own opaque background,
+    // shape, and often their own corner radius — wrapping that in a second
+    // card (our bg + border + WIDGET_CORNER on top of the widget's own
+    // radius) is what produced the "double frame" / mismatched-corner look.
+    // We now only *clip* the hosted view to our shared radius so it sits
+    // flush with the rest of the panel, and let the widget's own chrome
+    // show through untouched — the same approach a home-screen launcher
+    // takes with third-party widgets.
+    var slotWidthPx by remember { mutableStateOf(0) }
+    val minHeightDp = remember(info) { info.minHeight }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = minHeightDp.dp)
+            .onSizeChanged { slotWidthPx = it.width }
             .clip(RoundedCornerShape(WIDGET_CORNER))
-            .background(cardBg)
-            .border(1.dp, border, RoundedCornerShape(WIDGET_CORNER))
-            .padding(6.dp)
     ) {
         AndroidView(
-            modifier = Modifier.fillMaxWidth(),
-            factory = {
-                host.createView(it, widgetId, info).apply {
+            modifier = Modifier.fillMaxWidth().heightIn(min = minHeightDp.dp),
+            factory = { ctx ->
+                host.createView(ctx, widgetId, info).apply {
                     setPadding(0, 0, 0, 0)
+                }
+            },
+            // Without this, RemoteViews never learn how much room they
+            // actually have and frequently fall back to a cramped default
+            // layout — this is the most common cause of a bound widget
+            // rendering squished or oddly proportioned inside a host.
+            update = { view ->
+                if (slotWidthPx > 0) {
+                    val widthDp = with(density) { slotWidthPx.toDp().value.toInt() }
+                    view.updateAppWidgetSize(
+                        Bundle(),
+                        widthDp, minHeightDp,
+                        widthDp, minHeightDp
+                    )
                 }
             }
         )
@@ -713,18 +839,36 @@ private fun WidgetEditPanel(
         )
 
         // ── Add a widget from any installed app ──
+        // Styled to match every other surface in the panel (WIDGET_CORNER +
+        // shadow + border) instead of the old flat 11dp tinted row, which
+        // read as a generic settings list item rather than a card action.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(11.dp))
+                .shadow(
+                    elevation = 2.dp,
+                    shape = RoundedCornerShape(WIDGET_CORNER),
+                    ambientColor = Color.Black.copy(alpha = if (isDark) 0.25f else 0.05f),
+                    spotColor = Color.Black.copy(alpha = if (isDark) 0.25f else 0.05f)
+                )
+                .clip(RoundedCornerShape(WIDGET_CORNER))
                 .background(LocalWidgetAccent.current.copy(alpha = 0.08f))
+                .border(1.dp, LocalWidgetAccent.current.copy(alpha = 0.25f), RoundedCornerShape(WIDGET_CORNER))
                 .clickable { onAddWidget() }
-                .padding(vertical = 10.dp, horizontal = 10.dp),
+                .padding(vertical = 12.dp, horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(imageVector = FluentIcon.Add, contentDescription = null,
-                tint = LocalWidgetAccent.current, modifier = Modifier.size(17.dp))
+            Box(
+                modifier = Modifier
+                    .size(26.dp)
+                    .clip(CircleShape)
+                    .background(LocalWidgetAccent.current.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(imageVector = FluentIcon.Add, contentDescription = null,
+                    tint = LocalWidgetAccent.current, modifier = Modifier.size(15.dp))
+            }
             Text(
                 "Add widget from an app",
                 color = LocalWidgetAccent.current,
@@ -786,6 +930,18 @@ private fun SettingsToggleRow(
 // external widget frames) so the whole panel reads as one consistent shape
 // language instead of the previous 12–14dp mismatch.
 private val WIDGET_CORNER = 20.dp
+
+// Outer panel shape/sizing. The panel used to be a hard 380dp with a square
+// (0dp) outer boundary — square against the rest of a UI that's otherwise
+// built entirely out of rounded cards reads as an unstyled leftover, and
+// 380dp starts feeling tight once a hosted third-party widget is in the mix.
+// PANEL_CORNER is intentionally a bit larger than WIDGET_CORNER: the outer
+// silhouette of a docked panel reads better slightly more rounded than the
+// cards sitting inside it (same relationship as a phone's home-screen widget
+// tray vs. the widgets inside it).
+private val PANEL_CORNER = 24.dp
+private val PANEL_MIN_WIDTH = 380.dp
+private val PANEL_MAX_WIDTH = 460.dp
 
 // ── Dynamic (Material You) accent, threaded via CompositionLocal so every
 // widget — most of which only take `isDark` — picks it up without a signature
@@ -1729,26 +1885,87 @@ private fun getRecentPhotos(context: Context, maxCount: Int): List<Uri> {
 // they can follow the same real-fetch pattern now used by Weather/Stocks/News.
 
 // ─────────────────────────────────────────────────────────
-// 11. To‑Do Widget (persistent, swipe-to-delete)
+// 11. To‑Do Widget (persistent, swipe-to-delete, priorities, due dates)
 // ─────────────────────────────────────────────────────────
+
+private enum class TodoFilter(val label: String) { ALL("All"), ACTIVE("Active"), DONE("Done") }
+
+/** Calendar-day granularity due-date helpers — no time-of-day, just "which day". */
+private fun startOfDay(millis: Long = System.currentTimeMillis()): Long =
+    Calendar.getInstance().apply {
+        timeInMillis = millis
+        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+private fun daysFromToday(dueAt: Long): Int {
+    val today = startOfDay()
+    val due = startOfDay(dueAt)
+    return ((due - today) / (24 * 60 * 60 * 1000L)).toInt()
+}
+
+private fun dueLabel(dueAt: Long): String = when (val d = daysFromToday(dueAt)) {
+    0 -> "Today"
+    1 -> "Tomorrow"
+    -1 -> "Yesterday"
+    in -6..-2 -> "${-d}d overdue"
+    in 2..6 -> SimpleDateFormat("EEE", Locale.getDefault()).format(Date(dueAt))
+    else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(dueAt))
+}
+
+private fun dueColor(dueAt: Long, done: Boolean, textColor: Color): Color {
+    if (done) return textColor.copy(alpha = 0.35f)
+    val d = daysFromToday(dueAt)
+    return when {
+        d < 0  -> bluebirdColors.Error
+        d == 0 -> TaskPriority.MEDIUM.color
+        else   -> textColor.copy(alpha = 0.5f)
+    }
+}
+
 @Composable
 private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
     val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    var tasks        by remember { mutableStateOf(loadTodos(context)) }
-    var newTaskText  by remember { mutableStateOf("") }
-    var showAddField by remember { mutableStateOf(false) }
+    var tasks         by remember { mutableStateOf(loadTodos(context)) }
+    var newTaskText   by remember { mutableStateOf("") }
+    var showAddField  by remember { mutableStateOf(false) }
+    var filter        by remember {
+        mutableStateOf(
+            try { TodoFilter.valueOf(loadTodoFilter(context).uppercase()) }
+            catch (e: Exception) { TodoFilter.ALL }
+        )
+    }
+    var sortByPriority by remember { mutableStateOf(loadTodoSortByPriority(context)) }
+    var menuForTaskId by remember { mutableStateOf<String?>(null) }
     val focusRequester = remember { FocusRequester() }
 
     fun save(updated: List<TodoTask>) { tasks = updated; saveTodos(context, updated) }
     fun submitNewTask() {
         if (newTaskText.isNotBlank()) {
-            save(tasks + TodoTask(newTaskText.trim(), false))
+            save(tasks + TodoTask(text = newTaskText.trim(), done = false))
             newTaskText = ""
         }
     }
 
     LaunchedEffect(showAddField) {
         if (showAddField) { delay(80); focusRequester.requestFocus() }
+    }
+
+    val displayedTasks = remember(tasks, filter, sortByPriority) {
+        val filtered = when (filter) {
+            TodoFilter.ALL    -> tasks
+            TodoFilter.ACTIVE -> tasks.filterNot { it.done }
+            TodoFilter.DONE   -> tasks.filter { it.done }
+        }
+        if (sortByPriority) {
+            filtered.sortedWith(
+                compareBy<TodoTask> { it.done }
+                    .thenByDescending { it.priority.ordinal }
+                    .thenBy { it.dueAt ?: Long.MAX_VALUE }
+            )
+        } else {
+            filtered.sortedBy { it.done }
+        }
     }
 
     WidgetCard(isDark) {
@@ -1758,7 +1975,23 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                 val done = tasks.count { it.done }
                 if (tasks.isNotEmpty()) {
                     Text("$done/${tasks.size}", color = textColor.copy(alpha = 0.45f), fontSize = (11 * textScale).sp,
-                        modifier = Modifier.padding(end = 6.dp))
+                        modifier = Modifier.padding(end = 4.dp))
+                }
+                // Priority-sort toggle — sorts by priority (high first) then due
+                // date, with completed tasks always sinking to the bottom.
+                IconButton(
+                    onClick = {
+                        sortByPriority = !sortByPriority
+                        saveTodoSortByPriority(context, sortByPriority)
+                    },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = FluentIcon.ArrowSort,
+                        contentDescription = if (sortByPriority) "Sorting by priority" else "Sort by priority",
+                        tint = if (sortByPriority) LocalWidgetAccent.current else textColor.copy(alpha = 0.4f),
+                        modifier = Modifier.size(15.dp)
+                    )
                 }
                 IconButton(onClick = { showAddField = !showAddField }, modifier = Modifier.size(24.dp)) {
                     Icon(
@@ -1778,19 +2011,49 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                 color      = LocalWidgetAccent.current,
                 trackColor = widgetDividerColor(textColor)
             )
+            Spacer(Modifier.height(10.dp))
+
+            // ── Filter tabs: All / Active / Done ──
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                TodoFilter.values().forEach { f ->
+                    val selected = f == filter
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (selected) LocalWidgetAccent.current.copy(alpha = 0.16f) else Color.Transparent)
+                            .clickable {
+                                filter = f
+                                saveTodoFilter(context, f.name)
+                            }
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            f.label,
+                            color = if (selected) LocalWidgetAccent.current else textColor.copy(alpha = 0.5f),
+                            fontSize = (11 * textScale).sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
         }
         Spacer(Modifier.height(10.dp))
 
         if (tasks.isEmpty() && !showAddField) {
             Text("Nothing on your list — tap + to add a task", color = textColor.copy(alpha = 0.45f), fontSize = (12 * textScale).sp, fontWeight = FontWeight.Medium)
+        } else if (displayedTasks.isEmpty()) {
+            Text(
+                if (filter == TodoFilter.DONE) "No completed tasks yet" else "Nothing active — nice work",
+                color = textColor.copy(alpha = 0.45f), fontSize = (12 * textScale).sp, fontWeight = FontWeight.Medium
+            )
         }
 
-        tasks.forEachIndexed { idx, task ->
-            var offsetX    by remember { mutableFloatStateOf(0f) }
-            var dismissed  by remember { mutableStateOf(false) }
+        displayedTasks.forEach { task ->
+            var offsetX   by remember(task.id) { mutableFloatStateOf(0f) }
+            var dismissed by remember(task.id) { mutableStateOf(false) }
             if (dismissed) {
-                LaunchedEffect(Unit) { save(tasks.toMutableList().also { it.removeAt(idx) }) }
-                return@forEachIndexed
+                LaunchedEffect(task.id) { save(tasks.filterNot { it.id == task.id }) }
+                return@forEach
             }
             Box(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                 // Delete bg
@@ -1807,7 +2070,7 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                         .background(if (task.done) Color.Transparent else (if (isDark) Color.White.copy(alpha = 0.03f) else Color.Black.copy(alpha = 0.02f)))
-                        .pointerInput(Unit) {
+                        .pointerInput(task.id) {
                             detectHorizontalDragGestures(
                                 onDragEnd = { if (offsetX < -160f) dismissed = true else offsetX = 0f },
                                 onHorizontalDrag = { _, delta -> offsetX = (offsetX + delta).coerceAtMost(0f) }
@@ -1815,22 +2078,121 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                         }
                         .padding(vertical = 8.dp, horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Priority bar — tap to cycle NONE → Low → Medium → High.
+                    // A thin color bar (rather than a badge) keeps the row
+                    // scannable at a glance, the same language Things/Todoist use.
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(28.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(if (task.priority == TaskPriority.NONE) widgetDividerColor(textColor) else task.priority.color)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { save(tasks.map { if (it.id == task.id) it.copy(priority = it.priority.next()) else it }) }
+                    )
                     Checkbox(
                         checked = task.done,
-                        onCheckedChange = { checked -> save(tasks.toMutableList().also { it[idx] = it[idx].copy(done = checked) }) },
+                        onCheckedChange = { checked -> save(tasks.map { if (it.id == task.id) it.copy(done = checked) else it }) },
                         colors   = CheckboxDefaults.colors(checkedColor = LocalWidgetAccent.current, checkmarkColor = Color.White),
                         modifier = Modifier.size(21.dp)
                     )
-                    Text(
-                        task.text,
-                        color          = if (task.done) textColor.copy(alpha = 0.35f) else textColor,
-                        fontSize       = (13 * textScale).sp,
-                        fontWeight     = FontWeight.Medium,
-                        textDecoration = if (task.done) TextDecoration.LineThrough else null,
-                        modifier       = Modifier.weight(1f)
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            task.text,
+                            color          = if (task.done) textColor.copy(alpha = 0.35f) else textColor,
+                            fontSize       = (13 * textScale).sp,
+                            fontWeight     = FontWeight.Medium,
+                            textDecoration = if (task.done) TextDecoration.LineThrough else null,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis
+                        )
+                        if (task.dueAt != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Icon(
+                                    imageVector = FluentIcon.Calendar, contentDescription = null,
+                                    tint = dueColor(task.dueAt, task.done, textColor), modifier = Modifier.size(10.dp)
+                                )
+                                Text(
+                                    dueLabel(task.dueAt),
+                                    color = dueColor(task.dueAt, task.done, textColor),
+                                    fontSize = (10 * textScale).sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                    Box {
+                        // Using a plain "⋮" glyph rather than an overflow icon here —
+                        // FluentIcon.MoreVertical (or equivalent) isn't used anywhere
+                        // else in this file, so its exact name in your FluentIcon
+                        // wrapper is unverified. Swap this Text for
+                        // Icon(imageVector = FluentIcon.<YourOverflowIcon>, ...)
+                        // once you've confirmed the right name.
+                        IconButton(onClick = { menuForTaskId = task.id }, modifier = Modifier.size(24.dp)) {
+                            Text(
+                                "\u22EE",
+                                color = textColor.copy(alpha = 0.35f),
+                                fontSize = (15 * textScale).sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        DropdownMenu(expanded = menuForTaskId == task.id, onDismissRequest = { menuForTaskId = null }) {
+                            Text(
+                                "PRIORITY", color = textColor.copy(alpha = 0.4f), fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                            TaskPriority.values().forEach { p ->
+                                DropdownMenuItem(
+                                    text = { Text(p.label, fontSize = 13.sp) },
+                                    leadingIcon = {
+                                        Box(Modifier.size(10.dp).clip(CircleShape).background(if (p == TaskPriority.NONE) widgetDividerColor(textColor) else p.color))
+                                    },
+                                    onClick = {
+                                        save(tasks.map { if (it.id == task.id) it.copy(priority = p) else it })
+                                        menuForTaskId = null
+                                    }
+                                )
+                            }
+                            HorizontalDivider(color = widgetDividerColor(textColor), thickness = 0.5.dp)
+                            Text(
+                                "DUE DATE", color = textColor.copy(alpha = 0.4f), fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                            val dueOptions = listOf(
+                                "Today" to 0, "Tomorrow" to 1, "Next week" to 7
+                            )
+                            dueOptions.forEach { (label, offsetDays) ->
+                                DropdownMenuItem(
+                                    text = { Text(label, fontSize = 13.sp) },
+                                    onClick = {
+                                        val due = startOfDay() + offsetDays * 24L * 60 * 60 * 1000
+                                        save(tasks.map { if (it.id == task.id) it.copy(dueAt = due) else it })
+                                        menuForTaskId = null
+                                    }
+                                )
+                            }
+                            if (task.dueAt != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Clear due date", fontSize = 13.sp, color = textColor.copy(alpha = 0.6f)) },
+                                    onClick = {
+                                        save(tasks.map { if (it.id == task.id) it.copy(dueAt = null) else it })
+                                        menuForTaskId = null
+                                    }
+                                )
+                            }
+                            HorizontalDivider(color = widgetDividerColor(textColor), thickness = 0.5.dp)
+                            DropdownMenuItem(
+                                text = { Text("Delete task", fontSize = 13.sp, color = bluebirdColors.Error) },
+                                onClick = {
+                                    save(tasks.filterNot { it.id == task.id })
+                                    menuForTaskId = null
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1867,6 +2229,178 @@ private fun TodoWidget(isDark: Boolean, context: Context, textScale: Float) {
                 modifier = Modifier.clickable { save(tasks.filterNot { it.done }) }
             )
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// 11b. Sticky Notes Widget — NEW
+// ─────────────────────────────────────────────────────────
+@Composable
+private fun StickyNotesWidget(isDark: Boolean, context: Context, textScale: Float) {
+    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    var notes        by remember { mutableStateOf(loadStickyNotes(context)) }
+    var showAdd      by remember { mutableStateOf(false) }
+    var newNoteText  by remember { mutableStateOf("") }
+    var newNoteColor by remember { mutableStateOf(StickyNoteColors.default) }
+    val focusRequester = remember { FocusRequester() }
+
+    fun save(updated: List<StickyNote>) { notes = updated; saveStickyNotes(context, updated) }
+
+    LaunchedEffect(showAdd) {
+        if (showAdd) { delay(80); focusRequester.requestFocus() }
+    }
+
+    WidgetCard(isDark) {
+        // Reusing FluentIcon.Pin here rather than introducing a new icon —
+        // it's already proven to exist in this icon set and "pinned note"
+        // is a reasonable read; swap for a dedicated notepad glyph if one's
+        // available in your FluentIcon wrapper.
+        WidgetHeader("Sticky Notes", FluentIcon.Pin, textColor, textScale)
+        Spacer(Modifier.height(10.dp))
+
+        if (notes.isEmpty() && !showAdd) {
+            Text("No notes yet — tap + to jot something down", color = textColor.copy(alpha = 0.45f), fontSize = (12 * textScale).sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(8.dp))
+        }
+
+        // Simple 2-column grid, built with chunked() rather than a Flow layout
+        // so this compiles against older Compose foundation versions too.
+        // Alternating tilt direction per note (based on a stable global index,
+        // not per-row position) is what sells the "scattered on a corkboard"
+        // feel rather than a rigid, uniform grid.
+        notes.withIndex().toList().chunked(2).forEach { rowNotes ->
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                rowNotes.forEach { (globalIndex, note) ->
+                    StickyNoteCard(
+                        note = note,
+                        tilt = if (globalIndex % 2 == 0) -2f else 2f,
+                        textScale = textScale,
+                        onDelete = { save(notes.filterNot { it.id == note.id }) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (rowNotes.size == 1) Spacer(modifier = Modifier.weight(1f))
+            }
+        }
+
+        if (showAdd) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(stickyColor(newNoteColor))
+                    .padding(10.dp)
+            ) {
+                BasicTextField(
+                    value = newNoteText,
+                    onValueChange = { newNoteText = it },
+                    modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).heightIn(min = 48.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = (13 * textScale).sp, color = Color(0xFF3E3A2E), fontWeight = FontWeight.Medium),
+                    decorationBox = { inner ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (newNoteText.isEmpty()) {
+                                Text("Write a note…", fontSize = (13 * textScale).sp, color = Color(0xFF3E3A2E).copy(alpha = 0.45f))
+                            }
+                            inner()
+                        }
+                    }
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        StickyNoteColors.palette.forEach { hex ->
+                            val selected = hex == newNoteColor
+                            Box(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .background(stickyColor(hex))
+                                    .then(
+                                        if (selected) Modifier.border(2.dp, Color(0xFF3E3A2E).copy(alpha = 0.5f), CircleShape)
+                                        else Modifier
+                                    )
+                                    .clickable { newNoteColor = hex }
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        IconButton(onClick = { showAdd = false; newNoteText = "" }, modifier = Modifier.size(26.dp)) {
+                            Icon(imageVector = FluentIcon.Dismiss, contentDescription = "Cancel", tint = Color(0xFF3E3A2E).copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
+                        }
+                        IconButton(
+                            onClick = {
+                                if (newNoteText.isNotBlank()) {
+                                    save(notes + StickyNote(UUID.randomUUID().toString(), newNoteText.trim(), newNoteColor))
+                                }
+                                showAdd = false; newNoteText = ""; newNoteColor = StickyNoteColors.default
+                            },
+                            modifier = Modifier.size(26.dp)
+                        ) {
+                            Icon(imageVector = FluentIcon.Checkmark, contentDescription = "Save note", tint = Color(0xFF3E3A2E))
+                        }
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(LocalWidgetAccent.current.copy(alpha = 0.08f))
+                    .border(1.dp, LocalWidgetAccent.current.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                    .clickable { showAdd = true }
+                    .padding(vertical = 9.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(imageVector = FluentIcon.Add, contentDescription = null, tint = LocalWidgetAccent.current, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("New note", color = LocalWidgetAccent.current, fontSize = (12 * textScale).sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+/** A single pastel sticky note — slight rotation and drop shadow for a physical, tactile feel. */
+@Composable
+private fun StickyNoteCard(
+    note: StickyNote,
+    tilt: Float,
+    textScale: Float,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val ink = Color(0xFF3E3A2E)
+    Box(
+        modifier = modifier
+            .graphicsLayer { rotationZ = tilt }
+            .shadow(elevation = 3.dp, shape = RoundedCornerShape(4.dp), ambientColor = Color.Black.copy(alpha = 0.25f), spotColor = Color.Black.copy(alpha = 0.25f))
+            .clip(RoundedCornerShape(4.dp))
+            .background(stickyColor(note.colorHex))
+            .heightIn(min = 70.dp)
+            .padding(8.dp)
+    ) {
+        Text(
+            note.text,
+            color = ink,
+            fontSize = (11 * textScale).sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
+            lineHeight = (14 * textScale).sp
+        )
+        Icon(
+            imageVector = FluentIcon.Dismiss,
+            contentDescription = "Delete note",
+            tint = ink.copy(alpha = 0.4f),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .size(14.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onDelete() }
+        )
     }
 }
 
