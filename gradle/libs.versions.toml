@@ -14,6 +14,7 @@ splashscreen = "1.0.1"
 foundation = "1.11.1"
 remoteCreationCore = "1.0.0-alpha010"
 roomKtx = "2.8.4"
+ui = "1.12.0"
 
 
 [libraries]
@@ -38,6 +39,7 @@ androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscree
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "foundation" }
 androidx-compose-remote-creation-core = { group = "androidx.compose.remote", name = "remote-creation-core", version.ref = "remoteCreationCore" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "roomKtx" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "ui" }
 
 
 [plugins]
