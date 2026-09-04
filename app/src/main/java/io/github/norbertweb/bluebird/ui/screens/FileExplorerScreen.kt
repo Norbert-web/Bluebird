@@ -3,8 +3,6 @@ package io.github.norbertweb.bluebird.ui.screens
 import android.Manifest
 import android.content.Intent
 import android.graphics.Bitmap
-import android.util.LruCache
-import android.media.MediaMetadataRetriever
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -324,8 +322,13 @@ fun FileExplorerScreen(
         return
     }
 
-    val startDir = remember(startPath) {
-        val f = startPath?.let { File(it) }
+    val startDir = remember(startPath, viewModel) {
+        val resolved = startPath?.let { raw ->
+            if (raw.startsWith("content://")) {
+                viewModel?.resolveSafUriToFilePath(context, Uri.parse(raw))
+            } else raw
+        }
+        val f = resolved?.let { File(it) }
         if (f != null && f.isDirectory) f else Environment.getExternalStorageDirectory()
     }
     FileExplorerContent(isDark = isDark, viewModel = viewModel, startDir = startDir)
@@ -1810,22 +1813,28 @@ private fun StatusBar(textColor: Color, itemCount: Int, selectedCount: Int) {
 // ────────────────────────────────────────────────────────
 
 
-// Small process-local cache for generated video frames. Coil already caches image
-// thumbnails; video frames are generated with MediaMetadataRetriever, so keep a
-// separate bounded cache to avoid decoding the same frame every time a row/grid
-// item is rebound while scrolling.
-private object ExplorerVideoThumbnailCache {
-    private const val MAX_BYTES = 8 * 1024 * 1024
-    private val cache = object : LruCache<String, Bitmap>(MAX_BYTES) {
-        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
-    }
-
-    @Synchronized
-    fun get(key: String): Bitmap? = cache.get(key)
-
-    @Synchronized
-    fun put(key: String, bitmap: Bitmap) {
-        cache.put(key, bitmap)
+// Ask Android's media provider for small video thumbnails. Bluebird never persists
+// video frames or copies video files into app storage.
+private suspend fun loadExplorerVideoThumbnail(context: android.content.Context, file: File): Bitmap? {
+    if (!file.isFile || file.length() <= 0L || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+    return try {
+        val uri = context.contentResolver.query(
+            android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            arrayOf(android.provider.MediaStore.Video.Media._ID),
+            "${android.provider.MediaStore.Video.Media.DATA} = ?",
+            arrayOf(file.absolutePath),
+            null
+        )?.use { c ->
+            if (c.moveToFirst()) {
+                android.content.ContentUris.withAppendedId(
+                    android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                    c.getLong(0)
+                )
+            } else null
+        } ?: return null
+        context.contentResolver.loadThumbnail(uri, android.util.Size(160, 90), null)
+    } catch (_: Exception) {
+        null
     }
 }
 
@@ -1835,6 +1844,7 @@ private fun FileExplorerThumbnail(
     modifier: Modifier,
     iconSize: Dp
 ) {
+    val context = LocalContext.current
     val extension = item.extension
     val isImage = !item.isDirectory && extension in setOf("jpg", "jpeg", "png", "gif", "webp", "bmp")
     val isVideo = !item.isDirectory && extension in setOf("mp4", "mkv", "avi", "mov", "webm", "3gp")
@@ -1846,21 +1856,7 @@ private fun FileExplorerThumbnail(
         isVideo
     ) {
         if (!isVideo) return@produceState
-        val cacheKey = "${item.file.absolutePath}|${item.lastModified}|${item.size}"
-        ExplorerVideoThumbnailCache.get(cacheKey)?.let {
-            value = it
-            return@produceState
-        }
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                MediaMetadataRetriever().use { retriever ->
-                    retriever.setDataSource(item.file.absolutePath)
-                    val frame = retriever.getFrameAtTime(1_000_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                    if (frame != null) ExplorerVideoThumbnailCache.put(cacheKey, frame)
-                    frame
-                }
-            }.getOrNull()
-        }
+        value = withContext(Dispatchers.IO) { loadExplorerVideoThumbnail(context, item.file) }
     }
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {

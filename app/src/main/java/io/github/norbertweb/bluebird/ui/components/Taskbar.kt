@@ -46,6 +46,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -130,7 +131,7 @@ enum class IconOverflowMode(val label: String) {
 // LaunchedEffect whenever settings change.
 // ─────────────────────────────────────────────────────────────────────────────
 private object TaskbarPrefs {
-    private const val FILE = "taskbar_settings"
+    const val FILE = "taskbar_settings"
 
     // key constants
     private const val K_SEARCH_PILL      = "showSearchPill"
@@ -149,9 +150,25 @@ private object TaskbarPrefs {
     private const val K_HEIGHT           = "taskbarHeight"
     private const val K_OVERFLOW_MODE    = "iconOverflowMode"
     private const val K_MAX_ICONS        = "maxVisibleIcons"
+    private const val K_HIDDEN           = "taskbarHidden"
+private const val K_SHOW_DESKTOP_ICONS = "show_desktop_icons"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+    fun setHidden(context: Context, hidden: Boolean) {
+        prefs(context).edit().putBoolean(K_HIDDEN, hidden).apply()
+    }
+
+    fun isHidden(context: Context): Boolean =
+        prefs(context).getBoolean(K_HIDDEN, false)
+
+    fun showDesktopIcons(context: Context): Boolean =
+        prefs(context).getBoolean(K_SHOW_DESKTOP_ICONS, true)
+
+    fun setShowDesktopIcons(context: Context, show: Boolean) {
+        prefs(context).edit().putBoolean(K_SHOW_DESKTOP_ICONS, show).apply()
+    }
 
     fun load(context: Context): TaskbarSettings {
         val p = prefs(context)
@@ -256,8 +273,34 @@ fun bluebirdTaskbar(
     }
     var hiddenTrayOpen by remember { mutableStateOf(false) }
     var settingsPanelOpen by remember { mutableStateOf(false) }
-    var isTaskbarHidden by remember { mutableStateOf(false) }
+    // Restore the actual persisted hidden state so Taskbar and Desktop share one truth
+    // across recompositions and launches.
+    var isTaskbarHidden by remember { mutableStateOf(TaskbarPrefs.isHidden(context)) }
+
+    // Desktop.kt observes this shared value to recalculate its usable viewport.
+    // Keep the preference key encapsulated inside TaskbarPrefs.
+    LaunchedEffect(isTaskbarHidden) {
+        TaskbarPrefs.setHidden(context, isTaskbarHidden)
+    }
     var overflowMenuOpen by remember { mutableStateOf(false) }
+    var showDesktopIcons by remember { mutableStateOf(TaskbarPrefs.showDesktopIcons(context)) }
+
+    DisposableEffect(context) {
+        val shared = context.getSharedPreferences(TaskbarPrefs.FILE, Context.MODE_PRIVATE)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "show_desktop_icons") {
+                showDesktopIcons = TaskbarPrefs.showDesktopIcons(context)
+            }
+        }
+        shared.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { shared.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    fun toggleDesktopIcons() {
+        val next = !showDesktopIcons
+        showDesktopIcons = next
+        TaskbarPrefs.setShowDesktopIcons(context, next)
+    }
 
     var dragStartX by remember { mutableStateOf(0f) }
     var dragDeltaX by remember { mutableStateOf(0f) }
@@ -363,6 +406,8 @@ fun bluebirdTaskbar(
                             settingsPanelOpen = false
                         },
                         hiddenTrayOpen = hiddenTrayOpen,
+                        showDesktopIcons = showDesktopIcons,
+                        onToggleDesktopIcons = { toggleDesktopIcons() },
                         context = context
                     )
                 } else {
@@ -379,6 +424,8 @@ fun bluebirdTaskbar(
                             settingsPanelOpen = false
                         },
                         hiddenTrayOpen = hiddenTrayOpen,
+                        showDesktopIcons = showDesktopIcons,
+                        onToggleDesktopIcons = { toggleDesktopIcons() },
                         context = context
                     )
                 }
@@ -465,6 +512,8 @@ private fun ClassicTaskbarLayout(
     onToggleOverflow: () -> Unit,
     onToggleHiddenTray: () -> Unit,
     hiddenTrayOpen: Boolean,
+    showDesktopIcons: Boolean,
+    onToggleDesktopIcons: () -> Unit,
     context: android.content.Context
 ) {
     Box(Modifier.fillMaxSize()) {
@@ -515,9 +564,9 @@ private fun ClassicTaskbarLayout(
         ) {
             TaskbarIconButton(
                 icon = FluentIcon.Desktop,
-                contentDescription = "Show Desktop",
+                contentDescription = if (showDesktopIcons) "Hide desktop icons" else "Show desktop icons",
                 isDark = isDark,
-                onClick = { viewModel.dismissAllOverlays() },
+                onClick = onToggleDesktopIcons,
                 iconSize = iconSize
             )
             HiddenIconsChevron(isOpen = hiddenTrayOpen, isDark = isDark, onClick = onToggleHiddenTray)
@@ -545,6 +594,8 @@ private fun SeparatedTaskbarLayout(
     onToggleOverflow: () -> Unit,
     onToggleHiddenTray: () -> Unit,
     hiddenTrayOpen: Boolean,
+    showDesktopIcons: Boolean,
+    onToggleDesktopIcons: () -> Unit,
     context: android.content.Context
 ) {
     val pillShape = RoundedCornerShape(10.dp)
@@ -598,9 +649,9 @@ private fun SeparatedTaskbarLayout(
             ) {
                 TaskbarIconButton(
                     icon = FluentIcon.Desktop,
-                    contentDescription = "Show Desktop",
+                    contentDescription = if (showDesktopIcons) "Hide desktop icons" else "Show desktop icons",
                     isDark = isDark,
-                    onClick = { viewModel.dismissAllOverlays() },
+                    onClick = onToggleDesktopIcons,
                     iconSize = iconSize
                 )
                 HiddenIconsChevron(isOpen = hiddenTrayOpen, isDark = isDark, onClick = onToggleHiddenTray)

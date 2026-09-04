@@ -15,7 +15,11 @@ import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.Build
+import android.provider.OpenableColumns
 import android.os.Environment
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -484,8 +488,16 @@ data class DesktopFileInfo(
     val webAppIconPath: String? = null,  // path relative to context.filesDir
     // Non-package Bluebird-native app target (e.g. Text Editor, Terminal).
     val builtInScreen: LauncherScreen? = null,
-    // For .desktop shortcuts that point to a real file rather than an app.
-    val targetFilePath: String? = null
+    // For .desktop shortcuts that point to a real file/folder rather than an app.
+    val targetFilePath: String? = null,
+    // SAF/content URI target for shortcuts created through the Android picker.
+    val targetUri: String? = null,
+    val targetUriIsFolder: Boolean = false,
+    // Resolved target identity used only for rendering a shortcut like the real target.
+    // Keeping this metadata on the shortcut avoids treating every shortcut as a generic
+    // APP_SHORTCUT icon at render time.
+    val targetItemType: DesktopItemType? = null,
+    val targetIconBitmap: Bitmap? = null
 )
 
 enum class DesktopItemType {
@@ -538,6 +550,24 @@ fun getFileIcon(file: File): androidx.compose.ui.graphics.vector.ImageVector = w
     file.extension.lowercase() == "webapp" -> FluentIcon.Globe
     file.extension.lowercase() == "desktop" -> FluentIcon.Apps
     else -> FluentIcon.Document
+}
+
+private fun getUriShortcutIcon(
+    context: android.content.Context,
+    uri: Uri,
+    isFolder: Boolean
+): androidx.compose.ui.graphics.vector.ImageVector {
+    if (isFolder) return FluentIcon.Folder
+    val mime = context.contentResolver.getType(uri).orEmpty().lowercase()
+    return when {
+        mime.startsWith("audio/") -> FluentIcon.MusicNote2
+        mime.startsWith("video/") -> FluentIcon.PlayCircle
+        mime.startsWith("image/") -> FluentIcon.Image
+        mime == "application/pdf" -> FluentIcon.DocumentPdf
+        mime.contains("html") -> FluentIcon.Globe
+        mime.startsWith("text/") -> FluentIcon.DocumentText
+        else -> FluentIcon.Document
+    }
 }
 
 fun getFileIconColor(file: File): Color = when {
@@ -766,6 +796,29 @@ private object DesktopIconCache {
     }
 }
 
+private suspend fun loadDesktopVideoThumbnail(context: android.content.Context, file: File): Bitmap? {
+    if (!file.isFile || file.length() <= 0L || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+    return try {
+        val uri = context.contentResolver.query(
+            android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            arrayOf(android.provider.MediaStore.Video.Media._ID),
+            "${android.provider.MediaStore.Video.Media.DATA} = ?",
+            arrayOf(file.absolutePath),
+            null
+        )?.use { c ->
+            if (c.moveToFirst()) {
+                android.content.ContentUris.withAppendedId(
+                    android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                    c.getLong(0)
+                )
+            } else null
+        } ?: return null
+        context.contentResolver.loadThumbnail(uri, android.util.Size(160, 90), null)
+    } catch (_: Exception) {
+        null
+    }
+}
+
 fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFileInfo? = try {
     val ext = file.extension.lowercase()
     when {
@@ -782,19 +835,36 @@ fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFi
             }
             val shortcutType = lines.find { it.startsWith("type=") }?.removePrefix("type=")?.trim()
             val targetFilePath = lines.find { it.startsWith("path=") }?.removePrefix("path=")?.trim()
-                ?.takeIf { shortcutType == "file" && it.isNotBlank() }
+                ?.takeIf { (shortcutType == "file" || shortcutType == "folder") && it.isNotBlank() }
+            val targetUri = lines.find { it.startsWith("uri=") }?.removePrefix("uri=")?.trim()
+                ?.takeIf { shortcutType == "uri" && it.isNotBlank() }
+            val targetUriIsFolder = lines.find { it.startsWith("uriType=") }?.removePrefix("uriType=")?.trim()
+                .equals("folder", ignoreCase = true)
             val label = lines.find { it.startsWith("label=") }?.removePrefix("label=")?.trim()
                 ?: file.nameWithoutExtension
-            val iconBmp: Bitmap? = if (pkg.isNotBlank()) {
-                val cacheKey = "app:$pkg"
-                DesktopIconCache.get(cacheKey) ?: try {
-                    DesktopIconCache.put(cacheKey, drawableToBitmap(context.packageManager.getApplicationIcon(pkg)))
-                } catch (_: Exception) { null }
-            } else null
+            val targetFile = targetFilePath?.let(::File)?.takeIf { it.exists() }
+            val resolvedTargetInfo = targetFile
+                ?.takeUnless { it.extension.equals("desktop", ignoreCase = true) }
+                ?.let { loadDesktopFileInfo(it, context) }
+            val shortcutIconBmp: Bitmap? = when {
+                pkg.isNotBlank() -> {
+                    val cacheKey = "app:$pkg"
+                    DesktopIconCache.get(cacheKey) ?: try {
+                        DesktopIconCache.put(cacheKey, drawableToBitmap(context.packageManager.getApplicationIcon(pkg)))
+                    } catch (_: Exception) { null }
+                }
+                // Reuse the target's already-generated bitmap (for example an image thumbnail).
+                resolvedTargetInfo?.iconBitmap != null -> resolvedTargetInfo.iconBitmap
+                else -> null
+            }
             DesktopFileInfo(
                 id = file.absolutePath, file = file, name = label,
                 type = DesktopItemType.APP_SHORTCUT, packageName = pkg.ifBlank { null },
-                iconBitmap = iconBmp, builtInScreen = builtInScreen, targetFilePath = targetFilePath
+                iconBitmap = shortcutIconBmp, builtInScreen = builtInScreen,
+                targetFilePath = targetFilePath, targetUri = targetUri,
+                targetUriIsFolder = targetUriIsFolder,
+                targetItemType = resolvedTargetInfo?.type,
+                targetIconBitmap = resolvedTargetInfo?.iconBitmap
             )
         }
 
@@ -855,12 +925,37 @@ fun openDesktopItem(
                 extras = mapOf("path" to item.file.absolutePath)
             )
         DesktopItemType.APP_SHORTCUT -> {
-            // File shortcuts (.desktop with type=file) must open the TARGET file,
-            // not merely launch the shortcut container.
+            // File/folder shortcuts open their TARGET, never the .desktop container itself.
             if (item.targetFilePath != null) {
-                if (!viewModel.openFileInternally(context, item.targetFilePath)) {
-                    viewModel.openFileWithSystem(context, item.targetFilePath)
+                val target = File(item.targetFilePath)
+                if (target.isDirectory) {
+                    viewModel.openWindow(LauncherScreen.FILE_EXPLORER, extras = mapOf("path" to target.absolutePath))
+                } else {
+                    // Re-enter the exact same Bluebird file routing used by normal desktop
+                    // files. This keeps music/video/html/cpp/etc. on their native handlers.
+                    val targetInfo = loadDesktopFileInfo(target, context)
+                    if (targetInfo != null && !viewModel.openFileInternally(context, targetInfo.file.absolutePath)) {
+                        viewModel.openFileWithSystem(context, targetInfo.file.absolutePath)
+                    }
                 }
+            } else if (item.targetUri != null) {
+                try {
+                    val uri = Uri.parse(item.targetUri)
+                    val resolvedPath = viewModel.resolveSafUriToFilePath(context, uri)
+                    if (resolvedPath != null) {
+                        val target = File(resolvedPath)
+                        if (item.targetUriIsFolder || target.isDirectory) {
+                            viewModel.openWindow(
+                                LauncherScreen.FILE_EXPLORER,
+                                extras = mapOf("path" to target.absolutePath)
+                            )
+                        } else if (!viewModel.openFileInternally(context, target.absolutePath)) {
+                            viewModel.openFileWithSystem(context, target.absolutePath)
+                        }
+                    }
+                    // No real path = no copied target and no external chooser.
+                    // A shortcut remains a lightweight path reference.
+                } catch (_: Exception) {}
             // Bluebird-native shortcuts launch directly inside the desktop shell.
             } else if (item.builtInScreen != null) {
                 viewModel.openWindow(item.builtInScreen)
@@ -909,21 +1004,83 @@ private fun uniqueName(dir: File, baseName: String, ext: String = ""): String {
 // Grid Metrics
 // ─────────────────────────────────────────────────────────────────
 private fun iconSizeDp(size: DesktopIconSize): Float = when (size) {
-    DesktopIconSize.SMALL  -> 36f
-    DesktopIconSize.MEDIUM -> 48f
-    DesktopIconSize.LARGE  -> 64f
+    DesktopIconSize.SMALL  -> 34f
+    DesktopIconSize.MEDIUM -> 46f
+    // Slightly smaller than the previous 56dp so LARGE feels closer to Windows
+    // desktop proportions instead of dominating the workspace.
+    DesktopIconSize.LARGE  -> 52f
 }
 
 private fun cellWidthDp(size: DesktopIconSize): Float = when (size) {
-    DesktopIconSize.SMALL  -> 74f
-    DesktopIconSize.MEDIUM -> 86f
-    DesktopIconSize.LARGE  -> 102f
+    DesktopIconSize.SMALL  -> 66f
+    DesktopIconSize.MEDIUM -> 78f
+    DesktopIconSize.LARGE  -> 86f
 }
 
 private fun cellHeightDp(size: DesktopIconSize): Float = when (size) {
-    DesktopIconSize.SMALL  -> 76f
-    DesktopIconSize.MEDIUM -> 92f
-    DesktopIconSize.LARGE  -> 110f
+    DesktopIconSize.SMALL  -> 70f
+    DesktopIconSize.MEDIUM -> 84f
+    DesktopIconSize.LARGE  -> 94f
+}
+
+// Logical desktop placement is screen-independent. Pixel offsets are only the
+// current viewport projection, so portrait/landscape changes do not invalidate
+// the user's manual arrangement. Values are normalized to the usable desktop area.
+private data class LogicalDesktopPosition(val x: Float, val y: Float)
+
+private const val MANUAL_POS_X_PREFIX = "manual_pos_x_v3:"
+private const val MANUAL_POS_Y_PREFIX = "manual_pos_y_v3:"
+
+private fun logicalPositionKey(prefix: String, id: String): String = prefix + id
+
+private fun loadLogicalDesktopPosition(
+    prefs: SharedPreferences,
+    id: String
+): LogicalDesktopPosition? {
+    val x = if (prefs.contains(logicalPositionKey(MANUAL_POS_X_PREFIX, id)))
+        prefs.getFloat(logicalPositionKey(MANUAL_POS_X_PREFIX, id), 0f) else return null
+    val y = if (prefs.contains(logicalPositionKey(MANUAL_POS_Y_PREFIX, id)))
+        prefs.getFloat(logicalPositionKey(MANUAL_POS_Y_PREFIX, id), 0f) else return null
+    return LogicalDesktopPosition(x.coerceIn(0f, 1f), y.coerceIn(0f, 1f))
+}
+
+private fun saveLogicalDesktopPosition(
+    prefs: SharedPreferences,
+    id: String,
+    position: LogicalDesktopPosition
+) {
+    prefs.edit()
+        .putFloat(logicalPositionKey(MANUAL_POS_X_PREFIX, id), position.x.coerceIn(0f, 1f))
+        .putFloat(logicalPositionKey(MANUAL_POS_Y_PREFIX, id), position.y.coerceIn(0f, 1f))
+        .apply()
+}
+
+private fun normalizedDesktopPosition(
+    pos: Offset,
+    minX: Float,
+    maxX: Float,
+    minY: Float,
+    maxY: Float
+): LogicalDesktopPosition {
+    val xRange = (maxX - minX).coerceAtLeast(1f)
+    val yRange = (maxY - minY).coerceAtLeast(1f)
+    return LogicalDesktopPosition(
+        ((pos.x - minX) / xRange).coerceIn(0f, 1f),
+        ((pos.y - minY) / yRange).coerceIn(0f, 1f)
+    )
+}
+
+private fun projectLogicalDesktopPosition(
+    logical: LogicalDesktopPosition,
+    minX: Float,
+    maxX: Float,
+    minY: Float,
+    maxY: Float
+): Offset {
+    return Offset(
+        (minX + logical.x.coerceIn(0f, 1f) * (maxX - minX)).coerceIn(minX, maxX),
+        (minY + logical.y.coerceIn(0f, 1f) * (maxY - minY)).coerceIn(minY, maxY)
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1116,6 +1273,43 @@ private fun createDefaultShortcuts(desktopDir: File, pm: PackageManager, prefs: 
 private const val WALLPAPER_CYCLE_MS = 5 * 60 * 1000L   // 5 minutes
 
 // ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Live taskbar geometry shared with the full-screen desktop.
+// ─────────────────────────────────────────────────────────────────────────────
+private const val TASKBAR_PREFS_FILE = "taskbar_settings"
+private const val TASKBAR_HEIGHT_KEY = "taskbarHeight"
+private const val TASKBAR_HIDDEN_KEY = "taskbarHidden"
+private const val TASKBAR_ROUNDED_KEY = "roundedTaskbar"
+private const val SHOW_DESKTOP_ICONS_KEY = "show_desktop_icons"
+
+private data class TaskbarDesktopGeometry(
+    val bottomInsetPx: Float,
+    val visible: Boolean
+)
+
+private fun readTaskbarDesktopGeometry(context: Context, density: Density): TaskbarDesktopGeometry {
+    val prefs = context.getSharedPreferences(TASKBAR_PREFS_FILE, Context.MODE_PRIVATE)
+    if (prefs.getBoolean(TASKBAR_HIDDEN_KEY, false)) {
+        return TaskbarDesktopGeometry(0f, false)
+    }
+
+    val baseHeightDp = when (prefs.getString(TASKBAR_HEIGHT_KEY, "NORMAL")) {
+        "COMPACT" -> 32f
+        "LARGE" -> 52f
+        else -> 40f
+    }
+
+    // Taskbar.kt renders +8dp outside the nominal height when Rounded taskbar is enabled.
+    // Use that same physical footprint so desktop icons never sit underneath the rounded
+    // container's extra bottom area.
+    val outerExtraDp = if (prefs.getBoolean(TASKBAR_ROUNDED_KEY, false)) 8f else 0f
+
+    return TaskbarDesktopGeometry(
+        bottomInsetPx = with(density) { (baseHeightDp + outerExtraDp).dp.toPx() },
+        visible = true
+    )
+}
+
 // Main Desktop Component
 // ─────────────────────────────────────────────────────────────────
 @Composable
@@ -1192,12 +1386,40 @@ fun Desktop(
         }
         var sortAscending       by remember { mutableStateOf(prefs.sortAscending) }
         var autoArrange         by remember { mutableStateOf(prefs.autoArrange) }
-        var showIconsOnDesktop  by remember { mutableStateOf(prefs.showIconsOnDesktop) }
+        val desktopIconPrefs = remember {
+            context.getSharedPreferences(TASKBAR_PREFS_FILE, Context.MODE_PRIVATE)
+        }
+        val storedShowDesktopIcons = remember {
+            if (desktopIconPrefs.contains(SHOW_DESKTOP_ICONS_KEY)) {
+                desktopIconPrefs.getBoolean(SHOW_DESKTOP_ICONS_KEY, true)
+            } else {
+                prefs.showIconsOnDesktop
+            }
+        }
+        var showIconsOnDesktop  by remember { mutableStateOf(storedShowDesktopIcons) }
+
+        LaunchedEffect(Unit) {
+            if (!desktopIconPrefs.contains(SHOW_DESKTOP_ICONS_KEY)) {
+                desktopIconPrefs.edit()
+                    .putBoolean(SHOW_DESKTOP_ICONS_KEY, prefs.showIconsOnDesktop)
+                    .apply()
+                showIconsOnDesktop = prefs.showIconsOnDesktop
+            }
+        }
 
         // FIX: customPositions loaded from prefs on first composition
         val customPositions = remember {
             mutableStateMapOf<String, Offset>().also { map ->
                 map.putAll(prefs.loadCustomPositions())
+            }
+        }
+        // Current persisted manual positions in screen-independent coordinates.
+        // Existing pixel positions are migrated lazily the first time an item is seen.
+        val logicalPositions = remember {
+            mutableStateMapOf<String, LogicalDesktopPosition>().also { map ->
+                customPositions.keys.forEach { id ->
+                    loadLogicalDesktopPosition(layoutPrefsStore, id)?.let { map[id] = it }
+                }
             }
         }
         var draggedId           by remember { mutableStateOf<String?>(null) }
@@ -1244,6 +1466,19 @@ fun Desktop(
 
         // Settings edits the same DesktopPreferences file while this desktop stays mounted.
         // Observe the shared store so wallpaper selectors update immediately.
+        DisposableEffect(context) {
+            val shared = context.getSharedPreferences(TASKBAR_PREFS_FILE, Context.MODE_PRIVATE)
+            val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                when (key) {
+                    SHOW_DESKTOP_ICONS_KEY -> {
+                        showIconsOnDesktop = shared.getBoolean(SHOW_DESKTOP_ICONS_KEY, true)
+                    }
+                }
+            }
+            shared.registerOnSharedPreferenceChangeListener(listener)
+            onDispose { shared.unregisterOnSharedPreferenceChangeListener(listener) }
+        }
+
         DisposableEffect(context) {
             val shared = context.getSharedPreferences("desktop_prefs", Context.MODE_PRIVATE)
             val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -1317,6 +1552,39 @@ fun Desktop(
         var propsTarget         by remember { mutableStateOf<DesktopFileInfo?>(null) }
         var showShortcutDialog  by remember { mutableStateOf(false) }
         var showAppPickerDialog by remember { mutableStateOf(false) }
+        var shortcutPickedUri by remember { mutableStateOf<String?>(null) }
+        var shortcutPickedIsFolder by remember { mutableStateOf(false) }
+
+        fun queryDisplayName(uri: Uri): String? {
+            return try {
+                context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                    if (c.moveToFirst()) c.getString(0) else null
+                }
+            } catch (_: Exception) { null }
+        }
+
+        val shortcutFilePicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            uri ?: return@rememberLauncherForActivityResult
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Exception) {}
+            shortcutPickedUri = uri.toString()
+            shortcutPickedIsFolder = false
+        }
+        val shortcutFolderPicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocumentTree()
+        ) { uri ->
+            uri ?: return@rememberLauncherForActivityResult
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+            shortcutPickedUri = uri.toString()
+            shortcutPickedIsFolder = true
+        }
         // showWallpaperPanel removed — Personalize now opens the Settings window
         // (Appearance category) instead of this in-place dialog. See onPersonalize
         // above and WallpaperPersonalisePanel's replacement, PersonalizationSection,
@@ -1341,11 +1609,35 @@ fun Desktop(
         // Manager, all of which read LocalIsDarkTheme.
         val isDark = LocalIsDarkTheme.current
 
+        // Taskbar is an overlay, so Desktop observes its live height/visibility.
+        var taskbarGeometryVersion by remember { mutableIntStateOf(0) }
+        DisposableEffect(context) {
+            val taskbarPrefs = context.getSharedPreferences(TASKBAR_PREFS_FILE, Context.MODE_PRIVATE)
+            val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                if (key == TASKBAR_HEIGHT_KEY ||
+                    key == TASKBAR_HIDDEN_KEY ||
+                    key == TASKBAR_ROUNDED_KEY) {
+                    taskbarGeometryVersion++
+                }
+            }
+            taskbarPrefs.registerOnSharedPreferenceChangeListener(listener)
+            onDispose { taskbarPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
+        }
+        val liveTaskbarGeometry = remember(taskbarGeometryVersion, density) {
+            readTaskbarDesktopGeometry(context, density)
+        }
+        val liveTaskbarInsetPx = liveTaskbarGeometry.bottomInsetPx
+
         // ── Grid metrics ──
         val cellWDp     = cellWidthDp(iconSize)
         val cellHDp     = cellHeightDp(iconSize)
-        val gridPadLeft = 10f
-        val gridPadTop  = 10f
+
+        // Keep one small, consistent desktop boundary for all icon sizes.
+        // The previous 10dp inset made the workspace feel unnecessarily boxed-in,
+        // especially with LARGE/MEDIUM icons. A 6dp boundary keeps a little breathing
+        // room without wasting usable desktop space.
+        val gridPadLeft = 6f
+        val gridPadTop  = 6f
 
         // FIX (landscape): Use px totals from BoxWithConstraints as the remember keys so
         // rows/maxCols recompute on every orientation change, not just when the dp
@@ -1355,22 +1647,70 @@ fun Desktop(
         val padLeftPx = with(density) { gridPadLeft.dp.toPx() }
         val padTopPx  = with(density) { gridPadTop.dp.toPx() }
 
-        val viewportRows = ((screenHPxTotal - padTopPx * 2 - bottomSafeAreaPx) / cellHPx).toInt().coerceAtLeast(1)
+        val effectiveBottomSafeAreaPx = maxOf(bottomSafeAreaPx, liveTaskbarInsetPx)
+        val viewportRows = ((screenHPxTotal - padTopPx * 2 - effectiveBottomSafeAreaPx) / cellHPx).toInt().coerceAtLeast(1)
         val maxCols = ((screenWPxTotal - padLeftPx * 2) / cellWPx).toInt().coerceAtLeast(1)
         val workspaceRows = viewportRows
         val workspaceCols = maxCols
         val workspaceWidthPx = screenWPxTotal
-        val workspaceHeightPx = (screenHPxTotal - bottomSafeAreaPx).coerceAtLeast(cellHPx + padTopPx * 2)
+        val workspaceHeightPx = (screenHPxTotal - effectiveBottomSafeAreaPx).coerceAtLeast(cellHPx + padTopPx * 2)
         val maxXBound = (workspaceWidthPx - cellWPx - padLeftPx).coerceAtLeast(padLeftPx)
         val maxYBound = (workspaceHeightPx - cellHPx - padTopPx).coerceAtLeast(padTopPx)
         val desktopCapacity = (workspaceRows * workspaceCols).coerceAtLeast(1)
 
-        // Manual icon positions are user data. Never re-project them when icon size or
-        // viewport geometry changes. This prevents size changes from moving/reordering
-        // existing icons; items that no longer fit remain in Desktop for Explorer.
+        // Manual positions are logical user data. The current pixel offset is only a
+        // projection of that logical position into the present viewport. This is the
+        // key distinction that makes rotation screen-aware without changing Auto Arrange.
+        fun persistManualPosition(id: String, position: Offset) {
+            val clamped = Offset(
+                position.x.coerceIn(padLeftPx, maxXBound),
+                position.y.coerceIn(padTopPx, maxYBound)
+            )
+            customPositions[id] = clamped
+            val logical = normalizedDesktopPosition(
+                clamped, padLeftPx, maxXBound, padTopPx, maxYBound
+            )
+            logicalPositions[id] = logical
+            saveLogicalDesktopPosition(layoutPrefsStore, id, logical)
+        }
 
-        // Deliberately no resize/rotation repair effect. Positions are user data.
-        // The viewport is fixed; overflow is surfaced through the Desktop-full prompt.
+        fun persistLogicalFallback(id: String, index: Int) {
+            if (logicalPositions.containsKey(id)) return
+            val old = customPositions[id]
+            val logical = if (old != null) {
+                normalizedDesktopPosition(old, padLeftPx, maxXBound, padTopPx, maxYBound)
+            } else {
+                val col = (index / workspaceRows).coerceIn(0, workspaceCols - 1)
+                val row = (index % workspaceRows).coerceIn(0, workspaceRows - 1)
+                normalizedDesktopPosition(
+                    Offset(
+                        padLeftPx + col * cellWPx,
+                        padTopPx + row * cellHPx
+                    ),
+                    padLeftPx, maxXBound, padTopPx, maxYBound
+                )
+            }
+            logicalPositions[id] = logical
+            saveLogicalDesktopPosition(layoutPrefsStore, id, logical)
+        }
+
+        // ── Manual Refresh visual feedback ──
+        // One parent-owned animation drives every icon in sync. The timing is intentionally
+        // brief and Explorer-like rather than claiming an undocumented official Windows
+        // duration. It is only triggered by the explicit Refresh command, never rotation.
+        var desktopRefreshGeneration by remember { mutableIntStateOf(0) }
+        var manualRefreshVisible by remember { mutableStateOf(true) }
+        val manualRefreshAlpha by animateFloatAsState(
+            targetValue = if (manualRefreshVisible) 1f else 0f,
+            animationSpec = tween(110, easing = FastOutLinearInEasing),
+            label = "desktopRefresh"
+        )
+        LaunchedEffect(desktopRefreshGeneration) {
+            if (desktopRefreshGeneration == 0) return@LaunchedEffect
+            manualRefreshVisible = false
+            delay(115)
+            manualRefreshVisible = true
+        }
 
         // ── Debounced refresh (only used for explicit user-triggered mutations —
         //    e.g. right after a rename/delete/paste — so the UI feels instant instead
@@ -1426,6 +1766,11 @@ fun Desktop(
             customPositions.keys.toList().forEach { id ->
                 if (id !in liveIds) {
                     customPositions.remove(id)
+                    logicalPositions.remove(id)
+                    layoutPrefsStore.edit()
+                        .remove(logicalPositionKey(MANUAL_POS_X_PREFIX, id))
+                        .remove(logicalPositionKey(MANUAL_POS_Y_PREFIX, id))
+                        .apply()
                     positionsChanged = true
                 }
             }
@@ -1447,21 +1792,9 @@ fun Desktop(
             }
         }
 
-        // ── Windows-style refresh effect — icons vanish then reappear across the whole
-        //    desktop whenever the shared desktopRefreshTick advances (i.e. a real change
-        //    was detected and re-scanned), skipping the very first load so opening the
-        //    desktop doesn't flicker. Window is long enough to cover the slowest per-icon
-        //    stagger + fade-out + gap + fade-in in DesktopIcon's own animation.
-        //
-        //    Driven off vmUiState (already collected via collectAsStateWithLifecycle, so
-        //    it's real Compose snapshot state) rather than snapshotFlow-over-StateFlow.value
-        //    — snapshotFlow only re-fires on snapshot-state reads, and a raw StateFlow.value
-        //    read doesn't count, so that version only ever fired once for the whole screen's
-        //    lifetime instead of on every refresh. ──
-        // Manual "Refresh" from the desktop context menu no longer flickers
-        // icons — consistent with the rest of the app having its transition
-        // animations removed. Refresh just re-renders the grid instantly.
-        val desktopFlickerAlpha = 1f
+        // The parent-owned alpha is shared by every icon. Manual refresh toggles it
+        // together; filesystem refreshes themselves remain visually quiet.
+        val desktopFlickerAlphaFinal = manualRefreshAlpha
 
         val sortedItems = remember(items, desktopOrder, sortMode, sortAscending) {
             if (sortMode == DesktopSortMode.NONE) {
@@ -1480,6 +1813,72 @@ fun Desktop(
                 }
                 if (sortAscending) s else s.reversed()
             }
+        }
+
+        // Screen-aware manual layout. Alignment to grid is resolved against the CURRENT
+        // viewport, so orientation changes can never leave icons outside the desktop.
+        val manualResolvedPositions by remember(
+            sortedItems, workspaceRows, workspaceCols, workspaceWidthPx, workspaceHeightPx,
+            iconSize, alignToGrid, logicalPositions, customPositions
+        ) {
+            derivedStateOf {
+                val result = linkedMapOf<String, Offset>()
+                val occupied = mutableSetOf<Pair<Int, Int>>()
+                sortedItems.forEachIndexed { index, item ->
+                    val logical = logicalPositions[item.id]
+                    val raw = logical?.let {
+                        projectLogicalDesktopPosition(it, padLeftPx, maxXBound, padTopPx, maxYBound)
+                    } ?: customPositions[item.id]?.let {
+                        it.copy(
+                            x = it.x.coerceIn(padLeftPx, maxXBound),
+                            y = it.y.coerceIn(padTopPx, maxYBound)
+                        )
+                    } ?: run {
+                        val col = (index / workspaceRows).coerceIn(0, workspaceCols - 1)
+                        val row = (index % workspaceRows).coerceIn(0, workspaceRows - 1)
+                        Offset(padLeftPx + col * cellWPx, padTopPx + row * cellHPx)
+                    }
+
+                    val resolved = if (alignToGrid) {
+                        snapToGrid(
+                            raw, cellWPx, cellHPx, padLeftPx, padTopPx,
+                            workspaceWidthPx, workspaceHeightPx, occupied, 0f
+                        ) ?: raw
+                    } else {
+                        raw
+                    }
+                    result[item.id] = resolved
+                    if (alignToGrid) {
+                        occupied.add(
+                            posToCell(
+                                resolved, cellWPx, cellHPx, padLeftPx, padTopPx,
+                                workspaceCols, workspaceRows
+                            )
+                        )
+                    }
+                }
+                result
+            }
+        }
+
+        // Migrate legacy pixel positions and continuously repair the CURRENT projection
+        // when the viewport/icon geometry changes. Auto Arrange is never enabled here.
+        LaunchedEffect(
+            sortedItems.map { it.id }.hashCode(),
+            workspaceWidthPx, workspaceHeightPx, iconSize, alignToGrid
+        ) {
+            if (autoArrange) return@LaunchedEffect
+            var changed = false
+            sortedItems.forEachIndexed { index, item ->
+                persistLogicalFallback(item.id, index)
+                val resolved = manualResolvedPositions[item.id] ?: return@forEachIndexed
+                val old = customPositions[item.id]
+                if (old != resolved) {
+                    customPositions[item.id] = resolved
+                    changed = true
+                }
+            }
+            if (changed) prefs.saveCustomPositions(customPositions)
         }
 
         val indexMap = remember(sortedItems) {
@@ -1551,6 +1950,10 @@ fun Desktop(
             if (oldPosition != null) {
                 customPositions.remove(oldId)
                 customPositions[dest.absolutePath] = oldPosition
+                logicalPositions[dest.absolutePath] = normalizedDesktopPosition(
+                    oldPosition, padLeftPx, maxXBound, padTopPx, maxYBound
+                )
+                saveLogicalDesktopPosition(layoutPrefsStore, dest.absolutePath, logicalPositions[dest.absolutePath]!!)
                 prefs.saveCustomPositions(customPositions)
             }
             val orderIndex = desktopOrder.indexOf(oldId)
@@ -1731,9 +2134,31 @@ fun Desktop(
                                             autoGridPos(idx, workspaceRows, workspaceCols, cellWPx, cellHPx, padLeftPx, padTopPx)
                                                 ?: return@filter false
                                         } else {
-                                            customPositions[item.id] ?: return@filter false
+                                            manualResolvedPositions[item.id] ?: return@filter false
                                         }
-                                        Rect(pos.x, pos.y, pos.x + cellWPx, pos.y + cellHPx).overlaps(rect)
+                                        // Select against the visible icon/label footprint rather than the entire
+                                        // layout cell. This prevents SMALL icons from selecting large,
+                                        // empty neighboring areas of their 74dp cell.
+                                        val iconPx = iconSizeDp(iconSize).dp.toPx()
+                                        // Marquee selection should track the actual icon + a compact
+                                        // label footprint, not most of the layout cell. This is
+                                        // especially important for SMALL icons where the old 66dp+
+                                        // footprint made empty neighboring space selectable.
+                                        val labelAllowancePx = when (iconSize) {
+                                            DesktopIconSize.SMALL  -> 20.dp.toPx()
+                                            DesktopIconSize.MEDIUM -> 22.dp.toPx()
+                                            DesktopIconSize.LARGE  -> 24.dp.toPx()
+                                        }
+                                        val visualW = iconPx.coerceAtMost(cellWPx - 4.dp.toPx())
+                                        val visualH = (iconPx + labelAllowancePx)
+                                            .coerceAtMost(cellHPx - 4.dp.toPx())
+                                        val visualLeft = pos.x + (cellWPx - visualW) / 2f
+                                        val visualTop = pos.y + 4.dp.toPx()
+                                        Rect(
+                                            visualLeft, visualTop,
+                                            visualLeft + visualW,
+                                            (visualTop + visualH).coerceAtMost(pos.y + cellHPx)
+                                        ).overlaps(rect)
                                     }.map { it.id }.toSet()
                                 }
                             },
@@ -1773,10 +2198,7 @@ fun Desktop(
                             val p = if (autoArrange) {
                                 autoGridPos(idx, workspaceRows, workspaceCols, cellWPx, cellHPx, padLeftPx, padTopPx)
                             } else {
-                                customPositions[item.id]?.takeIf {
-                                    it.x >= padLeftPx && it.y >= padTopPx &&
-                                        it.x <= maxXBound && it.y <= maxYBound
-                                }
+                                manualResolvedPositions[item.id]
                             }
                             if (p != null) add(posToCell(p, cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows))
                         }
@@ -1826,15 +2248,11 @@ fun Desktop(
 
                     sortedItems.forEachIndexed { idx, item ->
                         androidx.compose.runtime.key(item.id) {
-                        // O(1) lookup from cached map
-                        val storedPos = customPositions[item.id]
+                        // O(1) lookup from the current manual projection map
                         val basePos: Offset? = if (autoArrange) {
                             autoArrangePositions[item.id]
                         } else {
-                            storedPos?.takeIf {
-                                it.x >= padLeftPx && it.y >= padTopPx &&
-                                    it.x <= maxXBound && it.y <= maxYBound
-                            }
+                            manualResolvedPositions[item.id]
                         }
                         if (basePos != null) {
                         val resolvedBasePos = basePos
@@ -1857,7 +2275,7 @@ fun Desktop(
                             if (autoArrange) {
                                 pos = resolvedBasePos
                             } else if (draggedId != item.id && !isDraggingGroup) {
-                                pos = customPositions[item.id] ?: resolvedBasePos
+                                pos = manualResolvedPositions[item.id] ?: resolvedBasePos
                             }
                         }
 
@@ -2100,7 +2518,7 @@ fun Desktop(
                                                 // other, since there's no grid to rearrange them onto.
                                                 val finalPos = Offset(pos.x.coerceIn(padLeftPx, maxX), pos.y.coerceIn(padTopPx, maxY))
                                                 pos = finalPos
-                                                customPositions[item.id] = finalPos
+                                                persistManualPosition(item.id, finalPos)
                                                 prefs.saveCustomPositions(customPositions)
                                             } else {
                                                 val otherCells = occupiedCells - posToCell(
@@ -2122,7 +2540,7 @@ fun Desktop(
                                                         snapped.y.coerceIn(padTopPx, maxY)
                                                     )
                                                     pos = finalPos
-                                                    customPositions[item.id] = finalPos
+                                                    persistManualPosition(item.id, finalPos)
                                                     prefs.saveCustomPositions(customPositions)
                                                 }
                                             }
@@ -2154,7 +2572,7 @@ fun Desktop(
                                                         x = lastPos.x.coerceIn(padLeftPx, maxX),
                                                         y = lastPos.y.coerceIn(padTopPx, maxY)
                                                     )
-                                                    customPositions[otherId] = finalPos
+                                                    persistManualPosition(otherId, finalPos)
                                                     dragGroupOffsets[otherId] = finalPos  // last broadcast: followers apply this final settle
                                                     occupiedNow.add(posToCell(finalPos, cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows))
                                                 }
@@ -2172,7 +2590,7 @@ fun Desktop(
                                                         lastPos.x.coerceIn(padLeftPx, maxX),
                                                         lastPos.y.coerceIn(padTopPx, maxY)
                                                     )
-                                                    customPositions[otherId] = finalPos
+                                                    persistManualPosition(otherId, finalPos)
                                                     dragGroupOffsets[otherId] = finalPos
                                                 }
                                                 prefs.saveCustomPositions(customPositions)
@@ -2227,7 +2645,7 @@ fun Desktop(
 
                                     onInlineRenameConfirm = iconOnRenameConfirm,
 
-                                    refreshFlickerAlpha   = desktopFlickerAlpha
+                                    refreshFlickerAlpha   = desktopFlickerAlphaFinal
 
                                 )
 
@@ -2315,62 +2733,48 @@ fun Desktop(
                     Offset(it.x.coerceIn(padLeftPx, maxX), it.y.coerceIn(padTopPx, maxYBound))
                 }
             } else {
-                // Free placement still cannot create an icon outside the fixed viewport.
+                // Free placement intentionally permits overlap, like Windows with
+                // Align icons to grid disabled. Only the desktop bounds are enforced.
                 Offset(
                     desktopCtxLocalOffset.x.coerceIn(padLeftPx, maxX),
                     desktopCtxLocalOffset.y.coerceIn(padTopPx, maxYBound)
-                ).takeIf {
-                    posToCell(it, cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows) !in occupiedCells
-                }
+                )
             }
             if (finalPos == null) {
                 showDesktopFullDialog = true
                 return false
             }
-            customPositions[id] = finalPos
+            persistManualPosition(id, finalPos)
             prefs.saveCustomPositions(customPositions)
             return true
         }
 
-        // Assign every newly discovered item one persistent position exactly once.
-        LaunchedEffect(items, autoArrange, workspaceRows, workspaceCols) {
+        // Assign every newly discovered item one persistent logical position exactly once.
+        LaunchedEffect(items, autoArrange, workspaceRows, workspaceCols, workspaceWidthPx, workspaceHeightPx, iconSize, alignToGrid) {
             if (autoArrange) return@LaunchedEffect
-            val occupied = customPositions.values.mapTo(mutableSetOf()) {
-                posToCell(it, cellWPx, cellHPx, padLeftPx, padTopPx, workspaceCols, workspaceRows)
-            }
             var changed = false
-            sortedItems.forEach { item ->
-                if (customPositions.containsKey(item.id)) return@forEach
-                var chosen: Pair<Int, Int>? = null
-                outer@ for (col in 0 until workspaceCols) {
-                    for (row in 0 until workspaceRows) {
-                        val cell = col to row
-                        if (cell !in occupied) { chosen = cell; break@outer }
-                    }
-                }
-                if (chosen != null) {
-                    val pos = Offset(padLeftPx + chosen.first * cellWPx, padTopPx + chosen.second * cellHPx)
-                    customPositions[item.id] = pos
-                    occupied.add(chosen)
+            sortedItems.forEachIndexed { index, item ->
+                val hadLogical = logicalPositions.containsKey(item.id)
+                persistLogicalFallback(item.id, index)
+                val resolved = manualResolvedPositions[item.id]
+                if (resolved != null && customPositions[item.id] != resolved) {
+                    customPositions[item.id] = resolved
                     changed = true
                 }
+                if (!hadLogical) changed = true
             }
             if (changed) prefs.saveCustomPositions(customPositions)
         }
 
 
-            // Prompt when the fixed desktop cannot show the complete Desktop directory.
-            // The prompt is keyed to the current item-set/capacity so it does not loop after
-            // the user dismisses it, but a new overflow event can surface it again.
-            LaunchedEffect(items.map { it.id }.hashCode(), desktopCapacity, iconSize, autoArrange) {
-                val visibleManualCount = items.count { item ->
-                    val p = customPositions[item.id]
-                    p != null && p.x >= padLeftPx && p.y >= padTopPx &&
-                        p.x <= maxXBound && p.y <= maxYBound
-                }
-                val shownCapacity = if (autoArrange) minOf(items.size, desktopCapacity) else visibleManualCount
-                val overflow = items.size > desktopCapacity || shownCapacity < items.size
-                val key = listOf(items.map { it.id }.hashCode(), desktopCapacity, iconSize, autoArrange).hashCode()
+
+            // The desktop-full prompt is reserved for genuine grid overflow. In free
+            // placement mode, occupied cells are not a capacity limit, and an old pixel
+            // coordinate is never interpreted as a missing icon.
+            LaunchedEffect(items.map { it.id }.hashCode(), desktopCapacity, iconSize, autoArrange, alignToGrid) {
+                val gridConstrained = autoArrange || alignToGrid
+                val overflow = gridConstrained && items.size > desktopCapacity
+                val key = listOf(items.map { it.id }.hashCode(), desktopCapacity, iconSize, autoArrange, alignToGrid).hashCode()
                 if (overflow && key != lastDesktopFullPromptKey) {
                     lastDesktopFullPromptKey = key
                     showDesktopFullDialog = true
@@ -2408,15 +2812,24 @@ fun Desktop(
                     alignToGrid         = alignToGrid,
                     onAlignToGridToggle = { setAlignToGrid(it) },
                     showIcons           = showIconsOnDesktop,
-                    onShowIconsToggle   = { showIconsOnDesktop = it; prefs.showIconsOnDesktop = it; showDesktopCtx = false },
-                    onRefresh           = { viewModel.requestDesktopRefresh(); showDesktopCtx = false },
+                    onShowIconsToggle   = {
+                        showIconsOnDesktop = it
+                        prefs.showIconsOnDesktop = it
+                        desktopIconPrefs.edit().putBoolean(SHOW_DESKTOP_ICONS_KEY, it).apply()
+                        showDesktopCtx = false
+                    },
+                    onRefresh           = {
+                        desktopRefreshGeneration++
+                        viewModel.requestDesktopRefresh()
+                        showDesktopCtx = false
+                    },
                     onPaste             = {
                         viewModel.pasteClipboard(desktopDir)
                         showDesktopCtx = false
                     },
                     hasPaste            = vmUiState.clipboardFiles.isNotEmpty(),
                     onNewFolder         = {
-                        if (!autoArrange && occupiedCells.size >= desktopCapacity) {
+                        if (!autoArrange && alignToGrid && occupiedCells.size >= desktopCapacity) {
                             showDesktopCtx = false
                             showDesktopFullDialog = true
                         } else {
@@ -2429,7 +2842,7 @@ fun Desktop(
                         }
                     },
                     onNewTextFile       = {
-                        if (!autoArrange && occupiedCells.size >= desktopCapacity) {
+                        if (!autoArrange && alignToGrid && occupiedCells.size >= desktopCapacity) {
                             showDesktopCtx = false
                             showDesktopFullDialog = true
                         } else {
@@ -2458,27 +2871,37 @@ fun Desktop(
             }
 
             if (showDesktopFullDialog) {
-                AlertDialog(
-                    onDismissRequest = { showDesktopFullDialog = false },
-                    icon = { Icon(FluentIcon.Folder, contentDescription = null) },
-                    title = { Text("Desktop is full") },
-                    text = {
-                        Text(
-                            "There isn't enough space to show everything on the desktop at this screen size. The files are still in the Desktop folder. Open File Explorer to see the full contents."
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                showDesktopFullDialog = false
-                                viewModel.openWindow(LauncherScreen.FILE_EXPLORER)
-                            }
-                        ) { Text("Open File Explorer") }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showDesktopFullDialog = false }) { Text("Close") }
-                    }
-                )
+                LaunchedEffect(Unit) {
+                    delay(7000)
+                    showDesktopFullDialog = false
+                }
+                Row(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 72.dp)
+                        .background(Color(0xFF1C1C1C).copy(alpha = 0.95f), RoundedCornerShape(8.dp))
+                        .border(0.5.dp, DS.accentStart.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(FluentIcon.Folder, contentDescription = null, tint = DS.accentStart, modifier = Modifier.size(18.dp))
+                    Text(
+                        "Desktop is full. Some items are still available in Desktop.",
+                        color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f)
+                    )
+                    TextButton(
+                        onClick = {
+                            showDesktopFullDialog = false
+                            viewModel.openWindow(LauncherScreen.FILE_EXPLORER)
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) { Text("Open", color = DS.accentStart, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
+                    TextButton(
+                        onClick = { showDesktopFullDialog = false },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                    ) { Text("Dismiss", color = Color.White.copy(alpha = 0.78f), fontSize = 12.sp) }
+                }
             }
 
             // ── Icon context menu ──
@@ -2493,14 +2916,32 @@ fun Desktop(
                     onOpen             = { openItem(target); iconCtxTarget = null },
                     onOpenWith         = {
                         try {
-                            val uri = androidx.core.content.FileProvider.getUriForFile(
-                                context, "${context.packageName}.fileprovider", target.file
-                            )
+                            val isShortcut = target.type == DesktopItemType.APP_SHORTCUT
+                            val targetUriString = if (isShortcut) target.targetUri else null
+                            val targetPath = if (isShortcut) target.targetFilePath else target.file.absolutePath
+
+                            val uri = if (!targetUriString.isNullOrBlank()) {
+                                Uri.parse(targetUriString)
+                            } else {
+                                androidx.core.content.FileProvider.getUriForFile(
+                                    context, "${context.packageName}.fileprovider", File(targetPath ?: target.file.absolutePath)
+                                )
+                            }
+
+                            val mime = if (targetPath != null) {
+                                android.webkit.MimeTypeMap.getSingleton()
+                                    .getMimeTypeFromExtension(File(targetPath).extension.lowercase())
+                                    ?: "*/*"
+                            } else {
+                                context.contentResolver.getType(uri) ?: "*/*"
+                            }
+
                             context.startActivity(
                                 Intent.createChooser(
                                     Intent(Intent.ACTION_VIEW).apply {
-                                        setDataAndType(uri, "*/*")
+                                        setDataAndType(uri, mime)
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                                     }, "Open with"
                                 ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
                             )
@@ -2588,15 +3029,60 @@ fun Desktop(
 
             // ── Modals ──
             if (showShortcutDialog) {
-                ShortcutDialog(
-                    onConfirm = { pkg, label ->
-                        val f = File(desktopDir, uniqueName(desktopDir, label, "desktop"))
-                        f.writeText("type=app\npackage=$pkg\nlabel=$label\n")
-                        placeNewItemAtClickPosition(f.absolutePath)
-                        showShortcutDialog = false
-                        scheduleRefresh()
+                Windows11ShortcutDialog(
+                    isDark = isDark,
+                    initialTarget = shortcutPickedUri ?: "",
+                    initialIsFolder = shortcutPickedIsFolder,
+                    initialLabel = if (shortcutPickedUri != null) {
+                        if (shortcutPickedUri!!.startsWith("content://")) {
+                            queryDisplayName(Uri.parse(shortcutPickedUri!!)) ?: ""
+                        } else File(shortcutPickedUri!!).nameWithoutExtension
+                    } else "",
+                    onBrowseFile = {
+                        shortcutFilePicker.launch(arrayOf("*/*"))
                     },
-                    onDismiss = { showShortcutDialog = false }
+                    onBrowseFolder = { shortcutFolderPicker.launch(null) },
+                    onConfirm = { target, label, isFolder ->
+                        val trimmed = target.trim()
+                        if (trimmed.isNotEmpty() && label.isNotBlank()) {
+                            val resolvedPath = if (trimmed.startsWith("content://") || trimmed.startsWith("file://")) {
+                                viewModel.resolveSafUriToFilePath(context, Uri.parse(trimmed))
+                            } else trimmed
+                            val targetFile = resolvedPath?.let(::File)
+                            val finalIsFolder = isFolder || targetFile?.isDirectory == true
+                            val f = File(desktopDir, uniqueName(desktopDir, label.trim(), "desktop"))
+                            // Local storage targets are saved as real filesystem paths. This
+                            // is crucial for media: opening a shortcut then uses the exact same
+                            // path as the original file instead of copying a large video into cache.
+                            // Shortcuts are real-path references only. A SAF URI that cannot
+                            // be resolved to a filesystem path is not copied into cache and is
+                            // not saved as a URI shortcut.
+                            val pathIsValid = !(trimmed.startsWith("content://") || trimmed.startsWith("file://")) || resolvedPath != null
+                            val finalPath = resolvedPath ?: trimmed
+                            val finalTarget = File(finalPath)
+                            if (!pathIsValid || !finalTarget.exists()) {
+                                showFileAccessToast = true
+                            } else {
+                                val content = "type=${if (finalIsFolder || finalTarget.isDirectory) "folder" else "file"}\npath=$finalPath\nlabel=${label.trim()}\n"
+                                try {
+                                    f.writeText(content)
+                                    if (placeNewItemAtClickPosition(f.absolutePath)) {
+                                        shortcutPickedUri = null
+                                        shortcutPickedIsFolder = false
+                                        showShortcutDialog = false
+                                        scheduleRefresh()
+                                    }
+                                } catch (_: Exception) {
+                                    showFileAccessToast = true
+                                }
+                            }
+                        }
+                    },
+                    onDismiss = {
+                        shortcutPickedUri = null
+                        shortcutPickedIsFolder = false
+                        showShortcutDialog = false
+                    }
                 )
             }
 
@@ -2663,8 +3149,30 @@ private fun DesktopIcon(
 
     // Performance: cache pure icon conversions. Desktop recomposition can be frequent
     // while dragging/selecting, so avoid rebuilding ImageBitmap/vector wrappers.
-    val imageBitmap = remember(item.iconBitmap) { item.iconBitmap?.asImageBitmap() }
-    val fallbackIcon = remember(item.file.absolutePath, item.type, item.builtInScreen) {
+    val context = LocalContext.current
+    val shortcutTargetFile = remember(item.targetFilePath) {
+        item.targetFilePath?.let(::File)?.takeIf { it.exists() }
+    }
+    val shortcutTargetInfo = remember(
+        item.id, item.targetFilePath, item.targetUri, item.targetUriIsFolder,
+        item.targetItemType, item.targetIconBitmap
+    ) {
+        shortcutTargetFile
+            ?.takeUnless { it.extension.equals("desktop", ignoreCase = true) }
+            ?.let { loadDesktopFileInfo(it, context) }
+    }
+    val imageBitmap = remember(item.iconBitmap, shortcutTargetInfo?.iconBitmap, item.targetIconBitmap) {
+        (item.targetIconBitmap ?: shortcutTargetInfo?.iconBitmap ?: item.iconBitmap)?.asImageBitmap()
+    }
+    val isTargetImage = remember(
+        item.id, item.targetItemType, shortcutTargetInfo?.type
+    ) {
+        (item.targetItemType ?: shortcutTargetInfo?.type) == DesktopItemType.IMAGE_FILE
+    }
+    val fallbackIcon = remember(
+        item.file.absolutePath, item.type, item.builtInScreen, item.targetFilePath,
+        item.targetUri, item.targetUriIsFolder, item.targetItemType, shortcutTargetInfo?.type
+    ) {
         when (item.builtInScreen) {
             LauncherScreen.FILE_EXPLORER -> FluentIcon.Folder
             LauncherScreen.SETTINGS -> FluentIcon.Settings
@@ -2681,11 +3189,34 @@ private fun DesktopIcon(
             LauncherScreen.RECYCLE_BIN -> FluentIcon.Delete
             LauncherScreen.BLUEBIRD_STORE -> FluentIcon.Moon
             LauncherScreen.WEB_APP_MANAGER -> FluentIcon.Globe
-            else -> getFileIcon(item.file)
+            else -> {
+                val targetFile = shortcutTargetFile
+                if (targetFile != null) {
+                    getFileIcon(targetFile)
+                } else if (item.targetUri != null) {
+                    getUriShortcutIcon(context, Uri.parse(item.targetUri), item.targetUriIsFolder)
+                } else {
+                    getFileIcon(item.file)
+                }
+            }
         }
     }
-    val fallbackTint = remember(item.file.absolutePath, item.type, item.builtInScreen) {
-        if (item.builtInScreen != null) DS.accentStart else getFileIconColor(item.file)
+    val fallbackTint = remember(
+        item.file.absolutePath, item.type, item.builtInScreen, item.targetFilePath,
+        item.targetUri, item.targetUriIsFolder, item.targetItemType, shortcutTargetInfo?.type
+    ) {
+        when {
+            item.builtInScreen != null -> DS.accentStart
+            shortcutTargetFile != null -> getFileIconColor(shortcutTargetFile)
+            item.targetUri != null ->
+                if (item.targetUriIsFolder) Color(0xFFFFC107)
+                else when (context.contentResolver.getType(Uri.parse(item.targetUri)).orEmpty().lowercase()) {
+                    "application/pdf" -> Color(0xFFD83B01)
+                    "text/html", "application/xhtml+xml" -> DS.accentStart
+                    else -> DS.accentStart
+                }
+            else -> getFileIconColor(item.file)
+        }
     }
 
     // FIX: KEY is item.id only — never changes on keystroke.
@@ -2711,6 +3242,25 @@ private fun DesktopIcon(
             try { focusRequester.requestFocus() } catch (_: Exception) {}
         }
     }
+
+    // Request only a small system-provided thumbnail. No target video is copied and
+    // no video thumbnail is persisted in Bluebird's own cache.
+    val videoFileForThumbnail = when {
+        shortcutTargetFile != null && (item.targetItemType == DesktopItemType.VIDEO_FILE || shortcutTargetInfo?.type == DesktopItemType.VIDEO_FILE) -> shortcutTargetFile
+        item.type == DesktopItemType.VIDEO_FILE -> item.file
+        else -> null
+    }
+    val targetVideoThumbnail by produceState<Bitmap?>(
+        initialValue = null,
+        videoFileForThumbnail?.absolutePath,
+        videoFileForThumbnail?.lastModified(),
+        videoFileForThumbnail?.length()
+    ) {
+        val target = videoFileForThumbnail ?: return@produceState
+        value = withContext(Dispatchers.IO) { loadDesktopVideoThumbnail(context, target) }
+    }
+
+    val effectiveImageBitmap = targetVideoThumbnail?.asImageBitmap() ?: imageBitmap
 
     Box(
         modifier = Modifier
@@ -2741,14 +3291,14 @@ private fun DesktopIcon(
                 contentAlignment = Alignment.Center
             ) {
                 when {
-                    item.iconBitmap != null -> {
+                    effectiveImageBitmap != null -> {
                         Image(
-                            bitmap             = item.iconBitmap.asImageBitmap(),
+                            bitmap             = effectiveImageBitmap,
                             contentDescription = null,
-                            modifier           = if (item.type == DesktopItemType.IMAGE_FILE)
+                            modifier           = if (isTargetImage)
                                 Modifier.fillMaxSize().clip(RoundedCornerShape(3.dp))
                             else Modifier.fillMaxSize(),
-                            contentScale       = if (item.type == DesktopItemType.IMAGE_FILE)
+                            contentScale       = if (isTargetImage || targetVideoThumbnail != null)
                                 ContentScale.Crop else ContentScale.Fit
                         )
                     }
@@ -2776,7 +3326,7 @@ private fun DesktopIcon(
                     }
                 }
 
-                // Shortcut arrow badge (native app shortcuts + web app shortcuts)
+                // Shortcut arrow badge (all .desktop shortcuts, including files, folders, apps, and URI targets)
                 if (item.type == DesktopItemType.APP_SHORTCUT || item.type == DesktopItemType.WEB_APP_SHORTCUT) {
                     Box(
                         Modifier
@@ -2792,15 +3342,21 @@ private fun DesktopIcon(
                     }
                 }
 
-                // Audio/Video badge
-                if (item.type == DesktopItemType.MUSIC_FILE || item.type == DesktopItemType.VIDEO_FILE) {
-                    val badgeColor = if (item.type == DesktopItemType.MUSIC_FILE) Color(0xFFFF8C00) else Color(0xFF8764B8)
-                    val badgeIcon  = if (item.type == DesktopItemType.MUSIC_FILE) FluentIcon.MusicNote2 else FluentIcon.Play
-                    Box(
-                        Modifier.size(13.dp).align(Alignment.BottomEnd).background(Color(0xFF1C1C1C), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(imageVector = badgeIcon, contentDescription = null, tint = badgeColor, modifier = Modifier.size(9.dp))
+                // Audio/Video badge follows the TARGET type for shortcuts, so a shortcut
+                // keeps the same small media identity as the corresponding normal file.
+                val effectiveItemType = item.targetItemType ?: shortcutTargetInfo?.type ?: item.type
+                if (effectiveItemType == DesktopItemType.MUSIC_FILE || effectiveItemType == DesktopItemType.VIDEO_FILE) {
+                    val badgeColor = if (effectiveItemType == DesktopItemType.MUSIC_FILE) Color(0xFFFF8C00) else Color(0xFF8764B8)
+                    val badgeIcon  = if (effectiveItemType == DesktopItemType.MUSIC_FILE) FluentIcon.MusicNote2 else FluentIcon.Play
+                    // A video with a generated thumbnail gets its media identity from the
+                    // thumbnail itself; music retains the compact badge just like normal files.
+                    if (effectiveItemType == DesktopItemType.MUSIC_FILE || targetVideoThumbnail == null) {
+                        Box(
+                            Modifier.size(13.dp).align(Alignment.BottomEnd).background(Color(0xFF1C1C1C), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(imageVector = badgeIcon, contentDescription = null, tint = badgeColor, modifier = Modifier.size(9.dp))
+                        }
                     }
                 }
             }
@@ -3151,7 +3707,7 @@ fun bluebirdDesktopContextMenu(
                     ) {
                         Column(Modifier.padding(vertical = 5.dp)) {
                             W11SubRowIcon(FluentIcon.Folder,      "Folder",                     Color(0xFFFFC107), tc) { onNewFolder();       onDismiss() }
-                            W11SubRowIcon(FluentIcon.Link,        "Shortcut link",              DS.accentStart, tc) { onNewShortcut();      onDismiss() }
+                            W11SubRowIcon(FluentIcon.Link,        "Shortcut",              DS.accentStart, tc) { onNewShortcut();      onDismiss() }
                             W11SubRowIcon(FluentIcon.Apps,        "Add Installed App Shortcut", Color(0xFF107C10), tc) { onAddAppShortcut();   onDismiss() }
                             W11CtxDivider(divColor)
                             W11SubRowIcon(FluentIcon.DocumentText, "Text Document",              DS.accentStart, tc) { onNewTextFile();      onDismiss() }
@@ -3433,49 +3989,89 @@ fun SmartNewItemDialog(
 }
 
 @Composable
-fun ShortcutDialog(onConfirm: (String, String) -> Unit, onDismiss: () -> Unit) {
-    var showPicker by remember { mutableStateOf(false) }
-    var pkg        by remember { mutableStateOf("") }
-    var label      by remember { mutableStateOf("") }
+private fun Windows11ShortcutDialog(
+    isDark: Boolean,
+    initialTarget: String,
+    initialIsFolder: Boolean = false,
+    initialLabel: String,
+    onBrowseFile: () -> Unit,
+    onBrowseFolder: () -> Unit,
+    onConfirm: (target: String, label: String, isFolder: Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var target by remember(initialTarget) { mutableStateOf(initialTarget) }
+    var label by remember(initialLabel) { mutableStateOf(initialLabel) }
+    var isFolder by remember(initialTarget, initialIsFolder) { mutableStateOf(initialIsFolder) }
 
-    if (showPicker) {
-        AppPickerDialog(
-            isDark = true,
-            onAppSelected = { p, l ->
-                pkg        = p
-                label      = l
-                showPicker = false
-                onConfirm(p, l)
-            },
-            onDismiss = { showPicker = false }
-        )
-        return
-    }
+    val bg = if (isDark) Color(0xFF202020) else Color(0xFFF9F9F9)
+    val tc = if (isDark) Color.White else Color(0xFF1A1A1A)
+    val dim = if (isDark) Color.White.copy(alpha = 0.68f) else Color.Black.copy(alpha = 0.62f)
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape            = RoundedCornerShape(8.dp),
-        title            = { Text("Create Shortcut", fontWeight = FontWeight.Medium, fontSize = 15.sp) },
-        text             = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = label, onValueChange = { label = it },
-                    label = { Text("Display Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = pkg, onValueChange = { pkg = it },
-                    label = { Text("Package Name (e.g. com.example.app)") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth())
-                TextButton(onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(imageVector = FluentIcon.Apps, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Browse installed apps…")
+        containerColor = bg,
+        shape = RoundedCornerShape(8.dp),
+        title = {
+            Text("Create Shortcut", color = tc, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Type the location of the item, or browse for a file or folder.",
+                    color = dim, fontSize = 13.sp
+                )
+                OutlinedTextField(
+                    value = target,
+                    onValueChange = { target = it },
+                    label = { Text("Location") },
+                    placeholder = { Text("/storage/emulated/0/Documents") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(4.dp)
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { isFolder = false; onBrowseFile() },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Icon(FluentIcon.Document, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Browse file")
+                    }
+                    OutlinedButton(
+                        onClick = { isFolder = true; onBrowseFolder() },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Icon(FluentIcon.Folder, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Browse folder")
+                    }
                 }
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text("Shortcut name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(4.dp)
+                )
             }
         },
         confirmButton = {
-            Button(onClick = { if (pkg.isNotBlank() && label.isNotBlank()) onConfirm(pkg.trim(), label.trim()) }) {
-                Text("Create")
-            }
+            Button(
+                onClick = { onConfirm(target, label, isFolder) },
+                enabled = target.isNotBlank() && label.isNotBlank(),
+                shape = RoundedCornerShape(4.dp)
+            ) { Text("Next") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
     )
 }
 

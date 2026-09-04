@@ -410,6 +410,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     init {
         recycleBinDir.mkdirs()
         desktopDir.mkdirs()
+        // Remove legacy shortcut target mirrors created by older builds off the UI thread.
+        // Shortcuts are pointers only; they must never duplicate target files.
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { File(application.cacheDir, "shortcut_targets").deleteRecursively() }
+        }
         loadPersistedData()
         // Installed apps are loaded lazily after the first desktop frame.
         // This keeps PackageManager/icon decoding out of the critical launch path.
@@ -943,20 +948,27 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * Creates a lightweight Desktop pointer. This MUST NOT copy the target file.
+     * The .desktop file stores only the real target path and a display label.
+     */
     fun addDesktopShortcutFromFile(filePath: String, fileName: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val source = File(filePath)
             if (!source.exists()) return@launch
-            var dest  = File(desktopDir, fileName)
+
+            val label = fileName.substringBeforeLast('.', fileName).ifBlank { source.nameWithoutExtension.ifBlank { source.name } }
+            var dest = File(desktopDir, "$label.desktop")
             var count = 1
             while (dest.exists()) {
-                val name = fileName.substringBeforeLast(".")
-                val ext  = fileName.substringAfterLast(".", "")
-                dest = File(desktopDir, "$name ($count).$ext")
+                dest = File(desktopDir, "$label ($count).desktop")
                 count++
             }
-            source.copyTo(dest, overwrite = false)
-            withContext(Dispatchers.Main) { refreshDesktopFiles() }
+
+            val type = if (source.isDirectory) "folder" else "file"
+            val content = "type=$type\npath=${source.absolutePath}\nlabel=$label\n"
+            runCatching { dest.writeText(content) }
+                .onSuccess { withContext(Dispatchers.Main) { refreshDesktopFiles() } }
         }
     }
 
@@ -1722,6 +1734,91 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
      * Opens a file in Bluebird's own applications whenever the format is supported.
      * The system chooser remains the fallback for formats Bluebird cannot handle.
      */
+    /**
+     * Resolves a SAF URI to the actual filesystem path. Shortcuts intentionally require
+     * this real path so the target is never copied into Bluebird's cache.
+     */
+    fun resolveSafUriToFilePath(context: Context, uri: Uri): String? {
+        return try {
+            when (uri.scheme?.lowercase()) {
+                "file" -> uri.path?.let(::File)?.absolutePath?.takeIf { File(it).exists() }
+                "content" -> {
+                    // External Storage provider: support both file/document URIs and tree URIs.
+                    if (uri.authority == "com.android.externalstorage.documents") {
+                        val docId = runCatching {
+                            android.provider.DocumentsContract.getDocumentId(uri)
+                        }.getOrNull()
+                            ?: runCatching {
+                                android.provider.DocumentsContract.getTreeDocumentId(uri)
+                            }.getOrNull()
+                        if (!docId.isNullOrBlank()) {
+                            val split = docId.split(":", limit = 2)
+                            if (split.size == 2) {
+                                val root = if (split[0].equals("primary", true)) {
+                                    Environment.getExternalStorageDirectory()
+                                } else {
+                                    File("/storage/${split[0]}")
+                                }
+                                File(root, split[1]).absolutePath.takeIf { File(it).exists() }?.let { return it }
+                            }
+                        }
+                    }
+
+                    // Some local providers expose the backing path through DATA. If it is
+                    // unavailable, there is deliberately no cache/copy fallback.
+                    runCatching {
+                        context.contentResolver.query(
+                            uri,
+                            arrayOf(android.provider.MediaStore.MediaColumns.DATA),
+                            null, null, null
+                        )?.use { c ->
+                            if (c.moveToFirst()) {
+                                val column = c.getColumnIndex(android.provider.MediaStore.MediaColumns.DATA)
+                                if (column >= 0) {
+                                    c.getString(column)?.let { path ->
+                                        File(path).absolutePath.takeIf { File(it).exists() }
+                                    }
+                                } else null
+                            } else null
+                        }
+                    }.getOrNull()
+                }
+                else -> null
+            }
+        } catch (_: Exception) { null }
+    }
+
+    fun openUriWithSystem(context: Context, uri: Uri) {
+        try {
+            val mime = context.contentResolver.getType(uri) ?: "*/*"
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(Intent.createChooser(intent, "Open with").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    /**
+     * Opens a persisted SAF shortcut target only when Android can resolve it to a real
+     * filesystem path. A shortcut is a pointer, never a cached copy of its target.
+     */
+    fun openFileInternallyUri(context: Context, uri: Uri, displayName: String? = null): Boolean {
+        val resolvedPath = resolveSafUriToFilePath(context, uri) ?: return false
+        return openFileInternally(context, resolvedPath)
+    }
+
+    private fun queryDisplayName(context: Context, uri: Uri): String? {
+        return try {
+            context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c ->
+                    if (c.moveToFirst()) c.getString(0) else null
+                }
+        } catch (_: Exception) { null }
+    }
+
     fun openFileInternally(context: Context, filePath: String): Boolean {
         val file = File(filePath)
         if (!file.isFile) return false
