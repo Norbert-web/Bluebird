@@ -36,20 +36,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -263,7 +249,7 @@ fun WebAppManagerScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(Icons.Default.Language, null, tint = accent, modifier = Modifier.size(22.dp))
+            Icon(FluentIcon.Language, null, tint = accent, modifier = Modifier.size(22.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text("Web Apps", color = tc, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Text("${apps.size} installed", color = tcDim, fontSize = 11.sp)
@@ -275,7 +261,7 @@ fun WebAppManagerScreen(
                 colors  = ButtonDefaults.outlinedButtonColors(contentColor = accent),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
             ) {
-                Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
+                Icon(FluentIcon.Add, null, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("From URL", fontSize = 12.sp)
             }
@@ -286,7 +272,7 @@ fun WebAppManagerScreen(
                 colors  = ButtonDefaults.buttonColors(containerColor = accent),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
             ) {
-                Icon(Icons.Default.Code, null, modifier = Modifier.size(14.dp))
+                Icon(FluentIcon.Code, null, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("Custom App", fontSize = 12.sp)
             }
@@ -470,7 +456,7 @@ private fun WebAppTile(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Icon(
-                        if (app.isCustom) Icons.Default.Code else Icons.Default.Language,
+                        if (app.isCustom) FluentIcon.Code else FluentIcon.Language,
                         null, tint = tcDim, modifier = Modifier.size(10.dp)
                     )
                     Text(
@@ -489,7 +475,7 @@ private fun WebAppTile(
                     onClick  = { showMenu = true },
                     modifier = Modifier.size(28.dp).padding(top = 4.dp, end = 4.dp)
                 ) {
-                    Icon(Icons.Default.MoreVert, null, tint = tcDim, modifier = Modifier.size(14.dp))
+                    Icon(FluentIcon.MoreVert, null, tint = tcDim, modifier = Modifier.size(14.dp))
                 }
                 DropdownMenu(
                     expanded = showMenu,
@@ -499,12 +485,12 @@ private fun WebAppTile(
                     DropdownMenuItem(
                         text = { Text("Open", fontSize = 13.sp) },
                         onClick = { showMenu = false; onClick() },
-                        leadingIcon = { Icon(Icons.Default.OpenInNew, null, modifier = Modifier.size(16.dp)) }
+                        leadingIcon = { Icon(FluentIcon.OpenInNew, null, modifier = Modifier.size(16.dp)) }
                     )
                     DropdownMenuItem(
                         text = { Text("Uninstall", fontSize = 13.sp, color = Color(0xFFE81123)) },
                         onClick = { showMenu = false; onDelete() },
-                        leadingIcon = { Icon(Icons.Default.Delete, null, tint = Color(0xFFE81123), modifier = Modifier.size(16.dp)) }
+                        leadingIcon = { Icon(FluentIcon.Delete, null, tint = Color(0xFFE81123), modifier = Modifier.size(16.dp)) }
                     )
                 }
             }
@@ -552,7 +538,7 @@ private fun InstallFromUrlDialog(
         shape            = RoundedCornerShape(12.dp),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(Icons.Default.Language, null, tint = Color(0xFF0078D4), modifier = Modifier.size(20.dp))
+                Icon(FluentIcon.Language, null, tint = Color(0xFF0078D4), modifier = Modifier.size(20.dp))
                 Text("Install Web App", color = tc, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
             }
         },
@@ -579,7 +565,7 @@ private fun InstallFromUrlDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
                     modifier      = Modifier.fillMaxWidth(),
                     shape         = RoundedCornerShape(8.dp),
-                    leadingIcon   = { Icon(Icons.Default.Link, null) }
+                    leadingIcon   = { Icon(FluentIcon.Link, null) }
                 )
 
                 // Emoji icon picker
@@ -694,7 +680,7 @@ private fun CustomAppEditorDialog(
         modifier         = Modifier.fillMaxWidth(),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(Icons.Default.Code, null, tint = Color(0xFF4EC9B0), modifier = Modifier.size(20.dp))
+                Icon(FluentIcon.Code, null, tint = Color(0xFF4EC9B0), modifier = Modifier.size(20.dp))
                 Text("Create Custom App", color = tc, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
             }
         },
@@ -915,7 +901,7 @@ fun WebAppViewerScreen(
                     enabled  = canGoBack,
                     modifier = Modifier.size(32.dp)
                 ) {
-                    Icon(Icons.Default.ArrowBack, "Back",
+                    Icon(FluentIcon.ArrowBack, "Back",
                         tint = if (canGoBack) tc else tc.copy(0.3f),
                         modifier = Modifier.size(16.dp))
                 }
@@ -924,7 +910,7 @@ fun WebAppViewerScreen(
                     enabled  = canGoFwd,
                     modifier = Modifier.size(32.dp)
                 ) {
-                    Icon(Icons.Default.ArrowForward, "Forward",
+                    Icon(FluentIcon.ArrowForward, "Forward",
                         tint = if (canGoFwd) tc else tc.copy(0.3f),
                         modifier = Modifier.size(16.dp))
                 }
@@ -933,7 +919,7 @@ fun WebAppViewerScreen(
                     modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
-                        if (isLoading) Icons.Default.Close else Icons.Default.Refresh,
+                        if (isLoading) FluentIcon.Close else FluentIcon.Refresh,
                         "Reload", tint = tc, modifier = Modifier.size(16.dp)
                     )
                 }
@@ -950,7 +936,7 @@ fun WebAppViewerScreen(
                     contentAlignment = Alignment.CenterStart
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Icon(Icons.Default.Lock, null, tint = Color(0xFF4EC9B0), modifier = Modifier.size(10.dp))
+                        Icon(FluentIcon.Lock, null, tint = Color(0xFF4EC9B0), modifier = Modifier.size(10.dp))
                         Text(
                             text     = currentUrl.removePrefix("https://").removePrefix("http://").take(50),
                             color    = tc.copy(0.7f),
@@ -996,7 +982,7 @@ fun WebAppViewerScreen(
                         textStyle     = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                     )
                     IconButton(onClick = { currentUrl = urlInput; webViewRef?.loadUrl(urlInput); showUrlBar = false }) {
-                        Icon(Icons.Default.Send, "Go", tint = accent)
+                        Icon(FluentIcon.Send, "Go", tint = accent)
                     }
                     TextButton(onClick = { showUrlBar = false }) { Text("Cancel") }
                 }

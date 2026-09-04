@@ -120,6 +120,7 @@ import fluent.ui.system.icons.regular.Rename
 import fluent.ui.system.icons.regular.Resize
 import fluent.ui.system.icons.regular.RotateLeft
 import fluent.ui.system.icons.regular.Search
+import fluent.ui.system.icons.regular.Send
 import fluent.ui.system.icons.regular.Server
 import fluent.ui.system.icons.regular.Settings
 import fluent.ui.system.icons.regular.Share
@@ -132,6 +133,7 @@ import fluent.ui.system.icons.regular.SpeakerMute
 import fluent.ui.system.icons.regular.Stack
 import fluent.ui.system.icons.regular.Star
 import fluent.ui.system.icons.regular.Subtract
+import fluent.ui.system.icons.regular.Square
 import fluent.ui.system.icons.regular.SquareMultiple
 import fluent.ui.system.icons.regular.SwipeRight
 import fluent.ui.system.icons.regular.TabDesktopMultiple
@@ -444,6 +446,15 @@ object FluentIcon {
     val GridSmall       = FluentIcons.Regular.GridDots
     val GridMedium      = FluentIcons.Regular.Grid
     val GridLarge       = FluentIcons.Regular.SquareMultiple
+
+    // ── Window title-bar controls (minimize / maximize / close) ────────────
+    val Minimize        = FluentIcons.Regular.Subtract
+    val CropSquare      = FluentIcons.Regular.Square
+
+    // ── Web App Manager ─────────────────────────────────────────────────────
+    val Language        = FluentIcons.Regular.Globe
+    val OpenInNew       = FluentIcons.Regular.Open
+    val Send            = FluentIcons.Regular.Send
 }
 
 /**

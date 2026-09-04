@@ -4,8 +4,6 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -173,9 +171,9 @@ fun WindowTitleBar(
 
         // Window controls
         listOf(
-            Triple(Icons.Default.Minimize, "Minimize", onMinimize),
-            Triple(Icons.Default.CropSquare, "Maximize", onMaximize),
-            Triple(Icons.Default.Close, "Close", onClose)
+            Triple(FluentIcon.Minimize, "Minimize", onMinimize),
+            Triple(FluentIcon.CropSquare, "Maximize", onMaximize),
+            Triple(FluentIcon.Close, "Close", onClose)
         ).forEachIndexed { index, (icon, desc, action) ->
             var hovered by remember { mutableStateOf(false) }
             Box(
