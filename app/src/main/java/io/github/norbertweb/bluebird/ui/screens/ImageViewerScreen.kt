@@ -36,8 +36,8 @@ import androidx.compose.ui.unit.*
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
-import io.github.norbertweb.bluebird.ui.components.FluentIcon
 import io.github.norbertweb.bluebird.LauncherViewModel
+import io.github.norbertweb.bluebird.ui.components.FluentIcon
 import io.github.norbertweb.bluebird.WallpaperTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -444,7 +444,7 @@ private fun AlbumsView(
             isDark = isDark, surface = surface, border = border, tc = tc, tcm = tcm,
             actions = {
                 PIconBtn(FluentIcon.Refresh, "Rescan", tc) { onRescan() }
-                PIconBtn(FluentIcon.Grid, "All Photos", tc) {
+                PIconBtn(FluentIcon.GridMedium, "All Photos", tc) {
                     state.activeAlbum = null; state.view = PhotoView.GRID
                 }
             }

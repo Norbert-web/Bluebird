@@ -6,7 +6,6 @@ import fluent.ui.system.icons.regular.Airplane
 import fluent.ui.system.icons.regular.Alert
 import fluent.ui.system.icons.regular.AlertOff
 import fluent.ui.system.icons.regular.Apps
-import fluent.ui.system.icons.regular.Archive
 import fluent.ui.system.icons.regular.ArrowAutofitWidth
 import fluent.ui.system.icons.regular.ArrowDownload
 import fluent.ui.system.icons.regular.ArrowLeft
@@ -26,9 +25,20 @@ import fluent.ui.system.icons.regular.Battery6
 import fluent.ui.system.icons.regular.Battery9
 import fluent.ui.system.icons.regular.BatteryCharge
 import fluent.ui.system.icons.regular.Bluetooth
+import fluent.ui.system.icons.regular.Archive
 import fluent.ui.system.icons.regular.BrightnessHigh
+import fluent.ui.system.icons.regular.Briefcase
+import fluent.ui.system.icons.regular.Bug
+import fluent.ui.system.icons.regular.Beaker
+import fluent.ui.system.icons.regular.BuildingShop
 import fluent.ui.system.icons.regular.Calculator
 import fluent.ui.system.icons.regular.CalendarLtr
+import fluent.ui.system.icons.regular.Calendar3Day
+import fluent.ui.system.icons.regular.CalendarClock
+import fluent.ui.system.icons.regular.CalendarDay
+import fluent.ui.system.icons.regular.CalendarMonth
+import fluent.ui.system.icons.regular.CalendarWeekNumbers
+import fluent.ui.system.icons.regular.Chat
 import fluent.ui.system.icons.regular.Checkmark
 import fluent.ui.system.icons.regular.CheckmarkCircle
 import fluent.ui.system.icons.regular.ChevronDown
@@ -39,6 +49,7 @@ import fluent.ui.system.icons.regular.ClipboardPaste
 import fluent.ui.system.icons.regular.ClockAlarm
 import fluent.ui.system.icons.regular.CloudCheckmark
 import fluent.ui.system.icons.regular.CloudOff
+import fluent.ui.system.icons.regular.CloudArrowDown
 import fluent.ui.system.icons.regular.Color
 import fluent.ui.system.icons.regular.Copy
 import fluent.ui.system.icons.regular.Cut
@@ -57,8 +68,18 @@ import fluent.ui.system.icons.regular.LeafOne
 import fluent.ui.system.icons.regular.Keyboard
 import fluent.ui.system.icons.regular.LockClosedKey
 import fluent.ui.system.icons.regular.Cast
+import fluent.ui.system.icons.regular.CellularData4
 import fluent.ui.system.icons.regular.PhoneLaptop
 import fluent.ui.system.icons.regular.Crop
+import fluent.ui.system.icons.regular.Games
+import fluent.ui.system.icons.regular.Mail
+import fluent.ui.system.icons.regular.PaintBrush
+import fluent.ui.system.icons.regular.Person
+import fluent.ui.system.icons.regular.ShieldCheckmark
+import fluent.ui.system.icons.regular.TapSingle
+import fluent.ui.system.icons.regular.Wallpaper
+import fluent.ui.system.icons.regular.WeatherMoonOff
+import fluent.ui.system.icons.regular.Wrench
 import fluent.ui.system.icons.regular.WeatherMoon as WeatherMoonNightLight
 import fluent.ui.system.icons.regular.FolderOpen
 import fluent.ui.system.icons.regular.FolderProhibited
@@ -108,9 +129,10 @@ import fluent.ui.system.icons.regular.Sparkle
 import fluent.ui.system.icons.regular.Speaker1
 import fluent.ui.system.icons.regular.Speaker2
 import fluent.ui.system.icons.regular.SpeakerMute
-import fluent.ui.system.icons.regular.SquareMultiple
 import fluent.ui.system.icons.regular.Stack
+import fluent.ui.system.icons.regular.Star
 import fluent.ui.system.icons.regular.Subtract
+import fluent.ui.system.icons.regular.SquareMultiple
 import fluent.ui.system.icons.regular.SwipeRight
 import fluent.ui.system.icons.regular.TabDesktopMultiple
 import fluent.ui.system.icons.regular.Table
@@ -121,7 +143,6 @@ import fluent.ui.system.icons.regular.TopSpeed
 import fluent.ui.system.icons.regular.Trophy
 import fluent.ui.system.icons.regular.VehicleCar
 import fluent.ui.system.icons.regular.Video
-import fluent.ui.system.icons.regular.Wallpaper
 import fluent.ui.system.icons.regular.Warning
 import fluent.ui.system.icons.regular.WeatherCloudy
 import fluent.ui.system.icons.regular.WeatherMoon
@@ -268,11 +289,6 @@ object FluentIcon {
     val ChevronUp       = FluentIcons.Regular.ChevronUp
     val ChevronDown     = FluentIcons.Regular.ChevronDown
     val ChevronRight    = FluentIcons.Regular.ChevronRight
-    val ChevronLeft     = FluentIcons.Regular.ChevronLeft
-
-    // Directional arrows (back/forward navigation, distinct from Chevrons above)
-    val ArrowBack       = FluentIcons.Regular.ArrowLeft
-    val ArrowForward    = FluentIcons.Regular.ArrowRight
 
     // System tray / quick actions
     val PhoneAndroid    = FluentIcons.Regular.Phone
@@ -361,10 +377,46 @@ object FluentIcon {
     val AutoRotate      = FluentIcons.Regular.ArrowRotateClockwise
     val AutofitWidth    = FluentIcons.Regular.ArrowAutofitWidth
 
-    // ── Media gallery / file-type / gallery-app icons ──────────────────────
-    // Added to replace Material icons across ImageViewerScreen.kt,
-    // RecycleBinScreen.kt, and AppScreens.kt so every icon in the app
-    // resolves through this single Fluent-only source of truth.
+    // ── Lock screen / desktop power & personalization ─────────────────────
+    val BedtimeOff      = FluentIcons.Regular.WeatherMoonOff
+    val RestartAlt      = FluentIcons.Regular.ArrowSync
+    val WallpaperIcon   = FluentIcons.Regular.Wallpaper
+    val Autorenew       = FluentIcons.Regular.ArrowSync
+    val NetworkCell     = FluentIcons.Regular.CellularData4
+    val Person          = FluentIcons.Regular.Person
+
+    // ── Update settings / diagnostics ──────────────────────────────────────
+    val BugReport       = FluentIcons.Regular.Bug
+    val CloudDownload   = FluentIcons.Regular.CloudArrowDown
+    val OpenInBrowser   = FluentIcons.Regular.Open
+    val Science         = FluentIcons.Regular.Beaker
+    val SystemUpdateAlt = FluentIcons.Regular.ArrowDownload
+    val TouchApp        = FluentIcons.Regular.TapSingle
+    val VerifiedUser    = FluentIcons.Regular.ShieldCheckmark
+
+    // ── Messages / app categories ──────────────────────────────────────────
+    val ArrowBack       = FluentIcons.Regular.ArrowLeft
+    val Brush           = FluentIcons.Regular.PaintBrush
+    val Build           = FluentIcons.Regular.Wrench
+    val SportsEsports   = FluentIcons.Regular.Games
+    val Star            = FluentIcons.Regular.Star
+    val Storefront      = FluentIcons.Regular.BuildingShop
+    val UploadFile      = FluentIcons.Regular.ArrowUpload
+    val Work            = FluentIcons.Regular.Briefcase
+    val Email           = FluentIcons.Regular.Mail
+    val Message         = FluentIcons.Regular.Chat
+
+    // ── Update-check frequency options — each needs a visually distinct
+    // glyph so the selected cadence (launch/day/week/2-week/7-week/month/
+    // manual) reads at a glance, mirroring the old 7-way Material icon set.
+    val CalendarDay         = FluentIcons.Regular.CalendarDay
+    val CalendarWeek        = FluentIcons.Regular.Calendar3Day
+    val CalendarBiweekly    = FluentIcons.Regular.CalendarWeekNumbers
+    val CalendarSevenWeeks  = FluentIcons.Regular.CalendarMonth
+    val CalendarClockIcon   = FluentIcons.Regular.CalendarClock
+
+    // ── Media gallery / file-type / image-viewer icons ─────────────────────
+    // Used by ImageViewerScreen.kt, RecycleBinScreen.kt, and AppScreens.kt.
     val Archive         = FluentIcons.Regular.Archive
     val Article         = FluentIcons.Regular.DocumentText
     val AudioFile       = FluentIcons.Regular.MusicNote2
@@ -381,7 +433,10 @@ object FluentIcon {
     val SortByAlpha     = FluentIcons.Regular.TextSortAscending
     val Storage         = FluentIcons.Regular.Server
     val Video           = FluentIcons.Regular.Video
-    val WallpaperIcon   = FluentIcons.Regular.Wallpaper
+
+    // Chevrons / directional (ImageViewerScreen prev/next controls)
+    val ChevronLeft     = FluentIcons.Regular.ChevronLeft
+    val ArrowForward    = FluentIcons.Regular.ArrowRight
 
     // Grid density toggle (small/medium/large thumbnail size) — three
     // visually distinct glyphs so the state change is legible, mirroring
