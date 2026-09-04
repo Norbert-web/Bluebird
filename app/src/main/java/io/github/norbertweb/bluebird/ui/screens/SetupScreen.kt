@@ -8,14 +8,6 @@ import android.os.Environment
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -562,65 +554,50 @@ private fun StepContent(
     onBack: () -> Unit,
     onSetupCompleted: () -> Unit
 ) {
-    // Capture context outside AnimatedContent so it's safe in non-composable lambdas
     val context = LocalContext.current
 
-    AnimatedContent(
-        targetState = step,
-        transitionSpec = {
-            val forward = targetState > initialState
-            val enter = slideInHorizontally(
-                animationSpec = tween(320, easing = FastOutSlowInEasing),
-                initialOffsetX = { if (forward) it / 3 else -it / 3 }
-            ) + fadeIn(tween(320))
-            val exit = slideOutHorizontally(
-                animationSpec = tween(320, easing = FastOutSlowInEasing),
-                targetOffsetX = { if (forward) -it / 3 else it / 3 }
-            ) + fadeOut(tween(320))
-            enter togetherWith exit
-        },
-        label = "setup_step"
-    ) { currentStep ->
-        when (currentStep) {
-            0 -> WelcomeStep(onNext = { viewModel.advanceSetupStep() })
-            1 -> PermissionsStep(
-                permissionItems = permissionItems,
-                grantedStates = grantedStates,
-                onRequestPermission = onRequestPermission,
-                onRequestNotificationAccess = onRequestNotificationAccess,
-                onNext = { viewModel.advanceSetupStep() },
-                onBack = onBack
-            )
-            2 -> UsernameStep(
-                currentName = uiState.userProfile.userName,
-                onNameChange = { viewModel.setUserName(it) },
-                onNext = { viewModel.advanceSetupStep() },
-                onBack = onBack
-            )
-            3 -> AvatarStep(
-                context = context,
-                onAvatarPicked = { viewModel.setProfilePicture(context, it) },
-                onNext = { viewModel.advanceSetupStep() },
-                onBack = onBack
-            )
-            4 -> CustomizeStep(
-                selections = customizeSelections,
-                onApply = { selections ->
-                    // TODO: persist `selections` (settingKey -> Boolean) via your
-                    // ViewModel/DataStore of choice, e.g.:
-                    //   selections.forEach { (key, enabled) -> viewModel.setFeatureFlag(key, enabled) }
-                    // Left as a no-op here since Bluebird OS's preference storage
-                    // for these specific flags isn't defined in this file.
-                },
-                onNext = { viewModel.advanceSetupStep() },
-                onBack = onBack
-            )
-            5 -> LegalStep(
-                onNext = { onSetupCompleted() },
-                onBack = onBack
-            )
-            else -> LaunchedEffect(Unit) { onSetupCompleted() }
-        }
+    // Step switches instantly now — was AnimatedContent with a 320ms
+    // slide+fade transition, out of step with the rest of the app having
+    // its motion removed everywhere else.
+    when (step) {
+        0 -> WelcomeStep(onNext = { viewModel.advanceSetupStep() })
+        1 -> PermissionsStep(
+            permissionItems = permissionItems,
+            grantedStates = grantedStates,
+            onRequestPermission = onRequestPermission,
+            onRequestNotificationAccess = onRequestNotificationAccess,
+            onNext = { viewModel.advanceSetupStep() },
+            onBack = onBack
+        )
+        2 -> UsernameStep(
+            currentName = uiState.userProfile.userName,
+            onNameChange = { viewModel.setUserName(it) },
+            onNext = { viewModel.advanceSetupStep() },
+            onBack = onBack
+        )
+        3 -> AvatarStep(
+            context = context,
+            onAvatarPicked = { viewModel.setProfilePicture(context, it) },
+            onNext = { viewModel.advanceSetupStep() },
+            onBack = onBack
+        )
+        4 -> CustomizeStep(
+            selections = customizeSelections,
+            onApply = { selections ->
+                // TODO: persist `selections` (settingKey -> Boolean) via your
+                // ViewModel/DataStore of choice, e.g.:
+                //   selections.forEach { (key, enabled) -> viewModel.setFeatureFlag(key, enabled) }
+                // Left as a no-op here since Bluebird OS's preference storage
+                // for these specific flags isn't defined in this file.
+            },
+            onNext = { viewModel.advanceSetupStep() },
+            onBack = onBack
+        )
+        5 -> LegalStep(
+            onNext = { onSetupCompleted() },
+            onBack = onBack
+        )
+        else -> LaunchedEffect(Unit) { onSetupCompleted() }
     }
 }
 
