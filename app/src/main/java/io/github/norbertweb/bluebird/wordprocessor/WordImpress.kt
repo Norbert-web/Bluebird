@@ -33,7 +33,6 @@ import android.print.PrintManager
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -63,6 +62,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.norbertweb.bluebird.ui.components.DS
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1536,7 +1536,9 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
             // ==================== MAIN CONTENT ====================
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 if (!readingMode) {
-                    AnimatedVisibility(visible = sidebarOpen) {
+                    // Panels toggle instantly now — was AnimatedVisibility with an
+                    // expand/collapse transition.
+                    if (sidebarOpen) {
                         DocumentSidebar(
                             documents = documents, currentIndex = currentIndex, isDark = isDark, textColor = textColor, compact = compactWorkspace,
                             onSelect = { currentIndex = it },
@@ -1547,10 +1549,10 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                             onProperties = { i -> currentIndex = i; showPropertiesDialog = true }
                         )
                     }
-                    AnimatedVisibility(visible = navPanelOpen) {
+                    if (navPanelOpen) {
                         NavigationPanel(doc = currentDoc, textColor = textColor, compact = compactWorkspace, activeBlockId = focusedParagraph?.id, onJump = { jumpToBlockId(it) })
                     }
-                    AnimatedVisibility(visible = showPageThumbnails) {
+                    if (showPageThumbnails) {
                         PageThumbnailPanel(doc = currentDoc, textColor = textColor, compact = compactWorkspace, currentPage = currentPageIndex, onJump = { jumpToBlockId(it) })
                     }
                 }
@@ -1602,7 +1604,12 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                     }
                     val selectedText = (documentSelection?.let { !it.collapsed } == true) ||
                         (focusedParagraph?.let { !it.field.selection.collapsed && it.field.selection.min != it.field.selection.max } == true)
-                    val selectionTextColor = if (isSystemInDarkTheme()) Color.White else Color(0xFF1A1A1A)
+                    // The page is always paper-white now (see WordFluentTheme.kt), so the
+                    // "reset to default text color" action must always resolve to the
+                    // document's actual default ink color — not the app's chrome theme.
+                    // This used to flip to white in dark mode, which would have made the
+                    // selected text invisible against the (always-white) page.
+                    val selectionTextColor = Color(0xFF1A1A1A)
                     if (selectedText && showSelectionToolbar && !currentDoc.readOnly) {
                         TextSelectionMiniToolbar(
                             style = toolbarStyle,
@@ -1915,8 +1922,11 @@ private fun FileBackstage(
     val wordPalette = rememberWordFluentPalette()
     val leftBg = wordPalette.titleBar
     val surface = wordPalette.ribbonSurface
-    val subtle = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFF3F2F1)
-    val secondary = if (isDark) Color.White.copy(alpha = 0.62f) else Color(0xFF666666)
+    // subtle: row/tile background for backstage actions. secondary: reuses the
+    // palette's own secondaryText instead of redefining a near-duplicate here —
+    // was drifting slightly from wordPalette.secondaryText's actual values.
+    val subtle = if (isDark) DS.hoverDark else DS.hoverLight
+    val secondary = wordPalette.secondaryText
 
     Row(modifier = Modifier.fillMaxWidth().fillMaxHeight().background(surface)) {
         Column(
@@ -2002,20 +2012,25 @@ private fun BackstageSectionButton(label: String, selected: Boolean, onClick: ()
 
 @Composable
 private fun BackstageTile(icon: String, title: String, subtitle: String, onClick: () -> Unit) {
+    // Backstage (File menu) sits on wordPalette.ribbonSurface, which goes dark
+    // in dark mode. These used fixed near-black text regardless of theme —
+    // same invisibility bug as the main page, just on this panel instead.
+    val palette = rememberWordFluentPalette()
     Column(modifier = Modifier.width(112.dp).height(78.dp).clip(RoundedCornerShape(4.dp)).border(1.dp, wordRibbonBorder())
         .clickable { onClick() }.padding(8.dp), verticalArrangement = Arrangement.Center) {
         FluentIcon(icon, null, tint = wordRibbonAccent(), modifier = Modifier.size(20.dp))
         Spacer(Modifier.height(4.dp))
-        Text(title, fontSize = 10.sp, color = Color(0xFF202020), fontWeight = FontWeight.SemiBold)
-        Text(subtitle, fontSize = 8.sp, color = Color(0xFF666666), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(title, fontSize = 10.sp, color = palette.text, fontWeight = FontWeight.SemiBold)
+        Text(subtitle, fontSize = 8.sp, color = palette.secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
 private fun BackstageInfoRow(label: String, value: String) {
+    val palette = rememberWordFluentPalette()
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-        Text(label, fontSize = 10.sp, color = Color(0xFF666666), modifier = Modifier.width(75.dp))
-        Text(value, fontSize = 10.sp, color = Color(0xFF202020), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, fontSize = 10.sp, color = palette.secondaryText, modifier = Modifier.width(75.dp))
+        Text(value, fontSize = 10.sp, color = palette.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

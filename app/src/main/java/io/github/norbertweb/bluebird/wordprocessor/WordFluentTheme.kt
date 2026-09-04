@@ -1,8 +1,8 @@
 package io.github.norbertweb.bluebird.wordprocessor
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import io.github.norbertweb.bluebird.ui.theme.LocalIsDarkTheme
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 
 /**
@@ -27,10 +27,25 @@ internal data class WordFluentPalette(
 
 @Composable
 internal fun rememberWordFluentPalette(): WordFluentPalette {
-    val dark = isSystemInDarkTheme()
+    // Single source of truth for light/dark (Theme.kt / LocalIsDarkTheme) — was
+    // calling isSystemInDarkTheme() independently here, which is how this screen
+    // (and BluebirdWordProcessorApp.kt, and two other spots in this app) could
+    // end up disagreeing with the rest of the launcher about which theme is active.
+    val dark = LocalIsDarkTheme.current
     return WordFluentPalette(
         appBackground = if (dark) bluebirdColors.Surface else bluebirdColors.SurfaceLight,
-        pageBackground = if (dark) bluebirdColors.SurfaceContainer else Color.White,
+        // The page represents actual paper — Word, Google Docs, and Pages all
+        // keep it white in dark mode too; only the surrounding chrome (ribbon,
+        // title bar, sidebar) follows the theme. This used to switch to
+        // bluebirdColors.SurfaceContainer (a dark tone) in dark mode, but every
+        // document text color in WdocModel.kt (DocStyle.NORMAL/HEADING/etc.) is a
+        // fixed "ink" color — near-black body text, dark-blue headings — chosen
+        // assuming a white page, exactly like real printed ink colors don't change
+        // with your screen's theme. With a dark page, that near-black default body
+        // text became close to invisible: dark text on a dark page. Keeping the
+        // page always white/paper-colored is what every other word processor does,
+        // and it's what actually printing the document would produce regardless.
+        pageBackground = Color.White,
         titleBar = bluebirdColors.AccentBlue,
         ribbonBackground = if (dark) bluebirdColors.Surface else bluebirdColors.SurfaceLight,
         ribbonSurface = if (dark) bluebirdColors.SurfaceContainer else bluebirdColors.SurfaceContainerLight,

@@ -55,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
+import io.github.norbertweb.bluebird.ui.theme.LocalIsDarkTheme
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 
 // ---- search ------------------------------------------------------------------------------
@@ -620,7 +621,9 @@ fun PagedDocumentView(
             .onGloballyPositioned { coordinates -> viewportHeightPx = coordinates.size.height }
     ) {
         val pageEdge = palette.border.copy(alpha = 0.72f)
-        val pageShadow = Color.Black.copy(alpha = if (isSystemInDarkTheme()) 0.38f else 0.18f)
+        // Single source of truth for light/dark (Theme.kt / LocalIsDarkTheme),
+        // not an independent isSystemInDarkTheme() call.
+        val pageShadow = Color.Black.copy(alpha = if (LocalIsDarkTheme.current) 0.38f else 0.18f)
         val pageWidthZoom = when (viewMode) {
             DocumentViewMode.PAGE_WIDTH -> ((maxWidth.value - 24f) / pageWidthPt).coerceIn(0.6f, 2f)
             DocumentViewMode.SINGLE_PAGE -> zoom.coerceIn(0.6f, 2f)

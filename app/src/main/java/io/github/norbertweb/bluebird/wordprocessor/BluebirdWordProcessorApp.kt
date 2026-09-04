@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.isSystemInDarkTheme
+import io.github.norbertweb.bluebird.ui.theme.LocalIsDarkTheme
 
 /**
  * First-class Bluebird OS entry point for the native scratch-built Word Processor.
@@ -17,7 +17,10 @@ import androidx.compose.foundation.isSystemInDarkTheme
 fun BluebirdWordProcessorApp(
     initialPath: String = "",
 ) {
-    val isDark = isSystemInDarkTheme()
+    // Single source of truth for light/dark (Theme.kt / LocalIsDarkTheme) — was
+    // isSystemInDarkTheme() directly, which is how this app's chrome could end up
+    // disagreeing with the rest of the launcher about which theme is active.
+    val isDark = LocalIsDarkTheme.current
     Surface(modifier = Modifier.fillMaxSize()) {
         PhoneScreen(
             isDark = isDark,
