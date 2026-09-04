@@ -7,8 +7,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import android.os.Build
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.alpha
@@ -196,6 +194,7 @@ import io.github.norbertweb.bluebird.WallpaperTarget
 // Personalization (Background + Effects) now lives in this file instead of its
 // own dialog in Desktop.kt — these are the same symbols that file already used,
 // exposed here so PersonalizationSection can render identical UI/behavior.
+import io.github.norbertweb.bluebird.ui.components.DS
 import io.github.norbertweb.bluebird.ui.components.DesktopPreferences
 import io.github.norbertweb.bluebird.ui.components.DesktopWallpaperMode
 import io.github.norbertweb.bluebird.ui.components.DEFAULT_WALLPAPERS
@@ -203,6 +202,7 @@ import io.github.norbertweb.bluebird.ui.components.LiveWallpaperRenderer
 import io.github.norbertweb.bluebird.ui.components.bgAnimationEmoji
 import io.github.norbertweb.bluebird.ui.components.bgAnimationLabel
 import io.github.norbertweb.bluebird.ui.components.wallpaperGradients
+import io.github.norbertweb.bluebird.ui.theme.LocalIsDarkTheme
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import com.google.accompanist.drawablepainter.DrawablePainter
 import java.text.SimpleDateFormat
@@ -240,7 +240,7 @@ private enum class SettingsCategory(val label: String, val icon: ImageVector) {
 
 @Composable
 fun SettingsScreen(
-    isDark: Boolean,
+    isDark: Boolean, // kept for source compatibility with existing call sites; ignored — see effectiveDark below
     viewModel: LauncherViewModel? = null,
     // Optional deep-link into a specific category, e.g. "APPEARANCE" or
     // "TASKBAR" — matches SettingsCategory enum names. Passed through
@@ -251,17 +251,26 @@ fun SettingsScreen(
     val context  = LocalContext.current
     val uiState  = viewModel?.uiState?.collectAsState()?.value
 
-    val effectiveDark  = uiState?.isDarkTheme ?: isDark
+    // Single source of truth for light/dark (see Theme.kt / LocalIsDarkTheme)
+    // — was falling back through uiState?.isDarkTheme, a flag that no longer
+    // drives theme anywhere else in the app.
+    val effectiveDark  = LocalIsDarkTheme.current
     // Windows 11 "Mica" palette — softer neutrals than pure black/white, with the
     // nav rail one shade off the content pane like the real Settings app. This is
     // now the only palette Settings uses: the old "Special" purple reskin has been
     // removed along with the custom theme picker below, since the launcher now
     // always follows the system's own light/dark + dynamic-color theme (Theme.kt)
     // rather than offering its own set of skins.
+    //
+    // Re-hued to the same slate/indigo family as DS's surface tokens (was neutral
+    // grays, 0xFF202020/0xFF2C2C2C/0xFF272727) so Settings doesn't look like a
+    // separately-themed screen from the rest of the app — while still keeping the
+    // three genuinely distinct tones (bg / content surface / nav rail) real Mica
+    // uses, since DS itself only defines two.
     val textColor      = if (effectiveDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    val bgColor        = if (effectiveDark) Color(0xFF202020)         else Color(0xFFF3F3F3)
-    val surfaceBg      = if (effectiveDark) Color(0xFF2C2C2C)         else Color(0xFFFBFBFB)
-    val navBg          = if (effectiveDark) Color(0xFF272727)         else Color(0xFFF9F9F9)
+    val bgColor        = if (effectiveDark) Color(0xFF14161C)         else Color(0xFFF8F9FB)
+    val surfaceBg      = if (effectiveDark) DS.surfaceDark            else DS.surfaceLight
+    val navBg          = if (effectiveDark) Color(0xFF181B22)         else Color(0xFFF5F7FA)
 
     val resolvedBg      = bgColor
     val resolvedNav     = navBg
@@ -1014,8 +1023,8 @@ private fun PersonalizationSection(a: ScreenArgs) {
                         }
                     }
 
-                    // ── Apparent gradient picker ──
-                    AnimatedVisibility(wallpaperMode == DesktopWallpaperMode.APPARENT) {
+                    // ── Apparent gradient picker — shown/hidden instantly ──
+                    if (wallpaperMode == DesktopWallpaperMode.APPARENT) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Colour scheme", color = tcm, fontSize = (11 * scale).sp, fontWeight = FontWeight.Medium)
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1050,8 +1059,8 @@ private fun PersonalizationSection(a: ScreenArgs) {
                         }
                     }
 
-                    // ── Default image picker ──
-                    AnimatedVisibility(wallpaperMode == DesktopWallpaperMode.DEFAULT) {
+                    // ── Default image picker — shown/hidden instantly ──
+                    if (wallpaperMode == DesktopWallpaperMode.DEFAULT) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Wallpaper image", color = tcm, fontSize = (11 * scale).sp, fontWeight = FontWeight.Medium)
                             if (DEFAULT_WALLPAPERS.all { it == 0 }) {
@@ -1108,8 +1117,8 @@ private fun PersonalizationSection(a: ScreenArgs) {
                         }
                     }
 
-                    // ── Custom wallpaper ──
-                    AnimatedVisibility(wallpaperMode == DesktopWallpaperMode.CUSTOM) {
+                    // ── Custom wallpaper — shown/hidden instantly ──
+                    if (wallpaperMode == DesktopWallpaperMode.CUSTOM) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Pick an image from your device", color = tcm, fontSize = (11 * scale).sp)
                             Button(
@@ -1708,7 +1717,7 @@ private fun GamingSettings(a: ScreenArgs) {
         if (a.uiState?.gameModeEnabled == true) {
             Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(FluentIcons.Regular.CheckmarkCircle, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(14.dp))
+                Icon(FluentIcons.Regular.CheckmarkCircle, null, tint = bluebirdColors.Success, modifier = Modifier.size(14.dp))
                 Text("Game Mode is active — background processes reduced",
                     color = a.textColor.copy(alpha = 0.6f), fontSize = (11 * (a.uiState.textScale)).sp)
             }
@@ -1892,7 +1901,7 @@ private fun BackupRestoreSettings(a: ScreenArgs) {
                     TextButton(onClick = {
                         a.vm?.resetAllSettings()
                         showConfirm = false
-                    }, colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE53935))) {
+                    }, colors = ButtonDefaults.textButtonColors(contentColor = DS.badgeRed)) {
                         Text("Reset")
                     }
                 },
@@ -1975,8 +1984,8 @@ private fun StorageInfo(a: ScreenArgs) {
                 progress    = { if (total > 0) (used.toFloat() / total) else 0f },
                 modifier    = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
                 color       = when {
-                    total > 0 && (used.toFloat() / total) > 0.9f -> Color(0xFFE53935)
-                    total > 0 && (used.toFloat() / total) > 0.75f-> Color(0xFFFF9800)
+                    total > 0 && (used.toFloat() / total) > 0.9f -> DS.badgeRed
+                    total > 0 && (used.toFloat() / total) > 0.75f-> bluebirdColors.Warning
                     else -> a.accent
                 },
                 trackColor  = a.textColor.copy(alpha = 0.1f)

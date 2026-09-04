@@ -8,7 +8,6 @@ import android.content.SharedPreferences
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
-import androidx.compose.animation.animateColorAsState
 import androidx.core.content.ContextCompat
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -73,8 +72,9 @@ import androidx.compose.ui.unit.*
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import io.github.norbertweb.bluebird.*
+import io.github.norbertweb.bluebird.ui.theme.LocalIsDarkTheme
+import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -545,14 +545,14 @@ fun getFileIconColor(file: File): Color = when {
     file.extension.lowercase() in MUSIC_EXTS  -> Color(0xFFFF8C00)
     file.extension.lowercase() in VIDEO_EXTS  -> Color(0xFF8764B8)
     file.extension.lowercase() in IMAGE_EXTS  -> Color(0xFF16C60C)
-    file.extension.lowercase() in TEXT_EXTS   -> Color(0xFF0078D4)
+    file.extension.lowercase() in TEXT_EXTS   -> DS.accentStart
     file.extension.lowercase() == "pdf"       -> Color(0xFFD83B01)
     file.extension.lowercase() == "apk"       -> Color(0xFF107C10)
-    file.extension.lowercase() in setOf("doc","docx") -> Color(0xFF0078D4)
+    file.extension.lowercase() in setOf("doc","docx") -> DS.accentStart
     file.extension.lowercase() in setOf("xls","xlsx") -> Color(0xFF217346)
     file.extension.lowercase() in setOf("zip","rar","7z") -> Color(0xFF8B6914)
-    file.extension.lowercase() == "webapp" -> Color(0xFF0078D4)
-    file.extension.lowercase() == "desktop" -> Color(0xFF0078D4)
+    file.extension.lowercase() == "webapp" -> DS.accentStart
+    file.extension.lowercase() == "desktop" -> DS.accentStart
     else -> Color(0xFF9E9E9E)
 }
 
@@ -1051,28 +1051,6 @@ private fun posToCell(
 }
 
 // ─────────────────────────────────────────────────────────────────
-// animateOffsetAsState — smooth positional animation for snap-back
-// ─────────────────────────────────────────────────────────────────
-@Composable
-private fun animateOffsetAsState(
-    targetValue: Offset,
-    animationSpec: AnimationSpec<Float> = spring(stiffness = Spring.StiffnessMediumLow),
-    label: String = "offset"
-): State<Offset> {
-    val x by animateFloatAsState(
-        targetValue   = targetValue.x,
-        animationSpec = animationSpec,
-        label         = "${label}_x"
-    )
-    val y by animateFloatAsState(
-        targetValue   = targetValue.y,
-        animationSpec = animationSpec,
-        label         = "${label}_y"
-    )
-    return derivedStateOf { Offset(x, y) }
-}
-
-// ─────────────────────────────────────────────────────────────────
 // Default shortcuts created on first launch (only if app is installed)
 // Groups: System, Social, Utilities
 // ─────────────────────────────────────────────────────────────────
@@ -1353,10 +1331,15 @@ fun Desktop(
         // PERF FIX: this used to be a second, separate collectAsState() of the
         // *entire* uiState just to read isDarkTheme — a duplicate Flow
         // subscription doing the same job as vmUiState above (which is already
-        // collected lifecycle-aware). That meant two live collectors of the same
-        // StateFlow driving recomposition off of every single state change,
-        // instead of one. Reuse vmUiState instead.
-        val isDark = vmUiState.isDarkTheme
+        // collected lifecycle-aware). Reuse vmUiState instead.
+        //
+        // THEME FIX: uiState.isDarkTheme no longer exists as a live setting
+        // anywhere in the app — Bluebird follows the system theme everywhere
+        // now, driven from the single source of truth in Theme.kt. Reading
+        // it here (even via vmUiState) meant Desktop could silently drift
+        // out of sync with Start Menu/Taskbar/Search/Action Center/Window
+        // Manager, all of which read LocalIsDarkTheme.
+        val isDark = LocalIsDarkTheme.current
 
         // ── Grid metrics ──
         val cellWDp     = cellWidthDp(iconSize)
@@ -1475,40 +1458,10 @@ fun Desktop(
         //    — snapshotFlow only re-fires on snapshot-state reads, and a raw StateFlow.value
         //    read doesn't count, so that version only ever fired once for the whole screen's
         //    lifetime instead of on every refresh. ──
-        // ── Windows-style refresh effect — icons vanish then reappear together, but ONLY
-        //    for an explicit "Refresh" from the desktop context menu (manualDesktopRefreshTick),
-        //    not for silent rescans the FileObserver triggers after a paste/delete/rename.
-        //
-        //    Driven by ONE shared Animatable owned here, instead of each icon running its
-        //    own independent LaunchedEffect + Animatable with a random stagger. The old
-        //    per-icon approach caused two real bugs: (1) the random stagger meant icons
-        //    visibly disappeared/reappeared at different times instead of together, and
-        //    (2) if a slower device's frame timing pushed any single icon's animation past
-        //    the parent's fixed window, that icon's LaunchedEffect got cancelled mid-fade
-        //    and its alpha froze at whatever value it was interrupted at — sometimes 0,
-        //    leaving an icon invisible but still clickable at its real position. With one
-        //    shared value, every icon reads the exact same alpha every frame, so they're
-        //    perfectly in sync and there's no per-icon coroutine that can get stuck. ──
-        val desktopFlickerAlpha = remember { Animatable(1f) }
-        var lastManualRefreshTick by remember { mutableStateOf(-1) }
-        LaunchedEffect(vmUiState.manualDesktopRefreshTick) {
-            val tick = vmUiState.manualDesktopRefreshTick
-            if (lastManualRefreshTick != -1 && tick != lastManualRefreshTick) {
-                try {
-                    desktopFlickerAlpha.animateTo(0f, tween(90))
-                    desktopFlickerAlpha.animateTo(1f, tween(180))
-                } finally {
-                    // Belt-and-braces: even if this coroutine gets cancelled mid-fade (e.g. a
-                    // second rapid refresh), never leave icons stuck below full opacity.
-                    // NonCancellable because a suspend call in a finally block after
-                    // cancellation would otherwise throw immediately.
-                    withContext(NonCancellable) {
-                        if (desktopFlickerAlpha.value < 1f) desktopFlickerAlpha.snapTo(1f)
-                    }
-                }
-            }
-            lastManualRefreshTick = tick
-        }
+        // Manual "Refresh" from the desktop context menu no longer flickers
+        // icons — consistent with the rest of the app having its transition
+        // animations removed. Refresh just re-renders the grid instantly.
+        val desktopFlickerAlpha = 1f
 
         val sortedItems = remember(items, desktopOrder, sortMode, sortAscending) {
             if (sortMode == DesktopSortMode.NONE) {
@@ -1638,16 +1591,15 @@ fun Desktop(
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
-            Crossfade(
-                targetState = DesktopWallpaperRenderState(
-                    mode = wallpaperMode,
-                    gradientIndex = gradientIndex,
-                    imageIndex = defaultImageIndex,
-                    customUri = customWallpaperUri
-                ),
-                animationSpec = tween(800),
-                label = "wallpaper_crossfade"
-            ) { state ->
+            // Switches instantly now — was an 800ms Crossfade, out of step
+            // with the rest of the app having its transition animations removed.
+            val state = DesktopWallpaperRenderState(
+                mode = wallpaperMode,
+                gradientIndex = gradientIndex,
+                imageIndex = defaultImageIndex,
+                customUri = customWallpaperUri
+            )
+            run {
                 val mode = state.mode
                 val gIdx = state.gradientIndex
                 val dIdx = state.imageIndex
@@ -1922,24 +1874,13 @@ fun Desktop(
                             if (target != null) pos = target
                         }
 
-                        // Snap-back animation: animates position smoothly on grid rejection.
-                        // While actively being dragged (as the anchor OR as a following group
-                        // member), position tracks the raw target with snap() — instant, no
-                        // spring — so it moves 1:1 with the finger instead of visibly lagging
-                        // behind it. The spring only kicks back in once the drag ends, which is
-                        // exactly when a smooth settle-into-place animation looks good instead
-                        // of feeling like drag lag.
-                        val animatedPos  by animateOffsetAsState(
-                            targetValue   = pos,
-                            animationSpec = if (isDragged || isInGroup) snap() else spring(stiffness = Spring.StiffnessMediumLow),
-                            label         = "icon_pos_${item.id}"
-                        )
-
-                        val dragScale by animateFloatAsState(
-                            targetValue   = if (isDragged || isInGroup) 1.08f else 1f,
-                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                            label         = "icon_drag_scale"
-                        )
+                        // Position and press-scale now track state directly — no
+                        // spring/snap animation, consistent with the rest of the
+                        // app having its motion removed. Icons move 1:1 with the
+                        // finger while dragging and land exactly on the grid the
+                        // instant the drag ends, instead of settling into place.
+                        val animatedPos = pos
+                        val dragScale = if (isDragged || isInGroup) 1.08f else 1f
 
                         var dragMoved by remember { mutableStateOf(false) }
                         // Lifted above the gesture block so onTap (which may need to commit an
@@ -2286,7 +2227,7 @@ fun Desktop(
 
                                     onInlineRenameConfirm = iconOnRenameConfirm,
 
-                                    refreshFlickerAlpha   = desktopFlickerAlpha.value
+                                    refreshFlickerAlpha   = desktopFlickerAlpha
 
                                 )
 
@@ -2309,14 +2250,14 @@ fun Desktop(
                                 .align(Alignment.BottomCenter)
                                 .padding(bottom = 72.dp)
                                 .background(Color(0xFF1C1C1C).copy(alpha = 0.95f), RoundedCornerShape(8.dp))
-                                .border(0.5.dp, Color(0xFF0078D4).copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .border(0.5.dp, DS.accentStart.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment    = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Icon(
                                 imageVector = FluentIcon.FolderProhibited, contentDescription = null,
-                                tint     = Color(0xFF0078D4),
+                                tint     = DS.accentStart,
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
@@ -2337,7 +2278,7 @@ fun Desktop(
                                 },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                             ) {
-                                Text("Grant", color = Color(0xFF0078D4), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Text("Grant", color = DS.accentStart, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                             }
                         }
                     }
@@ -2349,8 +2290,8 @@ fun Desktop(
                                 minOf(selStart.x, selEnd.x), minOf(selStart.y, selEnd.y),
                                 maxOf(selStart.x, selEnd.x), maxOf(selStart.y, selEnd.y)
                             )
-                            drawRect(Color(0xFF0078D4).copy(alpha = 0.12f), r.topLeft, Size(r.width, r.height))
-                            drawRect(Color(0xFF0078D4).copy(alpha = 0.50f), r.topLeft, Size(r.width, r.height),
+                            drawRect(DS.accentStart.copy(alpha = 0.12f), r.topLeft, Size(r.width, r.height))
+                            drawRect(DS.accentStart.copy(alpha = 0.50f), r.topLeft, Size(r.width, r.height),
                                 style = Stroke(width = 1.2f.dp.toPx()))
                         }
                     }
@@ -2744,7 +2685,7 @@ private fun DesktopIcon(
         }
     }
     val fallbackTint = remember(item.file.absolutePath, item.type, item.builtInScreen) {
-        if (item.builtInScreen != null) Color(0xFF0078D4) else getFileIconColor(item.file)
+        if (item.builtInScreen != null) DS.accentStart else getFileIconColor(item.file)
     }
 
     // FIX: KEY is item.id only — never changes on keystroke.
@@ -2780,16 +2721,8 @@ private fun DesktopIcon(
         contentAlignment = Alignment.TopCenter
     ) {
         // bluebird-style selection: subtle blue tint + blue border glow
-        val glowColor by animateColorAsState(
-            targetValue   = if (isSelected) Color(0xFF0078D4).copy(alpha = 0.28f) else Color.Transparent,
-            animationSpec = tween(150),
-            label         = "selection_glow"
-        )
-        val borderColor by animateColorAsState(
-            targetValue   = if (isSelected) Color(0xFF0078D4).copy(alpha = 0.80f) else Color.Transparent,
-            animationSpec = tween(150),
-            label         = "selection_border"
-        )
+        val glowColor = if (isSelected) DS.accentStart.copy(alpha = 0.28f) else Color.Transparent
+        val borderColor = if (isSelected) DS.accentStart.copy(alpha = 0.80f) else Color.Transparent
         Box(
             Modifier
                 .fillMaxSize()
@@ -2897,7 +2830,7 @@ private fun DesktopIcon(
                     modifier      = Modifier
                         .fillMaxWidth()
                         .background(Color.White, RoundedCornerShape(2.dp))
-                        .border(1.5.dp, Color(0xFF0078D4), RoundedCornerShape(2.dp))
+                        .border(1.5.dp, DS.accentStart, RoundedCornerShape(2.dp))
                         .padding(horizontal = 3.dp, vertical = 2.dp)
                         .focusRequester(focusRequester)
                 )
@@ -3134,11 +3067,11 @@ fun bluebirdDesktopContextMenu(
     onDismiss: () -> Unit
 ) {
     val menuW    = 210
-    val bg       = if (isDark) Color(0xFA1E1E1E) else Color(0xFCEFF4F9)
-    val tc       = if (isDark) Color(0xFFF5F5F5) else Color(0xFF1A1A1A)
-    val tcDim    = if (isDark) Color(0xFF999999) else Color(0xFF666666)
-    val divColor = if (isDark) Color(0xFF333333) else Color(0xFFDCDCDC)
-    val accent   = Color(0xFF0078D4)
+    val bg       = if (isDark) DS.surfaceDark else DS.surfaceLight
+    val tc       = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val tcDim    = tc.copy(alpha = 0.55f)
+    val divColor = if (isDark) DS.borderDark else DS.borderLight
+    val accent   = DS.accentStart
 
     var openSub by remember { mutableStateOf<String?>(null) }
 
@@ -3148,7 +3081,7 @@ fun bluebirdDesktopContextMenu(
             shape           = RoundedCornerShape(8.dp),
             color           = bg,
             shadowElevation = 16.dp,
-            border          = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
+            border          = BorderStroke(1.dp, if (isDark) DS.borderDark else DS.borderLight)
         ) {
             Column(Modifier.padding(vertical = 5.dp)) {
                 bluebirdFlyoutRow(
@@ -3159,7 +3092,7 @@ fun bluebirdDesktopContextMenu(
                 ) {
                     Surface(
                         modifier = Modifier.width(190.dp), shape = RoundedCornerShape(8.dp), color = bg,
-                        shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
+                        shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) DS.borderDark else DS.borderLight)
                     ) {
                         Column(Modifier.padding(vertical = 5.dp)) {
                             W11SubRow("Large icons",  viewMode == DesktopIconSize.LARGE,  tc, accent) { onViewChange(DesktopIconSize.LARGE) }
@@ -3182,7 +3115,7 @@ fun bluebirdDesktopContextMenu(
                 ) {
                     Surface(
                         modifier = Modifier.width(190.dp), shape = RoundedCornerShape(8.dp), color = bg,
-                        shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
+                        shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) DS.borderDark else DS.borderLight)
                     ) {
                         Column(Modifier.padding(vertical = 5.dp)) {
                             // "None" — the default, matching real Windows (sort isn't on until you
@@ -3214,14 +3147,14 @@ fun bluebirdDesktopContextMenu(
                 ) {
                     Surface(
                         modifier = Modifier.width(220.dp), shape = RoundedCornerShape(8.dp), color = bg,
-                        shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
+                        shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) DS.borderDark else DS.borderLight)
                     ) {
                         Column(Modifier.padding(vertical = 5.dp)) {
                             W11SubRowIcon(FluentIcon.Folder,      "Folder",                     Color(0xFFFFC107), tc) { onNewFolder();       onDismiss() }
-                            W11SubRowIcon(FluentIcon.Link,        "Shortcut link",              Color(0xFF0078D4), tc) { onNewShortcut();      onDismiss() }
+                            W11SubRowIcon(FluentIcon.Link,        "Shortcut link",              DS.accentStart, tc) { onNewShortcut();      onDismiss() }
                             W11SubRowIcon(FluentIcon.Apps,        "Add Installed App Shortcut", Color(0xFF107C10), tc) { onAddAppShortcut();   onDismiss() }
                             W11CtxDivider(divColor)
-                            W11SubRowIcon(FluentIcon.DocumentText, "Text Document",              Color(0xFF0078D4), tc) { onNewTextFile();      onDismiss() }
+                            W11SubRowIcon(FluentIcon.DocumentText, "Text Document",              DS.accentStart, tc) { onNewTextFile();      onDismiss() }
                         }
                     }
                 }
@@ -3260,10 +3193,10 @@ fun bluebirdIconContextMenu(
     onProperties: () -> Unit
 ) {
     val menuW    = 220
-    val bg       = if (isDark) Color(0xFA1E1E1E) else Color(0xFCEFF4F9)
-    val tc       = if (isDark) Color(0xFFF5F5F5) else Color(0xFF1A1A1A)
-    val tcDim    = if (isDark) Color(0xFF999999) else Color(0xFF666666)
-    val divColor = if (isDark) Color(0xFF333333) else Color(0xFFDCDCDC)
+    val bg       = if (isDark) DS.surfaceDark else DS.surfaceLight
+    val tc       = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val tcDim    = tc.copy(alpha = 0.55f)
+    val divColor = if (isDark) DS.borderDark else DS.borderLight
     val danger   = Color(0xFFE81123)
 
     var openSub by remember { mutableStateOf<String?>(null) }
@@ -3274,7 +3207,7 @@ fun bluebirdIconContextMenu(
             shape           = RoundedCornerShape(8.dp),
             color           = bg,
             shadowElevation = 16.dp,
-            border          = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
+            border          = BorderStroke(1.dp, if (isDark) DS.borderDark else DS.borderLight)
         ) {
             Column(Modifier.padding(vertical = 5.dp)) {
                 // Quick action row
@@ -3305,7 +3238,7 @@ fun bluebirdIconContextMenu(
                 ) {
                     Surface(
                         modifier = Modifier.width(190.dp), shape = RoundedCornerShape(8.dp), color = bg,
-                        shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) Color(0xFF303030) else Color(0xFFE5E5E5))
+                        shadowElevation = 16.dp, border = BorderStroke(1.dp, if (isDark) DS.borderDark else DS.borderLight)
                     ) {
                         Column(Modifier.padding(vertical = 5.dp)) {
                             W11SubRowIcon(FluentIcon.Open, "Choose app", tc.copy(0.8f), tc) { onOpenWith(); onDismiss() }
@@ -3597,7 +3530,7 @@ fun AppPickerDialog(
                 )
                 if (isLoading) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color(0xFF0078D4))
+                        CircularProgressIndicator(color = DS.accentStart)
                     }
                 } else {
                     val builtIns = remember(searchQuery) {
@@ -3628,7 +3561,7 @@ fun AppPickerDialog(
                                 }.padding(horizontal = 8.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(imageVector = FluentIcon.Apps, contentDescription = null, tint = Color(0xFF0078D4), modifier = Modifier.size(22.dp))
+                                Icon(imageVector = FluentIcon.Apps, contentDescription = null, tint = DS.accentStart, modifier = Modifier.size(22.dp))
                                 Spacer(Modifier.width(10.dp))
                                 Text(label, color = tc, fontSize = 12.sp)
                             }
@@ -3671,7 +3604,7 @@ fun AppPickerDialog(
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close", color = Color(0xFF0078D4)) } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close", color = DS.accentStart) } }
     )
 }
 
@@ -3710,9 +3643,9 @@ private fun DesktopIconRender(
 // ─────────────────────────────────────────────────────────────────
 @Composable
 fun PropertiesDialog(item: DesktopFileInfo, isDark: Boolean, onDismiss: () -> Unit) {
-    val bg  = if (isDark) Color(0xFF1E1E1E) else Color.White
-    val tc  = if (isDark) Color.White else Color(0xFF1A1A1A)
-    val tcm = if (isDark) Color(0xFF909090) else Color(0xFF666666)
+    val bg  = if (isDark) DS.surfaceDark else DS.surfaceLight
+    val tc  = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
+    val tcm = tc.copy(alpha = 0.55f)
 
     var fileSize by remember { mutableStateOf(0L) }
     LaunchedEffect(item.id) {
