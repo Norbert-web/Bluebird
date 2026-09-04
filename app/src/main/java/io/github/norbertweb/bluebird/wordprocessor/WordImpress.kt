@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -91,19 +92,6 @@ private data class RichClipboardPayload(
 private var richClipboardPayload: RichClipboardPayload? = null
 
 
-private object WordTheme {
-    // Compact Microsoft Word desktop-inspired chrome: blue title/status bars,
-    // neutral ribbon, and a light gray document workspace.
-    val wordBlue = Color(0xFF185ABD)
-    val wordBlueDark = Color(0xFF103F82)
-    val ribbonWhite = Color(0xFFFFFFFF)
-    val ribbonNeutral = Color(0xFFF3F2F1)
-    val pageWhite = Color(0xFFFFFFFF)
-    val darkCanvas = Color(0xFF121212)
-    val darkSurface = Color(0xFF1E1E1E)
-    val darkPage = Color(0xFF262626)
-}
-
 enum class DocumentViewMode { MULTIPLE_PAGES, SINGLE_PAGE, PAGE_WIDTH }
 
 enum class ContextualRibbon { PICTURE, TABLE }
@@ -114,11 +102,14 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val textColor = if (isDark) bluebirdColors.TextPrimary else bluebirdColors.TextPrimaryLight
-    val appBg = if (isDark) WordTheme.darkCanvas else Color(0xFFE8EAED)
-    val pageColor = if (isDark) WordTheme.darkPage else WordTheme.pageWhite
-    val ribbonBg = if (isDark) WordTheme.wordBlueDark else WordTheme.wordBlue
-    val ribbonStripBg = if (isDark) WordTheme.darkSurface else WordTheme.ribbonNeutral
+    val wordPalette = rememberWordFluentPalette()
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val compactWorkspace = screenWidthDp < 600
+    val textColor = wordPalette.text
+    val appBg = wordPalette.appBackground
+    val pageColor = wordPalette.pageBackground
+    val ribbonBg = wordPalette.titleBar
+    val ribbonStripBg = wordPalette.ribbonSurface
 
     val appSettings = remember { AppSettings() }
     val documents = remember { mutableStateListOf(WordDocument("Document1", appSettings.defaultPageSettings)) }
@@ -147,6 +138,7 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
     var showPageThumbnails by remember { mutableStateOf(false) }
     var viewMode by remember { mutableStateOf(DocumentViewMode.PAGE_WIDTH) }
     var zoom by remember { mutableStateOf(1f) }
+    var currentPageIndex by remember(currentDoc.id) { mutableIntStateOf(0) }
     var pdfPages by remember { mutableStateOf<List<PdfPageInfo>>(emptyList()) }
 
     var showSaveAsDialog by remember { mutableStateOf(false) }
@@ -162,7 +154,9 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
     var showRecoveryDialog by remember { mutableStateOf(false) }
     var showCommentDialog by remember { mutableStateOf(false) }
     var showCommentsDialog by remember { mutableStateOf(false) }
+    var showReviewCenterDialog by remember { mutableStateOf(false) }
     var showNoteDialog by remember { mutableStateOf(false) }
+    var showCrossReferenceDialog by remember { mutableStateOf(false) }
     var pendingNoteIsEndnote by remember { mutableStateOf(false) }
     var recoveredDraftFiles by remember { mutableStateOf<List<File>>(emptyList()) }
 
@@ -172,6 +166,13 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
 
     fun notify(msg: String) {
         scope.launch { snackbarHostState.showSnackbar(msg) }
+    }
+
+    fun markObjectChanged() {
+        if (currentDoc.readOnly) return
+        currentDoc.pushUndoSnapshot()
+        currentDoc.isDirty = true
+        currentDoc.lastModified = System.currentTimeMillis()
     }
 
     // ---- crash recovery: check once for leftover drafts from an unclean shutdown -------------
@@ -322,8 +323,9 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
         try {
             val pdf = exportDocToPdf(currentDoc)
             context.contentResolver.openOutputStream(uri)?.use { pdf.writeTo(it) }
+            val pageCount = layoutDocument(currentDoc).diagnostics.pageCount
             pdf.close()
-            notify("Exported to PDF")
+            notify("Exported $pageCount page${if (pageCount == 1) "" else "s"} to PDF")
         } catch (e: Exception) {
             e.printStackTrace(); notify("PDF export failed")
         }
@@ -355,7 +357,7 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
 
     fun printCurrentDocument() {
         if (currentDoc.kind != DocKind.RICH_TEXT) {
-            notify("PDF printing is not available from this view")
+            notify("PDF documents are already printable from the system PDF viewer")
             return
         }
         try {
@@ -364,7 +366,28 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                 notify("Printing isn't available on this device")
                 return
             }
+
+            // Freeze the document reference and its pagination geometry for this print job.
+            // The PDF exporter already uses the same page settings, so the print layout now
+            // advertises the same paper size, orientation, margins, and page count.
             val docSnapshot = currentDoc
+            val pageSettings = docSnapshot.pageSettings
+            val expectedPages = layoutDocument(docSnapshot).diagnostics.pageCount
+            val (widthPt, heightPt) = pageSettings.dimensionsPt()
+            val landscape = widthPt > heightPt
+            val mediaSize = when (pageSettings.sizeId) {
+                "LETTER" -> PrintAttributes.MediaSize.NA_LETTER
+                "LEGAL" -> PrintAttributes.MediaSize.NA_LEGAL
+                else -> PrintAttributes.MediaSize.ISO_A4
+            }
+            val printMediaSize = if (landscape) mediaSize.asLandscape() else mediaSize
+            val margins = PrintAttributes.Margins(
+                (pageSettings.marginLeftPt / 72f * 1000f).toInt().coerceAtLeast(0),
+                (pageSettings.marginTopPt / 72f * 1000f).toInt().coerceAtLeast(0),
+                (pageSettings.marginRightPt / 72f * 1000f).toInt().coerceAtLeast(0),
+                (pageSettings.marginBottomPt / 72f * 1000f).toInt().coerceAtLeast(0)
+            )
+
             val adapter = object : PrintDocumentAdapter() {
                 override fun onLayout(
                     oldAttributes: PrintAttributes?, newAttributes: PrintAttributes?,
@@ -375,9 +398,9 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                     callback?.onLayoutFinished(
                         PrintDocumentInfo.Builder(docSnapshot.title.ifBlank { "Document" })
                             .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
-                            .setPageCount(PrintDocumentInfo.PAGE_COUNT_UNKNOWN)
+                            .setPageCount(expectedPages)
                             .build(),
-                        true
+                        oldAttributes != newAttributes
                     )
                 }
 
@@ -393,18 +416,25 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                         val pdf = exportDocToPdf(docSnapshot)
                         ParcelFileDescriptor.AutoCloseOutputStream(dest).use { out -> pdf.writeTo(out) }
                         pdf.close()
-                        callback?.onWriteFinished(arrayOf(android.print.PageRange.ALL_PAGES))
+                        if (cancellationSignal?.isCanceled == true) callback?.onWriteCancelled()
+                        else callback?.onWriteFinished(arrayOf(android.print.PageRange.ALL_PAGES))
                     } catch (e: Exception) {
-                        callback?.onWriteFailed(e.message)
+                        callback?.onWriteFailed(e.message ?: "Print export failed")
                     }
                 }
             }
-            printManager.print(docSnapshot.title.ifBlank { "Document" }, adapter, PrintAttributes.Builder()
-                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
-                .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
-                .build())
+
+            printManager.print(
+                docSnapshot.title.ifBlank { "Document" },
+                adapter,
+                PrintAttributes.Builder()
+                    .setMediaSize(printMediaSize)
+                    .setMinMargins(margins)
+                    .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
+                    .build()
+            )
         } catch (e: Exception) {
-            notify("Couldn't start printing")
+            notify("Couldn't start printing: ${e.message ?: "unknown error"}")
         }
     }
 
@@ -465,6 +495,7 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
     }
 
     fun insertBlockAfterFocus(block: Block) {
+        if (currentDoc.readOnly || currentDoc.kind != DocKind.RICH_TEXT) return
         currentDoc.pushUndoSnapshot()
         val insertAt = (focusedTopIndex + 1).coerceIn(0, currentDoc.blocks.size)
         currentDoc.blocks.add(insertAt, block)
@@ -677,6 +708,16 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
         targets.forEach { p ->
             p.spacingBeforeOverride = before.coerceIn(0, 144)
             p.spacingAfterOverride = after.coerceIn(0, 144)
+        }
+        currentDoc.isDirty = true
+    }
+
+    fun changeIndentByPoints(delta: Float) {
+        val targets = selectedParagraphsIncludingEmpty()
+        if (targets.isEmpty()) return
+        currentDoc.pushUndoSnapshot()
+        targets.forEach { p ->
+            p.leftIndentPt = (p.leftIndentPt + delta).coerceAtLeast(0f)
         }
         currentDoc.isDirty = true
     }
@@ -1017,6 +1058,22 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
         notify("Page number added to footer")
     }
 
+    fun setFooterPageNumberFormat(includeTotalPages: Boolean) {
+        if (currentDoc.readOnly) return
+        currentDoc.pushUndoSnapshot()
+        currentDoc.showFooter = true
+        val existing = currentDoc.footerParagraph.field.text
+            .replace("{page}", "")
+            .replace("{pages}", "")
+            .trim()
+        val field = if (includeTotalPages) "{page} of {pages}" else "{page}"
+        val separator = if (existing.isBlank()) "" else " $existing "
+        currentDoc.footerParagraph.field = TextFieldValue(separator + field)
+        currentDoc.isDirty = true
+        currentDoc.lastModified = System.currentTimeMillis()
+        notify(if (includeTotalPages) "Page X of Y added to footer" else "Page number added to footer")
+    }
+
     fun insertLinkOnSelection(url: String) {
         val p = focusedParagraph ?: return
         val sel = p.field.selection
@@ -1031,18 +1088,39 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
 
     fun addBookmarkAtFocus(name: String) {
         val p = focusedParagraph ?: return
-        currentDoc.bookmarks.add(Bookmark(name = name, blockId = p.id))
+        val cleanName = name.trim()
+        if (cleanName.isBlank()) return
+        currentDoc.bookmarks.removeAll { it.name.equals(cleanName, ignoreCase = true) }
+        currentDoc.bookmarks.add(Bookmark(name = cleanName, blockId = p.id))
         currentDoc.isDirty = true
+        currentDoc.lastModified = System.currentTimeMillis()
         notify("Bookmark added")
     }
 
     fun addComment(text: String) {
+        if (currentDoc.readOnly || currentDoc.kind != DocKind.RICH_TEXT) return
         val p = focusedParagraph ?: return
+        val cleanText = text.trim()
+        if (cleanText.isBlank()) return
         val sel = p.field.selection
         val quoted = if (!sel.collapsed) p.field.text.substring(sel.min, sel.max) else ""
-        currentDoc.comments.add(DocumentComment(text = text, blockId = p.id, quotedText = quoted.take(240)))
+        currentDoc.comments.add(DocumentComment(
+            author = currentDoc.author.ifBlank { "Author" },
+            text = cleanText,
+            blockId = p.id,
+            quotedText = quoted.take(240)
+        ))
         currentDoc.isDirty = true
+        currentDoc.lastModified = System.currentTimeMillis()
         notify("Comment added")
+    }
+
+    fun insertCrossReference(target: ReferenceTarget, includePage: Boolean) {
+        if (currentDoc.readOnly || currentDoc.kind != DocKind.RICH_TEXT) return
+        val targetPage = pageNumberForBlock(currentDoc, target.blockId)
+        val suffix = if (includePage && targetPage != null) " (p. $targetPage)" else ""
+        insertTextAtCursor(target.label.substringAfter("— ").trim() + suffix)
+        notify("Cross-reference inserted")
     }
 
     fun insertNote(text: String, endnote: Boolean) {
@@ -1192,16 +1270,16 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
             if (!readingMode) {
                 // ==================== WORD-STYLE TITLE / QUICK ACCESS BAR ====================
                 Row(
-                    modifier = Modifier.fillMaxWidth().height(30.dp).background(ribbonBg).padding(horizontal = 5.dp),
+                    modifier = Modifier.fillMaxWidth().height(if (compactWorkspace) 40.dp else 36.dp).background(ribbonBg).padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    FluentIcon("panel_left", "Toggle navigation", tint = Color.White, modifier = Modifier.size(17.dp).clickable { sidebarOpen = !sidebarOpen })
-                    Spacer(Modifier.width(6.dp))
-                    FluentIcon("arrow_undo", "Undo", tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(17.dp).clickable { undoAction() })
+                    FluentIcon("panel_left", "Toggle navigation", tint = Color.White, modifier = Modifier.size(19.dp).clickable { sidebarOpen = !sidebarOpen })
+                    Spacer(Modifier.width(7.dp))
+                    FluentIcon("arrow_undo", "Undo", tint = textColor.copy(alpha = 0.9f), modifier = Modifier.size(19.dp).clickable { undoAction() })
                     Spacer(Modifier.width(5.dp))
-                    FluentIcon("arrow_redo", "Redo", tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(17.dp).clickable { redoAction() })
+                    FluentIcon("arrow_redo", "Redo", tint = textColor.copy(alpha = 0.9f), modifier = Modifier.size(19.dp).clickable { redoAction() })
                     Spacer(Modifier.width(8.dp))
-                    FluentIcon("document_text", "Document", tint = Color.White, modifier = Modifier.size(14.dp))
+                    FluentIcon("document_text", "Document", tint = Color.White, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     BasicTextField(
                         value = currentDoc.title,
@@ -1219,7 +1297,7 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                         FluentIcon("lock_closed", "Read only", tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(8.dp))
                     }
-                    FluentIcon("search", "Find", tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(16.dp).clickable { showFindReplaceDialog = true })
+                    FluentIcon("search", "Find", tint = textColor.copy(alpha = 0.9f), modifier = Modifier.size(16.dp).clickable { showFindReplaceDialog = true })
                     Spacer(Modifier.width(10.dp))
                     FluentIcon("save", "Save", tint = Color.White, modifier = Modifier.size(17.dp).clickable {
                         if (currentDoc.kind == DocKind.RICH_TEXT && !currentDoc.readOnly) saveCurrent()
@@ -1228,8 +1306,9 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
 
                 // ==================== RIBBON TABS ====================
                 Row(
-                    modifier = Modifier.fillMaxWidth().height(28.dp)
-                        .background(if (isDark) WordTheme.darkSurface else WordTheme.ribbonWhite),
+                    modifier = Modifier.fillMaxWidth().height(if (compactWorkspace) 32.dp else 28.dp)
+                        .horizontalScroll(rememberScrollState())
+                        .background(wordPalette.ribbonBackground),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     listOf(
@@ -1239,9 +1318,9 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                     ).forEach { (tab, label) ->
                         val selected = ribbonTab == tab
                         Box(
-                            modifier = Modifier.fillMaxHeight()
+                            modifier = Modifier.fillMaxHeight().width(if (compactWorkspace) 76.dp else 68.dp)
                                 .clickable { ribbonTab = tab }
-                                .background(if (tab == RibbonTab.FILE && selected) WordTheme.wordBlue else Color.Transparent),
+                                .background(if (tab == RibbonTab.FILE && selected) wordRibbonAccent() else Color.Transparent),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -1249,10 +1328,10 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                                 color = if (tab == RibbonTab.FILE && selected) Color.White else textColor,
                                 fontSize = 10.sp,
                                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                modifier = Modifier.padding(horizontal = 8.dp)
+                                modifier = Modifier.padding(horizontal = 6.dp)
                             )
                             if (selected && tab != RibbonTab.FILE) {
-                                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth(0.62f).height(2.dp).background(WordTheme.wordBlue))
+                                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth(0.62f).height(2.dp).background(wordRibbonAccent()))
                             }
                         }
                     }
@@ -1270,7 +1349,11 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                         onSave = { saveCurrent() },
                         onSaveAs = { showSaveAsDialog = true },
                         onSaveCopy = { duplicateCurrent() },
-                        onExportPdf = { exportPdfLauncher.launch("${currentDoc.title}.pdf") },
+                        onExportPdf = {
+                            if (currentDoc.kind == DocKind.RICH_TEXT) {
+                                exportPdfLauncher.launch("${currentDoc.title.ifBlank { "Document" }}.pdf")
+                            } else notify("PDF is already an exported format")
+                        },
                         onPrint = { printCurrentDocument() },
                         onShare = { shareCurrentDocument() },
                         onProperties = { showPropertiesDialog = true },
@@ -1284,20 +1367,20 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                             contextualRibbon == ContextualRibbon.PICTURE -> PictureContextRibbon(
                                 onDelete = {
                                     if (!currentDoc.readOnly && focusedTopIndex in currentDoc.blocks.indices && currentDoc.blocks[focusedTopIndex] is ImageBlock) {
-                                        currentDoc.pushUndoSnapshot(); currentDoc.blocks.removeAt(focusedTopIndex); contextualRibbon = null; currentDoc.isDirty = true
+                                        markObjectChanged(); currentDoc.blocks.removeAt(focusedTopIndex); contextualRibbon = null
                                     }
                                 },
                                 onScale = { scale ->
                                     val image = currentDoc.blocks.getOrNull(focusedTopIndex) as? ImageBlock
-                                    if (image != null && !currentDoc.readOnly) { currentDoc.pushUndoSnapshot(); image.widthDp = (image.widthDp * scale).toInt().coerceIn(80, 900); currentDoc.isDirty = true }
+                                    if (image != null && !currentDoc.readOnly) { markObjectChanged(); image.widthDp = (image.widthDp * scale).toInt().coerceIn(80, 900) }
                                 },
                                 onSetScale = { percent ->
                                     val image = currentDoc.blocks.getOrNull(focusedTopIndex) as? ImageBlock
-                                    if (image != null && !currentDoc.readOnly) { currentDoc.pushUndoSnapshot(); image.widthDp = (300f * percent / 100f).toInt().coerceIn(80, 900); currentDoc.isDirty = true }
+                                    if (image != null && !currentDoc.readOnly) { markObjectChanged(); image.widthDp = (300f * percent / 100f).toInt().coerceIn(80, 900) }
                                 },
                                 onAlign = { align ->
                                     val image = currentDoc.blocks.getOrNull(focusedTopIndex) as? ImageBlock
-                                    if (image != null && !currentDoc.readOnly) { image.alignment = align; currentDoc.isDirty = true }
+                                    if (image != null && !currentDoc.readOnly) { markObjectChanged(); image.alignment = align }
                                 },
                                 onClose = { contextualRibbon = null }
                             )
@@ -1305,7 +1388,7 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                                 onAddRow = {
                                     val table = currentDoc.blocks.getOrNull(focusedTopIndex) as? TableBlock
                                     if (table != null && !currentDoc.readOnly) {
-                                        currentDoc.pushUndoSnapshot()
+                                        markObjectChanged()
                                         val cols = table.rows.firstOrNull()?.cells?.size ?: 1
                                         table.rows.add(TableRow().apply { repeat(cols) { cells.add(TableCell().apply { blocks.add(ParagraphBlock()) }) } })
                                         currentDoc.isDirty = true
@@ -1314,7 +1397,7 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                                 onAddColumn = {
                                     val table = currentDoc.blocks.getOrNull(focusedTopIndex) as? TableBlock
                                     if (table != null && !currentDoc.readOnly) {
-                                        currentDoc.pushUndoSnapshot()
+                                        markObjectChanged()
                                         table.rows.forEach { it.cells.add(TableCell().apply { blocks.add(ParagraphBlock()) }) }
                                         currentDoc.isDirty = true
                                     }
@@ -1357,11 +1440,17 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                                 onLineSpacingChange = { setLineSpacing(it) }
                             )
                             ribbonTab == RibbonTab.INSERT -> InsertRibbon(
+                                enabled = !currentDoc.readOnly && currentDoc.kind == DocKind.RICH_TEXT,
                                 onInsertDate = { insertTextAtCursor(SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date())) },
                                 onInsertDivider = { insertTextAtCursor("\n" + "─".repeat(32) + "\n") },
                                 onInsertTable = { showTableDialog = true },
                                 onInsertImage = { imagePickerLauncher.launch("image/*") },
-                                onInsertPageBreak = { insertBlockAfterFocus(PageBreakBlock()) },
+                                onInsertBlankPage = {
+                                    insertBlockAfterFocus(PageBreakBlock())
+                                    insertBlockAfterFocus(ParagraphBlock())
+                                    notify("Blank page inserted")
+                                },
+                                onInsertPageBreak = { insertBlockAfterFocus(PageBreakBlock()); notify("Page break inserted") },
                                 onInsertLink = { showLinkDialog = true },
                                 onInsertBookmark = { showAddBookmarkDialog = true },
                                 onInsertPageNumberField = { insertPageNumberFieldIntoFooter() },
@@ -1371,23 +1460,58 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                             )
                             ribbonTab == RibbonTab.LAYOUT -> LayoutRibbon(
                                 onPageSetup = { showPageSetupDialog = true },
-                                onMargins = { showPageSetupDialog = true }
+                                onMargins = { showPageSetupDialog = true },
+                                onMarginsPreset = { margin ->
+                                    if (!currentDoc.readOnly) {
+                                        currentDoc.pushUndoSnapshot()
+                                        currentDoc.pageSettings = currentDoc.pageSettings.copy(
+                                            marginTopPt = margin, marginBottomPt = margin,
+                                            marginLeftPt = margin, marginRightPt = margin
+                                        )
+                                        currentDoc.isDirty = true
+                                    }
+                                },
+                                onOrientationChange = { orientation ->
+                                    if (!currentDoc.readOnly) {
+                                        currentDoc.pushUndoSnapshot()
+                                        currentDoc.pageSettings = currentDoc.pageSettings.copy(orientation = orientation)
+                                        currentDoc.isDirty = true
+                                    }
+                                },
+                                onIndentChange = { delta ->
+                                    if (!currentDoc.readOnly) changeIndentByPoints(delta)
+                                },
+                                onSpacingChange = { before, after ->
+                                    if (!currentDoc.readOnly) setParagraphSpacing(before, after)
+                                },
+                                currentOrientation = currentDoc.pageSettings.orientation,
+                                currentParagraph = focusedParagraph,
+                                enabled = !currentDoc.readOnly
                             )
                             ribbonTab == RibbonTab.REFERENCES -> ReferencesRibbon(
                                 navPanelOpen = navPanelOpen,
                                 bookmarks = currentDoc.bookmarks,
                                 onInsertToc = { insertToc() },
                                 onJumpToBookmark = { jumpToBlockId(it) },
-                                onDeleteBookmark = { id -> currentDoc.bookmarks.removeAll { it.id == id } },
+                                onDeleteBookmark = { id ->
+                                    currentDoc.bookmarks.removeAll { it.id == id }
+                                    currentDoc.isDirty = true
+                                    currentDoc.lastModified = System.currentTimeMillis()
+                                },
                                 onInsertFootnote = { pendingNoteIsEndnote = false; showNoteDialog = true },
                                 onInsertEndnote = { pendingNoteIsEndnote = true; showNoteDialog = true },
-                                onToggleNavPanel = { navPanelOpen = !navPanelOpen }
+                                onToggleNavPanel = { navPanelOpen = !navPanelOpen },
+                                onCrossReference = { if (!currentDoc.readOnly) showCrossReferenceDialog = true }
                             )
                             ribbonTab == RibbonTab.REVIEW -> ReviewRibbon(
-                                enabled = currentDoc.kind == DocKind.RICH_TEXT,
+                                enabled = currentDoc.kind == DocKind.RICH_TEXT && !currentDoc.readOnly,
+                                commentCount = currentDoc.comments.size,
+                                unresolvedCount = currentDoc.comments.count { !it.resolved },
+                                noteCount = currentDoc.notes.size,
                                 onFind = { showFindReplaceDialog = true },
-                                onAddComment = { if (!currentDoc.readOnly) showCommentDialog = true },
+                                onAddComment = { if (!currentDoc.readOnly && currentDoc.kind == DocKind.RICH_TEXT) showCommentDialog = true },
                                 onShowComments = { showCommentsDialog = true },
+                                onReviewCenter = { showReviewCenterDialog = true },
                                 onToggleReadOnly = { currentDoc.readOnly = !currentDoc.readOnly }
                             )
                             ribbonTab == RibbonTab.VIEW -> ViewRibbon(
@@ -1414,7 +1538,7 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                 if (!readingMode) {
                     AnimatedVisibility(visible = sidebarOpen) {
                         DocumentSidebar(
-                            documents = documents, currentIndex = currentIndex, isDark = isDark, textColor = textColor,
+                            documents = documents, currentIndex = currentIndex, isDark = isDark, textColor = textColor, compact = compactWorkspace,
                             onSelect = { currentIndex = it },
                             onNew = { newDocument() },
                             onDelete = { deleteDocumentAt(it) },
@@ -1424,10 +1548,10 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                         )
                     }
                     AnimatedVisibility(visible = navPanelOpen) {
-                        NavigationPanel(doc = currentDoc, textColor = textColor, onJump = { jumpToBlockId(it) })
+                        NavigationPanel(doc = currentDoc, textColor = textColor, compact = compactWorkspace, activeBlockId = focusedParagraph?.id, onJump = { jumpToBlockId(it) })
                     }
                     AnimatedVisibility(visible = showPageThumbnails) {
-                        PageThumbnailPanel(doc = currentDoc, textColor = textColor, onJump = { jumpToBlockId(it) })
+                        PageThumbnailPanel(doc = currentDoc, textColor = textColor, compact = compactWorkspace, currentPage = currentPageIndex, onJump = { jumpToBlockId(it) })
                     }
                 }
 
@@ -1437,6 +1561,7 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                     } else {
                         PagedDocumentView(
                             doc = currentDoc, zoom = zoom, pageColor = pageColor, textColor = textColor,
+                            canvasColor = appBg,
                             readOnly = currentDoc.readOnly, showRuler = showRuler, focusedParagraph = focusedParagraph,
                             focusTargetParagraphId = focusTargetParagraphId,
                             onFocusTargetChange = { focusTargetParagraphId = it },
@@ -1471,11 +1596,13 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                             onLink = { showLinkDialog = true },
                             onComment = { showCommentDialog = true },
                             onRegenerateToc = { regenerateToc(it) },
-                            onJumpToBlock = { jumpToBlockId(it) }
+                            onJumpToBlock = { jumpToBlockId(it) },
+                            onCurrentPageChange = { currentPageIndex = it }
                         )
                     }
                     val selectedText = (documentSelection?.let { !it.collapsed } == true) ||
                         (focusedParagraph?.let { !it.field.selection.collapsed && it.field.selection.min != it.field.selection.max } == true)
+                    val selectionTextColor = if (isSystemInDarkTheme()) Color.White else Color(0xFF1A1A1A)
                     if (selectedText && showSelectionToolbar && !currentDoc.readOnly) {
                         TextSelectionMiniToolbar(
                             style = toolbarStyle,
@@ -1485,8 +1612,12 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                             onUnderline = { toggleAttribute({ a -> a.underline }, { a, v -> a.copy(underline = v) }) },
                             onFontSizeChange = { applyFontSize(it) },
                             onHighlight = { applyHighlight(Color(0xFFFFF59D)) },
-                            onColor = { applyColor(Color(0xFF1A1A1A)) },
-                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp)
+                            onColor = { applyColor(selectionTextColor) },
+                            onCopy = { copySelection() },
+                            onCut = { cutSelection() },
+                            onClearFormatting = { clearFormatting() },
+                            onDismiss = { showSelectionToolbar = false },
+                            modifier = Modifier.align(Alignment.TopCenter).padding(horizontal = 8.dp, vertical = 6.dp)
                         )
                     }
                     if (readingMode) {
@@ -1516,7 +1647,10 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
                 when (format) {
                     SaveFormat.WDOC -> createDocLauncher.launch("$newTitle.wdoc")
                     SaveFormat.TXT -> createTxtLauncher.launch("$newTitle.txt")
-                    SaveFormat.PDF -> exportPdfLauncher.launch("$newTitle.pdf")
+                    SaveFormat.PDF -> {
+                        if (currentDoc.kind == DocKind.RICH_TEXT) exportPdfLauncher.launch("$newTitle.pdf")
+                        else notify("PDF is already an exported format")
+                    }
                 }
             }
         )
@@ -1599,9 +1733,42 @@ fun PhoneScreen(isDark: Boolean, initialPath: String = "") {
     if (showCommentsDialog) {
         CommentsDialog(
             comments = currentDoc.comments,
-            onResolve = { id -> currentDoc.comments.firstOrNull { it.id == id }?.let { it.resolved = true; currentDoc.isDirty = true } },
-            onDelete = { id -> currentDoc.comments.removeAll { it.id == id }; currentDoc.isDirty = true },
+            onResolve = { id -> currentDoc.comments.firstOrNull { it.id == id }?.let { it.resolved = true; currentDoc.isDirty = true; currentDoc.lastModified = System.currentTimeMillis() } },
+            onDelete = { id -> currentDoc.comments.removeAll { it.id == id }; currentDoc.isDirty = true; currentDoc.lastModified = System.currentTimeMillis() },
             onDismiss = { showCommentsDialog = false }
+        )
+    }
+
+
+    if (showReviewCenterDialog) {
+        ReviewCenterDialog(
+            comments = currentDoc.comments,
+            notes = currentDoc.notes,
+            onJump = { jumpToBlockId(it) },
+            onResolve = { id, resolved ->
+                currentDoc.comments.firstOrNull { it.id == id }?.let { c ->
+                    c.resolved = resolved
+                    currentDoc.isDirty = true
+                    currentDoc.lastModified = System.currentTimeMillis()
+                }
+            },
+            onDeleteComment = { id ->
+                currentDoc.comments.removeAll { it.id == id }
+                currentDoc.isDirty = true
+                currentDoc.lastModified = System.currentTimeMillis()
+            },
+            onDismiss = { showReviewCenterDialog = false }
+        )
+    }
+
+    if (showCrossReferenceDialog) {
+        CrossReferenceDialog(
+            targets = buildReferenceTargets(currentDoc),
+            onDismiss = { showCrossReferenceDialog = false },
+            onInsert = { target, includePage ->
+                insertCrossReference(target, includePage)
+                showCrossReferenceDialog = false
+            }
         )
     }
 
@@ -1637,6 +1804,7 @@ private data class PdfPageInfo(val index: Int, val width: Int, val height: Int)
 
 @Composable
 private fun PdfViewerPane(pages: List<PdfPageInfo>, pdfUri: Uri?, zoom: Float, isDark: Boolean) {
+    val wordPalette = rememberWordFluentPalette()
     if (pages.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1648,7 +1816,7 @@ private fun PdfViewerPane(pages: List<PdfPageInfo>, pdfUri: Uri?, zoom: Float, i
         return
     }
     LazyColumn(
-        modifier = Modifier.fillMaxSize().background(if (isDark) WordTheme.darkCanvas else Color(0xFFE8EAED)),
+        modifier = Modifier.fillMaxSize().background(wordPalette.appBackground),
         horizontalAlignment = Alignment.CenterHorizontally,
         contentPadding = PaddingValues(vertical = 16.dp)
     ) {
@@ -1705,28 +1873,33 @@ private fun PdfPagePreview(page: PdfPageInfo, total: Int, pdfUri: Uri, zoom: Flo
     }
 }
 @Composable
-private fun StatusBar(doc: WordDocument, zoom: Float, textColor: Color, ribbonStripBg: Color, onZoomChange: (Float) -> Unit) {
+private fun StatusBar(doc: WordDocument, zoom: Float, textColor: Color, ribbonStripBg: Color, currentPage: Int = 0, onZoomChange: (Float) -> Unit) {
     val paragraphs = doc.blocks.filterIsInstance<ParagraphBlock>()
     val wordCount = paragraphs.sumOf { p -> p.field.text.trim().split(Regex("\\s+")).count { it.isNotEmpty() } }
     val charCount = paragraphs.sumOf { it.field.text.length }
-    val pageCount = if (doc.kind == DocKind.PDF) 0 else paginate(doc).size.coerceAtLeast(1)
+    val pageCount = if (doc.kind == DocKind.PDF) 0 else layoutDocument(doc).diagnostics.pageCount
     Row(
-        modifier = Modifier.fillMaxWidth().height(24.dp).background(WordTheme.wordBlue).padding(horizontal = 8.dp),
+        modifier = Modifier.fillMaxWidth().height(26.dp).background(wordRibbonStripBackground()).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        val layout = remember(doc.id, doc.blocks.size, doc.pageSettings, doc.showHeader, doc.showFooter) {
+            if (doc.kind == DocKind.PDF) null else layoutDocument(doc)
+        }
+        val overflowCount = layout?.diagnostics?.overflowingBlockIds?.size ?: 0
         Text(
             when {
                 doc.kind == DocKind.PDF -> "PDF document · Read-only"
-                doc.readOnly -> "Page 1 of $pageCount · Read-only · $wordCount words"
-                else -> "Page 1 of $pageCount · $wordCount words · $charCount characters"
+                doc.readOnly -> "Page ${currentPage + 1} of $pageCount · Read-only · $wordCount words"
+                overflowCount > 0 -> "Page ${currentPage + 1} of $pageCount · $wordCount words · layout needs attention"
+                else -> "Page ${currentPage + 1} of $pageCount · $wordCount words · $charCount characters"
             },
-            color = Color.White.copy(alpha = 0.95f), fontSize = 9.sp, modifier = Modifier.weight(1f)
+            color = textColor, fontSize = 9.sp, modifier = Modifier.weight(1f)
         )
-        FluentIcon("zoom_out", null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(14.dp).clickable { onZoomChange((zoom - 0.1f).coerceAtLeast(0.6f)) })
+        FluentIcon("zoom_out", null, tint = textColor.copy(alpha = 0.9f), modifier = Modifier.size(14.dp).clickable { onZoomChange((zoom - 0.1f).coerceAtLeast(0.6f)) })
         Slider(value = zoom, onValueChange = onZoomChange, valueRange = 0.6f..2f, modifier = Modifier.width(90.dp).padding(horizontal = 4.dp))
-        FluentIcon("zoom_in", null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(14.dp).clickable { onZoomChange((zoom + 0.1f).coerceAtMost(2f)) })
+        FluentIcon("zoom_in", null, tint = textColor.copy(alpha = 0.9f), modifier = Modifier.size(14.dp).clickable { onZoomChange((zoom + 0.1f).coerceAtMost(2f)) })
         Spacer(Modifier.width(6.dp))
-        Text("${(zoom * 100).toInt()}%", color = Color.White.copy(alpha = 0.95f), fontSize = 11.sp)
+        Text("${(zoom * 100).toInt()}%", color = textColor, fontSize = 11.sp)
     }
 }
 
@@ -1739,8 +1912,9 @@ private fun FileBackstage(
     onSettings: () -> Unit, onClose: () -> Unit
 ) {
     var selectedSection by remember { mutableStateOf("Home") }
-    val leftBg = if (isDark) WordTheme.wordBlueDark else WordTheme.wordBlue
-    val surface = if (isDark) WordTheme.darkSurface else Color.White
+    val wordPalette = rememberWordFluentPalette()
+    val leftBg = wordPalette.titleBar
+    val surface = wordPalette.ribbonSurface
     val subtle = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFF3F2F1)
     val secondary = if (isDark) Color.White.copy(alpha = 0.62f) else Color(0xFF666666)
 
@@ -1781,18 +1955,18 @@ private fun FileBackstage(
                     documents.forEachIndexed { i, doc ->
                         Row(
                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
-                                .background(if (i == currentIndex) WordRibbonAccent.copy(alpha = 0.10f) else Color.Transparent)
+                                .background(if (i == currentIndex) wordRibbonAccent().copy(alpha = 0.10f) else Color.Transparent)
                                 .clickable { onSelectDoc(i) }.padding(7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             FluentIcon(if (doc.kind == DocKind.PDF) "document_pdf" else "document_text", null,
-                                tint = WordRibbonAccent, modifier = Modifier.size(17.dp))
+                                tint = wordRibbonAccent(), modifier = Modifier.size(17.dp))
                             Spacer(Modifier.width(8.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(doc.title, color = textColor, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(doc.lastModified)), color = secondary, fontSize = 9.sp)
                             }
-                            if (doc.isDirty) FluentIcon("circle", null, tint = WordRibbonAccent, modifier = Modifier.size(6.dp))
+                            if (doc.isDirty) FluentIcon("circle", null, tint = wordRibbonAccent(), modifier = Modifier.size(6.dp))
                         }
                     }
                 }
@@ -1802,7 +1976,7 @@ private fun FileBackstage(
                     BackstageInfoRow("Name", currentDocumentTitle(documents, currentIndex))
                     BackstageInfoRow("Format", if (documents.getOrNull(currentIndex)?.kind == DocKind.PDF) "PDF" else "Bluebird Word Document")
                     BackstageInfoRow("Status", if (documents.getOrNull(currentIndex)?.isDirty == true) "Unsaved changes" else "Saved")
-                    BackstageInfoRow("Pages", paginate(documents.getOrNull(currentIndex) ?: WordDocument("Document")).size.coerceAtLeast(1).toString())
+                    BackstageInfoRow("Pages", layoutDocument(documents.getOrNull(currentIndex) ?: WordDocument("Document")).diagnostics.pageCount.toString())
                     Spacer(Modifier.height(8.dp))
                     BackstageAction("info", "Document Properties", onProperties, darkText = textColor, surface = subtle)
                     BackstageAction("document_text", "Page Setup", onPageSetup, darkText = textColor, surface = subtle)
@@ -1828,9 +2002,9 @@ private fun BackstageSectionButton(label: String, selected: Boolean, onClick: ()
 
 @Composable
 private fun BackstageTile(icon: String, title: String, subtitle: String, onClick: () -> Unit) {
-    Column(modifier = Modifier.width(112.dp).height(78.dp).clip(RoundedCornerShape(4.dp)).border(1.dp, WordRibbonBorder)
+    Column(modifier = Modifier.width(112.dp).height(78.dp).clip(RoundedCornerShape(4.dp)).border(1.dp, wordRibbonBorder())
         .clickable { onClick() }.padding(8.dp), verticalArrangement = Arrangement.Center) {
-        FluentIcon(icon, null, tint = WordRibbonAccent, modifier = Modifier.size(20.dp))
+        FluentIcon(icon, null, tint = wordRibbonAccent(), modifier = Modifier.size(20.dp))
         Spacer(Modifier.height(4.dp))
         Text(title, fontSize = 10.sp, color = Color(0xFF202020), fontWeight = FontWeight.SemiBold)
         Text(subtitle, fontSize = 8.sp, color = Color(0xFF666666), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1867,13 +2041,14 @@ private fun BackstageAction(
 
 @Composable
 private fun DocumentSidebar(
-    documents: List<WordDocument>, currentIndex: Int, isDark: Boolean, textColor: Color,
+    documents: List<WordDocument>, currentIndex: Int, isDark: Boolean, textColor: Color, compact: Boolean = false,
     onSelect: (Int) -> Unit, onNew: () -> Unit, onDelete: (Int) -> Unit,
     onRename: (Int) -> Unit, onDuplicate: (Int) -> Unit, onProperties: (Int) -> Unit
 ) {
+    val wordPalette = rememberWordFluentPalette()
     Column(
-        modifier = Modifier.width(220.dp).fillMaxHeight()
-            .background(if (isDark) WordTheme.darkSurface else Color(0xFFF3F2F1))
+        modifier = Modifier.width(if (compact) 188.dp else 220.dp).fillMaxHeight()
+            .background(wordPalette.ribbonSurface)
             .padding(8.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {

@@ -151,6 +151,30 @@ class PageBreakBlock(override val id: String = UUID.randomUUID().toString()) : B
 
 data class TocEntry(val text: String, val level: Int, val targetBlockId: String)
 
+data class ReferenceTarget(
+    val id: String,
+    val label: String,
+    val blockId: String,
+    val kind: String
+)
+
+fun buildReferenceTargets(doc: WordDocument): List<ReferenceTarget> {
+    val headings = doc.blocks.filterIsInstance<ParagraphBlock>()
+        .filter { it.styleId in setOf("title", "heading1", "heading2", "heading3") }
+        .map { p ->
+            val level = when (p.styleId) { "title" -> 0; "heading1" -> 1; "heading2" -> 2; else -> 3 }
+            ReferenceTarget(p.id, "H$level — ${p.field.text.ifBlank { "(untitled)" }}", p.id, "heading")
+        }
+    val bookmarks = doc.bookmarks.map { bm ->
+        ReferenceTarget(bm.id, "Bookmark — ${bm.name}", bm.blockId, "bookmark")
+    }
+    return headings + bookmarks
+}
+
+fun pageNumberForBlock(doc: WordDocument, blockId: String): Int? =
+    layoutDocument(doc).pages.indexOfFirst { page -> page.entries.any { it.block.id == blockId } }
+        .takeIf { it >= 0 }?.plus(1)
+
 /** A generated (static, "Update Field"-style) table of contents snapshot. */
 class TocBlock(override val id: String = UUID.randomUUID().toString()) : Block() {
     val entries = mutableStateListOf<TocEntry>()

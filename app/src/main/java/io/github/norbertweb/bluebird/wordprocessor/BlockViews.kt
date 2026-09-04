@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -44,6 +46,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.text.style.TextOverflow
@@ -203,13 +208,30 @@ fun ParagraphView(
                                 if (event.key == Key.DirectionLeft) {
                                     while (p > 0 && text[p - 1].isWhitespace()) p--
                                     while (p > 0 && !text[p - 1].isWhitespace()) p--
+                                    if (p == 0 && sel.collapsed) {
+                                        if (onMoveAcrossParagraph(false, false, true)) return@onPreviewKeyEvent true
+                                    }
                                 } else {
                                     while (p < text.length && text[p].isWhitespace()) p++
                                     while (p < text.length && !text[p].isWhitespace()) p++
+                                    if (p == text.length && sel.collapsed) {
+                                        if (onMoveAcrossParagraph(true, false, true)) return@onPreviewKeyEvent true
+                                    }
                                 }
                                 para.field = para.field.copy(selection = TextRange(p))
                                 onSelectionChange(para.field.selection)
                                 return@onPreviewKeyEvent true
+                            }
+                            if (collapsed && event.isCtrlPressed && event.key == Key.Delete) {
+                                val text = para.field.text
+                                var p = cursor
+                                while (p < text.length && text[p].isWhitespace()) p++
+                                while (p < text.length && !text[p].isWhitespace()) p++
+                                if (p > cursor) {
+                                    onValueChange(TextFieldValue(text.removeRange(cursor, p), TextRange(cursor)))
+                                    return@onPreviewKeyEvent true
+                                }
+                                return@onPreviewKeyEvent onBoundaryKey(true)
                             }
                             if (collapsed && cursor == 0 && event.key == Key.Backspace) {
                                 return@onPreviewKeyEvent onBoundaryKey(false)
@@ -244,16 +266,19 @@ fun ParagraphView(
 private fun BoxScope.ImageResizeHandle(
     alignment: Alignment,
     id: String,
+    accent: Color,
+    onDragStart: () -> Unit = {},
     onDrag: (Float) -> Unit
 ) {
     Box(
         modifier = Modifier
-            .size(10.dp)
+            .size(14.dp)
             .align(alignment)
             .background(Color.White, CircleShape)
-            .border(1.dp, bluebirdColors.AccentBlue, CircleShape)
+            .border(1.5.dp, accent, CircleShape)
             .pointerInput(id) {
                 detectDragGestures(
+                    onDragStart = { onDragStart() },
                     onDrag = { change, dragAmount ->
                         change.consume()
                         val delta = if (alignment == Alignment.TopStart || alignment == Alignment.BottomStart) {
@@ -269,7 +294,11 @@ private fun BoxScope.ImageResizeHandle(
 }
 
 @Composable
-fun ImageView(img: ImageBlock, zoom: Float, readOnly: Boolean, selected: Boolean = false, onSelect: () -> Unit, onDelete: () -> Unit) {
+fun ImageView(
+    img: ImageBlock, zoom: Float, readOnly: Boolean, selected: Boolean = false,
+    onSelect: () -> Unit, onDelete: () -> Unit, onObjectChanged: () -> Unit = {}
+) {
+    val palette = rememberWordFluentPalette()
     var showContextMenu by remember(img.id) { mutableStateOf(false) }
     val horizontalAlignment = when (img.alignment) {
         TextAlign.Center -> Alignment.CenterHorizontally
@@ -290,30 +319,33 @@ fun ImageView(img: ImageBlock, zoom: Float, readOnly: Boolean, selected: Boolean
                 modifier = Modifier
                     .width((img.widthDp * zoom).dp)
                     .wrapContentHeight()
-                    .then(if (selected) Modifier.border(1.dp, bluebirdColors.AccentBlue) else Modifier)
+                    .then(if (selected) Modifier.border(1.5.dp, palette.accent, RoundedCornerShape(3.dp)) else Modifier)
             ) {
                 Image(
                     bitmap = bmp.asImageBitmap(), contentDescription = "Inserted image",
                     modifier = Modifier.fillMaxWidth().rotate(img.rotationDeg.toFloat())
                 )
                 if (selected && !readOnly) {
-                    ImageResizeHandle(Alignment.TopStart, img.id) { dx ->
+                    ImageResizeHandle(Alignment.TopStart, img.id, palette.accent, onDragStart = onObjectChanged) { dx ->
                         img.widthDp = (img.widthDp + dx / zoom).toInt().coerceIn(80, 900)
                     }
-                    ImageResizeHandle(Alignment.TopEnd, img.id) { dx ->
+                    ImageResizeHandle(Alignment.TopEnd, img.id, palette.accent, onDragStart = onObjectChanged) { dx ->
                         img.widthDp = (img.widthDp + dx / zoom).toInt().coerceIn(80, 900)
                     }
-                    ImageResizeHandle(Alignment.BottomStart, img.id) { dx ->
+                    ImageResizeHandle(Alignment.BottomStart, img.id, palette.accent, onDragStart = onObjectChanged) { dx ->
                         img.widthDp = (img.widthDp + dx / zoom).toInt().coerceIn(80, 900)
                     }
-                    ImageResizeHandle(Alignment.BottomEnd, img.id) { dx ->
+                    ImageResizeHandle(Alignment.BottomEnd, img.id, palette.accent, onDragStart = onObjectChanged) { dx ->
                         img.widthDp = (img.widthDp + dx / zoom).toInt().coerceIn(80, 900)
                     }
                     Box(
-                        Modifier.align(Alignment.TopCenter).offset(y = (-18).dp).size(28.dp),
+                        Modifier.align(Alignment.TopCenter).offset(y = (-22).dp).size(32.dp)
+                            .clip(CircleShape).background(palette.ribbonSurface)
+                            .border(1.dp, palette.border, CircleShape)
+                            .clickable { onObjectChanged(); img.rotationDeg = (img.rotationDeg + 90) % 360; onSelect() },
                         contentAlignment = Alignment.Center
                     ) {
-                        FluentIcon("arrow_rotate_clockwise", "Rotate", modifier = Modifier.size(14.dp), tint = bluebirdColors.AccentBlue)
+                        FluentIcon("arrow_rotate_clockwise", "Rotate 90 degrees", modifier = Modifier.size(16.dp), tint = palette.accent)
                     }
                 }
             }
@@ -322,11 +354,11 @@ fun ImageView(img: ImageBlock, zoom: Float, readOnly: Boolean, selected: Boolean
             WordDropdownMenu(expanded = true, onDismissRequest = { showContextMenu = false }) {
                 WordMenuItem("copy", "Select picture") { onSelect(); showContextMenu = false }
                 WordMenuDivider()
-                WordMenuItem("text_align_left", "Align left") { img.alignment = TextAlign.Start; showContextMenu = false }
-                WordMenuItem("text_align_center", "Center") { img.alignment = TextAlign.Center; showContextMenu = false }
-                WordMenuItem("text_align_right", "Align right") { img.alignment = TextAlign.End; showContextMenu = false }
+                WordMenuItem("text_align_left", "Align left") { onObjectChanged(); img.alignment = TextAlign.Start; showContextMenu = false }
+                WordMenuItem("text_align_center", "Center") { onObjectChanged(); img.alignment = TextAlign.Center; showContextMenu = false }
+                WordMenuItem("text_align_right", "Align right") { onObjectChanged(); img.alignment = TextAlign.End; showContextMenu = false }
                 WordMenuDivider()
-                WordMenuItem("arrow_rotate_clockwise", "Rotate 90°") { img.rotationDeg = (img.rotationDeg + 90) % 360; showContextMenu = false }
+                WordMenuItem("arrow_rotate_clockwise", "Rotate 90°") { onObjectChanged(); img.rotationDeg = (img.rotationDeg + 90) % 360; showContextMenu = false }
                 WordMenuItem("delete", "Delete picture") { showContextMenu = false; onDelete() }
             }
         }
@@ -338,19 +370,42 @@ fun ImageView(img: ImageBlock, zoom: Float, readOnly: Boolean, selected: Boolean
 @Composable
 fun TableView(
     table: TableBlock, zoom: Float, textColor: Color, readOnly: Boolean, selected: Boolean = false,
-    onParagraphFocus: (ParagraphBlock) -> Unit, onSelect: () -> Unit, onDelete: () -> Unit,
+    onParagraphFocus: (ParagraphBlock) -> Unit, onSelect: () -> Unit, onDelete: () -> Unit, onObjectChanged: () -> Unit = {},
     onCopy: () -> Unit = {}, onCut: () -> Unit = {}, onPaste: () -> Unit = {},
     onSelectAll: () -> Unit = {}, onLink: () -> Unit = {}, onComment: () -> Unit = {},
     onBoundaryKey: (Boolean) -> Boolean = { false },
     onMoveAcrossParagraph: (Boolean, Boolean, Boolean) -> Boolean = { _, _, _ -> false }
 ) {
+    val palette = rememberWordFluentPalette()
     var shadeTargetCell by remember { mutableStateOf<TableCell?>(null) }
     var selectedCell by remember { mutableStateOf<TableCell?>(null) }
+    var selectedRow by remember { mutableIntStateOf(0) }
+    var selectedColumn by remember { mutableIntStateOf(0) }
     var showContextMenu by remember(table.id) { mutableStateOf(false) }
+
+    fun newCell(): TableCell = TableCell().apply { blocks.add(ParagraphBlock()) }
+    fun insertRowAfterSelection() {
+        onObjectChanged()
+        val cols = table.rows.firstOrNull()?.cells?.size ?: 1
+        val row = TableRow().apply { repeat(cols) { cells.add(newCell()) } }
+        val target = (selectedRow + 1).coerceIn(0, table.rows.size)
+        table.rows.add(target, row)
+        selectedRow = target
+        selectedCell = row.cells.getOrNull(selectedColumn.coerceIn(0, row.cells.lastIndex))
+        shadeTargetCell = selectedCell
+    }
+    fun insertColumnAfterSelection() {
+        onObjectChanged()
+        table.rows.forEach { row ->
+            val target = (selectedColumn + 1).coerceIn(0, row.cells.size)
+            row.cells.add(target, newCell())
+        }
+        selectedColumn = (selectedColumn + 1).coerceAtMost((table.rows.maxOfOrNull { it.cells.size } ?: 1) - 1)
+    }
 
     Column(
         Modifier.fillMaxWidth().padding(vertical = 8.dp)
-            .then(if (selected) Modifier.border(1.dp, bluebirdColors.AccentBlue, RoundedCornerShape(2.dp)) else Modifier)
+            .then(if (selected) Modifier.border(1.5.dp, palette.accent, RoundedCornerShape(4.dp)) else Modifier)
             .combinedClickable(
                 enabled = !readOnly,
                 onClick = { onSelect() },
@@ -359,35 +414,38 @@ fun TableView(
     ) {
         if (!readOnly) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                IconButton(onClick = {
-                    val cols = table.rows.firstOrNull()?.cells?.size ?: 1
-                    table.rows.add(TableRow().apply { repeat(cols) { cells.add(TableCell().apply { blocks.add(ParagraphBlock()) }) } })
-                }, modifier = Modifier.size(24.dp)) { FluentIcon("table_insert_row", "Add row", modifier = Modifier.size(14.dp)) }
-                IconButton(onClick = { if (table.rows.size > 1) table.rows.removeAt(table.rows.lastIndex) }, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = { insertRowAfterSelection() }, modifier = Modifier.size(24.dp)) { FluentIcon("table_insert_row", "Add row", modifier = Modifier.size(14.dp)) }
+                IconButton(onClick = { if (table.rows.size > 1) { onObjectChanged(); table.rows.removeAt((selectedRow).coerceIn(0, table.rows.lastIndex)); selectedRow = selectedRow.coerceAtMost(table.rows.lastIndex) } }, modifier = Modifier.size(24.dp)) {
                     FluentIcon("table_delete_row", "Remove row", modifier = Modifier.size(14.dp))
                 }
-                IconButton(onClick = { table.rows.forEach { it.cells.add(TableCell().apply { blocks.add(ParagraphBlock()) }) } }, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = { insertColumnAfterSelection() }, modifier = Modifier.size(24.dp)) {
                     FluentIcon("table_insert_column", "Add column", modifier = Modifier.size(14.dp)) }
-                IconButton(onClick = { table.rows.forEach { if (it.cells.size > 1) it.cells.removeAt(it.cells.lastIndex) } }, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = {
+                    onObjectChanged()
+                    table.rows.forEach { row ->
+                        if (row.cells.size > 1) row.cells.removeAt(selectedColumn.coerceIn(0, row.cells.lastIndex))
+                    }
+                    selectedColumn = selectedColumn.coerceAtMost((table.rows.maxOfOrNull { it.cells.size } ?: 1) - 1)
+                }, modifier = Modifier.size(24.dp)) {
                     FluentIcon("table_delete_column", "Remove column", modifier = Modifier.size(14.dp)) }
-                IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = { onObjectChanged(); onDelete() }, modifier = Modifier.size(24.dp)) {
                     FluentIcon("delete", "Delete table", modifier = Modifier.size(14.dp)) }
             }
         }
-        table.rows.forEach { row ->
+        table.rows.forEachIndexed { rowIndex, row ->
             Row(Modifier.fillMaxWidth()) {
-                row.cells.forEach { cell ->
+                row.cells.forEachIndexed { columnIndex, cell ->
                     val cellNumbers = computeListNumbers(cell.blocks)
                     Column(
                         Modifier.weight(1f)
-                            .border(if (selectedCell === cell) 1.dp else 0.5.dp,
-                                if (selectedCell === cell) bluebirdColors.AccentBlue else Color.Gray.copy(alpha = 0.5f))
-                            .background(if (selectedCell === cell && cell.backgroundColor == null) bluebirdColors.AccentBlue.copy(alpha = 0.07f)
+                            .border(if (selectedCell === cell) 1.5.dp else 0.5.dp,
+                                if (selectedCell === cell) palette.accent else palette.border)
+                            .background(if (selectedCell === cell && cell.backgroundColor == null) palette.accent.copy(alpha = 0.07f)
                                 else cell.backgroundColor ?: Color.Transparent)
                             .combinedClickable(
                                 enabled = !readOnly,
-                                onClick = { onSelect(); selectedCell = cell; shadeTargetCell = cell },
-                                onLongClick = { onSelect(); selectedCell = cell; shadeTargetCell = cell; showContextMenu = true }
+                                onClick = { onSelect(); selectedCell = cell; selectedRow = rowIndex; selectedColumn = columnIndex; shadeTargetCell = cell },
+                                onLongClick = { onSelect(); selectedCell = cell; selectedRow = rowIndex; selectedColumn = columnIndex; shadeTargetCell = cell; showContextMenu = true }
                             )
                             .padding(4.dp)
                     ) {
@@ -417,6 +475,23 @@ fun TableView(
                 }
             }
         }
+        if (!readOnly && selectedCell != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Cell ${selectedRow + 1}, ${selectedColumn + 1}",
+                    fontSize = 10.sp, color = textColor.copy(alpha = 0.65f),
+                    modifier = Modifier.padding(end = 6.dp)
+                )
+                Text(
+                    "Use Row/Column controls above",
+                    fontSize = 9.sp, color = textColor.copy(alpha = 0.45f)
+                )
+            }
+        }
+
         if (!readOnly && shadeTargetCell != null) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                 Text("Shade cell:", fontSize = 10.sp, color = textColor.copy(alpha = 0.6f))
@@ -424,25 +499,31 @@ fun TableView(
                 listOf(null, Color(0xFFFFF2CC), Color(0xFFD9EAD3), Color(0xFFCFE2F3), Color(0xFFF4CCCC)).forEach { c ->
                     Box(Modifier.size(18.dp).padding(2.dp).clip(CircleShape)
                         .background(c ?: Color.LightGray.copy(alpha = 0.3f))
-                        .clickable { shadeTargetCell?.backgroundColor = c })
+                        .clickable { onObjectChanged(); shadeTargetCell?.backgroundColor = c })
                 }
             }
         }
         if (showContextMenu && !readOnly) {
             WordDropdownMenu(expanded = true, onDismissRequest = { showContextMenu = false }) {
                 WordMenuItem("table_insert_row", "Insert row") {
-                    val cols = table.rows.firstOrNull()?.cells?.size ?: 1
-                    table.rows.add(TableRow().apply { repeat(cols) { cells.add(TableCell().apply { blocks.add(ParagraphBlock()) }) } })
+                    insertRowAfterSelection()
                     showContextMenu = false
                 }
                 WordMenuItem("table_insert_column", "Insert column") {
-                    table.rows.forEach { it.cells.add(TableCell().apply { blocks.add(ParagraphBlock()) }) }
+                    insertColumnAfterSelection()
                     showContextMenu = false
                 }
-                WordMenuItem("color_background", "Shade selected cell", enabled = shadeTargetCell != null) { shadeTargetCell?.backgroundColor = Color(0xFFFFF2CC); showContextMenu = false }
+                WordMenuItem("color_background", "Shade selected cell", enabled = shadeTargetCell != null) { onObjectChanged(); shadeTargetCell?.backgroundColor = Color(0xFFFFF2CC); showContextMenu = false }
                 WordMenuDivider()
-                WordMenuItem("table_delete_row", "Delete last row", enabled = table.rows.size > 1) { if (table.rows.size > 1) table.rows.removeAt(table.rows.lastIndex); showContextMenu = false }
-                WordMenuItem("table_delete_column", "Delete last column", enabled = table.rows.any { it.cells.size > 1 }) { table.rows.forEach { if (it.cells.size > 1) it.cells.removeAt(it.cells.lastIndex) }; showContextMenu = false }
+                WordMenuItem("table_delete_row", "Delete selected row", enabled = table.rows.size > 1) { onObjectChanged(); if (table.rows.size > 1) { table.rows.removeAt(selectedRow.coerceIn(0, table.rows.lastIndex)); selectedRow = selectedRow.coerceAtMost(table.rows.lastIndex) }; showContextMenu = false }
+                WordMenuItem("table_delete_column", "Delete selected column", enabled = table.rows.any { it.cells.size > 1 }) {
+                    onObjectChanged()
+                    if (table.rows.any { it.cells.size > 1 }) {
+                        table.rows.forEach { row -> if (row.cells.size > 1) row.cells.removeAt(selectedColumn.coerceIn(0, row.cells.lastIndex)) }
+                        selectedColumn = selectedColumn.coerceAtMost((table.rows.maxOfOrNull { it.cells.size } ?: 1) - 1)
+                    }
+                    showContextMenu = false
+                }
                 WordMenuItem("delete", "Delete table") { showContextMenu = false; onDelete() }
             }
         }
@@ -466,7 +547,10 @@ fun PageBreakView(readOnly: Boolean, onDelete: () -> Unit) {
 }
 
 @Composable
-fun TocView(toc: TocBlock, textColor: Color, readOnly: Boolean, onRegenerate: () -> Unit, onDelete: () -> Unit, onJump: (String) -> Unit) {
+fun TocView(doc: WordDocument, toc: TocBlock, textColor: Color, readOnly: Boolean, onRegenerate: () -> Unit, onDelete: () -> Unit, onJump: (String) -> Unit) {
+    val pageMap = remember(doc.id, doc.blocks.size, toc.entries.size, doc.pageSettings, doc.showHeader, doc.showFooter) {
+        toc.entries.associate { it.targetBlockId to pageNumberForBlock(doc, it.targetBlockId) }
+    }
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).border(0.5.dp, Color.Gray.copy(alpha = 0.4f)).padding(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Table of Contents", color = textColor, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
@@ -480,10 +564,16 @@ fun TocView(toc: TocBlock, textColor: Color, readOnly: Boolean, onRegenerate: ()
             Text("No headings yet — use Heading 1-3 styles, then Update.", fontSize = 11.sp, color = textColor.copy(alpha = 0.5f))
         }
         toc.entries.forEach { entry ->
-            Text(
-                entry.text, fontSize = 12.sp, color = bluebirdColors.AccentBlue,
-                modifier = Modifier.padding(start = (entry.level * 14).dp, top = 2.dp).clickable { onJump(entry.targetBlockId) }
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = (entry.level * 14).dp, top = 2.dp)
+                    .clickable { onJump(entry.targetBlockId) },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(entry.text, fontSize = 12.sp, color = bluebirdColors.AccentBlue, modifier = Modifier.weight(1f))
+                Text(pageMap[entry.targetBlockId]?.toString() ?: "—", fontSize = 11.sp, color = textColor.copy(alpha = 0.65f))
+            }
         }
     }
 }
@@ -493,6 +583,7 @@ fun TocView(toc: TocBlock, textColor: Color, readOnly: Boolean, onRegenerate: ()
 @Composable
 fun PagedDocumentView(
     doc: WordDocument, zoom: Float, pageColor: Color, textColor: Color,
+    canvasColor: Color = bluebirdColors.Surface,
     viewMode: DocumentViewMode = DocumentViewMode.MULTIPLE_PAGES, readOnly: Boolean, showRuler: Boolean = true,
     focusedParagraph: ParagraphBlock? = null,
     focusTargetParagraphId: String? = null,
@@ -512,24 +603,37 @@ fun PagedDocumentView(
     onMoveAcrossParagraph: (ParagraphBlock, Int, Boolean, Boolean, Boolean) -> Boolean = { _, _, _, _, _ -> false },
     onDocumentSelectionDelete: (Boolean) -> Boolean = { false },
     onRegenerateToc: (TocBlock) -> Unit,
-    onJumpToBlock: (String) -> Unit
+    onJumpToBlock: (String) -> Unit,
+    onCurrentPageChange: (Int) -> Unit = {}
 ) {
     val pages = paginate(doc)
     val topNumbers = computeListNumbers(doc.blocks)
     val (pageWidthPt, pageHeightPt) = doc.pageSettings.dimensionsPt()
+    val palette = rememberWordFluentPalette()
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color(0xFFE7E9EC))) {
-        val pageWidthZoom = if (viewMode == DocumentViewMode.PAGE_WIDTH) {
-            ((maxWidth.value - 24f) / pageWidthPt).coerceIn(0.6f, 2f)
-        } else zoom
+    var viewportHeightPx by remember { mutableIntStateOf(0) }
+    val pageCentersPx = remember { mutableStateMapOf<Int, Float>() }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(canvasColor)
+            .onGloballyPositioned { coordinates -> viewportHeightPx = coordinates.size.height }
+    ) {
+        val pageEdge = palette.border.copy(alpha = 0.72f)
+        val pageShadow = Color.Black.copy(alpha = if (isSystemInDarkTheme()) 0.38f else 0.18f)
+        val pageWidthZoom = when (viewMode) {
+            DocumentViewMode.PAGE_WIDTH -> ((maxWidth.value - 24f) / pageWidthPt).coerceIn(0.6f, 2f)
+            DocumentViewMode.SINGLE_PAGE -> zoom.coerceIn(0.6f, 2f)
+            DocumentViewMode.MULTIPLE_PAGES -> zoom.coerceIn(0.6f, 1.35f)
+        }
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(if (viewMode == DocumentViewMode.PAGE_WIDTH) 8.dp else 16.dp))
             if (showRuler) {
                 HorizontalRuler(
-                    widthPt = pageWidthPt, zoom = pageWidthZoom,
+                    widthPt = pageWidthPt, zoom = pageWidthZoom, textColor = textColor,
                     pageSettings = doc.pageSettings,
                     focusedParagraph = focusedParagraph,
                     enabled = !readOnly,
@@ -542,28 +646,40 @@ fun PagedDocumentView(
             pages.forEachIndexed { pageIdx, page ->
                 Box(
                     modifier = Modifier
-                        .width((pageWidthPt * pageWidthZoom).dp)
+                        .onGloballyPositioned { coordinates ->
+                            // Track each page center in viewport coordinates so the status/navigation
+                            // UI can follow the page the user is actually reading.
+                            val center = coordinates.positionInParent().y + coordinates.size.height / 2f
+                            pageCentersPx[pageIdx] = center
+                            if (viewportHeightPx > 0) {
+                                val viewportCenter = viewportHeightPx / 2f
+                                val nearest = pageCentersPx.minByOrNull { (_, y) -> kotlin.math.abs(y - viewportCenter) }?.key
+                                if (nearest != null) onCurrentPageChange(nearest)
+                            }
+                        }
+.width((pageWidthPt * pageWidthZoom).dp)
                         .heightIn(min = (pageHeightPt * pageWidthZoom).dp)
-                        .shadow(6.dp, RoundedCornerShape(1.dp), clip = false)
-                        .border(0.5.dp, Color(0xFFD5D7DA), RoundedCornerShape(1.dp))
+                        .shadow(8.dp, RoundedCornerShape(2.dp), clip = false, ambientColor = pageShadow, spotColor = pageShadow)
+                        .border(0.5.dp, pageEdge, RoundedCornerShape(2.dp))
                         .background(pageColor)
                         .padding(bottom = if (viewMode == DocumentViewMode.MULTIPLE_PAGES) 18.dp else 4.dp)
                 ) {
                     Column(Modifier.fillMaxWidth()) {
                         if (doc.showHeader) {
                             HeaderFooterEditor(
-                                paragraph = doc.headerParagraph, pageNumber = pageIdx + 1,
+                                paragraph = doc.headerParagraph, pageNumber = pageIdx + 1, totalPages = pages.size,
                                 zoom = pageWidthZoom, textColor = textColor, readOnly = readOnly,
                                 label = "Header",
+                                onChanged = { doc.isDirty = true; doc.lastModified = System.currentTimeMillis() },
                                 topPadding = (doc.pageSettings.marginTopPt * zoom * 0.25f).dp
                             )
                         }
                         Column(
                             Modifier.padding(
-                                start = (doc.pageSettings.marginLeftPt * zoom).dp,
-                                end = (doc.pageSettings.marginRightPt * zoom).dp,
-                                top = (doc.pageSettings.marginTopPt * zoom * (if (doc.showHeader) 0.6f else 1f)).dp,
-                                bottom = (doc.pageSettings.marginBottomPt * zoom * (if (doc.showFooter) 0.6f else 1f)).dp
+                                start = (doc.pageSettings.marginLeftPt * pageWidthZoom).dp,
+                                end = (doc.pageSettings.marginRightPt * pageWidthZoom).dp,
+                                top = (doc.pageSettings.marginTopPt * pageWidthZoom * (if (doc.showHeader) 0.6f else 1f)).dp,
+                                bottom = (doc.pageSettings.marginBottomPt * pageWidthZoom * (if (doc.showFooter) 0.6f else 1f)).dp
                             )
                         ) {
                             if (page.entries.isEmpty() && pages.size == 1) {
@@ -651,7 +767,8 @@ fun PagedDocumentView(
                                     is ImageBlock -> ImageView(
                                         img = block, zoom = pageWidthZoom, readOnly = readOnly, selected = selectedBlockId == block.id,
                                         onSelect = { onTopIndexFocus(index); onImageSelect() },
-                                        onDelete = { doc.blocks.removeAt(index) }
+                                        onDelete = { onTextEdit(); doc.blocks.removeAt(index) },
+                                        onObjectChanged = { onTextEdit() }
                                     )
                                     is TableBlock -> TableView(
                                         table = block, zoom = pageWidthZoom, textColor = textColor, readOnly = readOnly, selected = selectedBlockId == block.id,
@@ -659,11 +776,12 @@ fun PagedDocumentView(
                                         onSelect = { onTopIndexFocus(index); onTableSelect() },
                                         onCopy = onCopy, onCut = onCut, onPaste = onPaste,
                                         onSelectAll = onSelectAll, onLink = onLink, onComment = onComment,
-                                        onDelete = { doc.blocks.removeAt(index) }
+                                        onDelete = { onTextEdit(); doc.blocks.removeAt(index) },
+                                        onObjectChanged = { onTextEdit() }
                                     )
                                     is PageBreakBlock -> PageBreakView(readOnly = readOnly, onDelete = { doc.blocks.removeAt(index) })
                                     is TocBlock -> TocView(
-                                        toc = block, textColor = textColor, readOnly = readOnly,
+                                        doc = doc, toc = block, textColor = textColor, readOnly = readOnly,
                                         onRegenerate = { onRegenerateToc(block) },
                                         onDelete = { doc.blocks.removeAt(index) },
                                         onJump = onJumpToBlock
@@ -673,9 +791,10 @@ fun PagedDocumentView(
                         }
                         if (doc.showFooter) {
                             HeaderFooterEditor(
-                                paragraph = doc.footerParagraph, pageNumber = pageIdx + 1,
+                                paragraph = doc.footerParagraph, pageNumber = pageIdx + 1, totalPages = pages.size,
                                 zoom = pageWidthZoom, textColor = textColor, readOnly = readOnly,
                                 label = "Footer",
+                                onChanged = { doc.isDirty = true; doc.lastModified = System.currentTimeMillis() },
                                 bottomPadding = (doc.pageSettings.marginBottomPt * zoom * 0.25f).dp
                             )
                         }
@@ -692,49 +811,79 @@ fun PagedDocumentView(
 
 @Composable
 private fun HeaderFooterEditor(
-    paragraph: ParagraphBlock, pageNumber: Int, zoom: Float, textColor: Color,
-    readOnly: Boolean, label: String, topPadding: Dp = 0.dp, bottomPadding: Dp = 0.dp
+    paragraph: ParagraphBlock, pageNumber: Int, totalPages: Int, zoom: Float, textColor: Color,
+    readOnly: Boolean, label: String, onChanged: () -> Unit = {},
+    topPadding: Dp = 0.dp, bottomPadding: Dp = 0.dp
 ) {
-    val displayText = paragraph.field.text.replace("{page}", pageNumber.toString())
+    val alignment = paragraph.alignmentOverride ?: TextAlign.Center
+    val fieldTransformation = remember(pageNumber, totalPages) {
+        object : VisualTransformation {
+            override fun filter(text: androidx.compose.ui.text.AnnotatedString): TransformedText {
+                val rendered = text.text
+                    .replace("{page}", pageNumber.toString())
+                    .replace("{pages}", totalPages.toString())
+                return TransformedText(
+                    androidx.compose.ui.text.AnnotatedString(rendered),
+                    OffsetMapping.Identity
+                )
+            }
+        }
+    }
     BasicTextField(
         value = paragraph.field,
-        onValueChange = { paragraph.field = it },
+        onValueChange = { paragraph.field = it; onChanged() },
         enabled = !readOnly,
-        textStyle = TextStyle(color = textColor.copy(alpha = 0.65f), fontSize = (10 * zoom).sp, textAlign = TextAlign.Center),
+        textStyle = TextStyle(
+            color = textColor.copy(alpha = 0.72f),
+            fontSize = (10 * zoom).sp,
+            textAlign = alignment
+        ),
         singleLine = true,
+        visualTransformation = fieldTransformation,
+        cursorBrush = SolidColor(bluebirdColors.AccentBlue),
         modifier = Modifier.fillMaxWidth().padding(top = topPadding, bottom = bottomPadding)
     )
     if (paragraph.field.text.isEmpty() && !readOnly) {
-        Text(label, fontSize = (9 * zoom).sp, color = textColor.copy(alpha = 0.25f), modifier = Modifier.fillMaxWidth())
+        Text(
+            label, fontSize = (9 * zoom).sp, color = textColor.copy(alpha = 0.25f),
+            textAlign = alignment, modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
+private fun textColorLuminance(color: Color): Float =
+    0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue
+
 @Composable
 private fun HorizontalRuler(
-    widthPt: Float, zoom: Float, pageSettings: PageSettings,
+    widthPt: Float, zoom: Float, textColor: Color, pageSettings: PageSettings,
     focusedParagraph: ParagraphBlock?, enabled: Boolean,
     onLeftIndentChange: (Float) -> Unit,
     onFirstLineIndentChange: (Float) -> Unit,
     onRightIndentChange: (Float) -> Unit
 ) {
     val rulerHeight = 28.dp
+    val dark = textColorLuminance(textColor) < 0.45f
+    val rulerSurface = if (dark) bluebirdColors.SurfaceContainer else Color(0xFFF3F3F3)
+    val rulerBorder = if (dark) bluebirdColors.GlassBorderDark else Color(0xFFD3D5D8)
+    val rulerMark = if (dark) textColor.copy(alpha = 0.55f) else Color(0xFF8A8A8A).copy(alpha = 0.6f)
     val start = pageSettings.marginLeftPt
     val end = widthPt - pageSettings.marginRightPt
     Box(
         Modifier.width((widthPt * zoom).dp).height(rulerHeight)
-            .background(Color(0xFFF3F3F3), RoundedCornerShape(1.dp))
-            .border(0.5.dp, Color(0xFFD3D5D8), RoundedCornerShape(1.dp))
+            .background(rulerSurface, RoundedCornerShape(1.dp))
+            .border(0.5.dp, rulerBorder, RoundedCornerShape(1.dp))
             .drawBehind {
                 val unit = zoom
                 val inch = 72f * unit
-                drawRect(Color(0xFFF3F3F3))
-                drawRect(Color(0xFFE8E8E8), androidx.compose.ui.geometry.Offset(0f, size.height - 1.dp.toPx()), androidx.compose.ui.geometry.Size(size.width, 1.dp.toPx()))
+                drawRect(rulerSurface)
+                drawRect(rulerBorder.copy(alpha = 0.55f), androidx.compose.ui.geometry.Offset(0f, size.height - 1.dp.toPx()), androidx.compose.ui.geometry.Size(size.width, 1.dp.toPx()))
                 var x = start * unit
                 while (x <= end * unit) {
-                    drawLine(Color(0xFF8A8A8A).copy(alpha = 0.6f), androidx.compose.ui.geometry.Offset(x, size.height), androidx.compose.ui.geometry.Offset(x, size.height - 10.dp.toPx()))
+                    drawLine(rulerMark, androidx.compose.ui.geometry.Offset(x, size.height), androidx.compose.ui.geometry.Offset(x, size.height - 10.dp.toPx()))
                     for (minor in 1..7) {
                         val mx = x + minor * inch / 8f
-                        if (mx < end * unit) drawLine(Color(0xFF9A9A9A).copy(alpha = 0.35f), androidx.compose.ui.geometry.Offset(mx, size.height), androidx.compose.ui.geometry.Offset(mx, size.height - 5.dp.toPx()))
+                        if (mx < end * unit) drawLine(rulerMark.copy(alpha = 0.45f), androidx.compose.ui.geometry.Offset(mx, size.height), androidx.compose.ui.geometry.Offset(mx, size.height - 5.dp.toPx()))
                     }
                     x += inch
                 }
@@ -792,9 +941,9 @@ private fun RulerMarker(x: Float, type: MarkerType, enabled: Boolean, onDrag: (F
 // ---- navigation panel (headings outline) --------------------------------------------------
 
 @Composable
-fun NavigationPanel(doc: WordDocument, textColor: Color, onJump: (String) -> Unit) {
+fun NavigationPanel(doc: WordDocument, textColor: Color, compact: Boolean = false, activeBlockId: String? = null, onJump: (String) -> Unit) {
     val headings = doc.blocks.filterIsInstance<ParagraphBlock>().filter { it.styleId in BuiltInStyles.HEADING_IDS || it.styleId == "title" }
-    Column(Modifier.width(168.dp).fillMaxHeight().padding(6.dp)) {
+    Column(Modifier.width(if (compact) 148.dp else 168.dp).fillMaxHeight().padding(7.dp)) {
         Text("Navigation", color = textColor, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         Spacer(Modifier.height(6.dp))
         if (headings.isEmpty()) {
@@ -805,9 +954,14 @@ fun NavigationPanel(doc: WordDocument, textColor: Color, onJump: (String) -> Uni
                 val h = headings[i]
                 val level = when (h.styleId) { "title" -> 0; "heading1" -> 1; "heading2" -> 2; else -> 3 }
                 Text(
-                    h.field.text.ifBlank { "(untitled)" }, fontSize = 12.sp, color = textColor,
+                    h.field.text.ifBlank { "(untitled)" }, fontSize = 12.sp,
+                    color = if (h.id == activeBlockId) bluebirdColors.AccentBlue else textColor,
+                    fontWeight = if (h.id == activeBlockId) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth().padding(start = (level * 12).dp, top = 4.dp, bottom = 4.dp)
+                    modifier = Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (h.id == activeBlockId) bluebirdColors.AccentBlue.copy(alpha = 0.08f) else Color.Transparent)
+                        .padding(start = (level * 12).dp, top = 6.dp, bottom = 6.dp, end = 4.dp)
                         .clickable { onJump(h.id) })
             }
         }
@@ -816,10 +970,15 @@ fun NavigationPanel(doc: WordDocument, textColor: Color, onJump: (String) -> Uni
 
 
 @Composable
-fun PageThumbnailPanel(doc: WordDocument, textColor: Color, onJump: (String) -> Unit) {
-    val pages = remember(doc.id, doc.blocks.size) { paginate(doc) }
+fun PageThumbnailPanel(doc: WordDocument, textColor: Color, compact: Boolean = false, currentPage: Int = 0, onJump: (String) -> Unit) {
+    val layout = remember(
+        doc.id, doc.blocks.size, doc.pageSettings, doc.showHeader, doc.showFooter,
+        doc.blocks.filterIsInstance<ParagraphBlock>().sumOf { it.field.text.length }
+    ) { layoutDocument(doc) }
+    val pages = layout.pages
+    val palette = rememberWordFluentPalette()
     Column(
-        Modifier.width(86.dp).fillMaxHeight()
+        Modifier.width(if (compact) 78.dp else 92.dp).fillMaxHeight()
             .background(textColor.copy(alpha = 0.035f))
             .padding(6.dp)
     ) {
@@ -833,27 +992,30 @@ fun PageThumbnailPanel(doc: WordDocument, textColor: Color, onJump: (String) -> 
             itemsIndexed(pages) { pageIndex, page ->
                 val first = page.entries.firstOrNull()
                 Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
-                        .border(1.dp, Color.Gray.copy(alpha = 0.25f))
-                        .background(Color.White)
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(5.dp))
+                        .border(
+                            width = if (pageIndex == currentPage) 1.5.dp else 1.dp,
+                            color = if (pageIndex == currentPage) bluebirdColors.AccentBlue else Color.Gray.copy(alpha = 0.25f)
+                        )
+                        .background(if (pageIndex == currentPage) bluebirdColors.AccentBlue.copy(alpha = 0.08f) else palette.pageBackground)
                         .clickable { first?.let { onJump(it.block.id) } }
                         .padding(4.dp)
                 ) {
                     Text(
                         "Page ${pageIndex + 1}",
-                        color = Color.DarkGray, fontSize = 9.sp,
+                        color = if (pageIndex == currentPage) bluebirdColors.AccentBlue else palette.secondaryText, fontSize = 9.sp, fontWeight = if (pageIndex == currentPage) FontWeight.SemiBold else FontWeight.Normal,
                         modifier = Modifier.padding(bottom = 3.dp)
                     )
                     Box(
-                        Modifier.fillMaxWidth().height(84.dp)
-                            .background(Color.White)
+                        Modifier.fillMaxWidth().height(if (compact) 74.dp else 84.dp)
+                            .background(palette.pageBackground)
                     ) {
                         Column(Modifier.fillMaxWidth().padding(5.dp)) {
                             repeat(minOf(10, page.entries.size)) {
                                 Box(
                                     Modifier.fillMaxWidth(if (it == 0) 0.72f else 0.9f)
                                         .height(2.dp)
-                                        .background(Color.LightGray)
+                                        .background(palette.secondaryText.copy(alpha = 0.28f))
                                         .padding(bottom = 5.dp)
                                 )
                                 Spacer(Modifier.height(4.dp))

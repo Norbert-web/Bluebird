@@ -34,10 +34,30 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val WordRibbonBackground = Color(0xFFFFFFFF)
-private val WordRibbonSurface = Color(0xFFF3F2F1)
-val WordRibbonBorder = Color(0xFFD9D9D9)
-val WordRibbonAccent = Color(0xFF185ABD)
+@Composable
+private fun wordRibbonBackground(): Color = rememberWordFluentPalette().ribbonBackground
+
+@Composable
+private fun wordRibbonSurface(): Color = rememberWordFluentPalette().ribbonSurface
+
+@Composable
+fun wordRibbonBorder(): Color = rememberWordFluentPalette().border
+
+@Composable
+fun wordRibbonAccent(): Color = rememberWordFluentPalette().accent
+
+@Composable
+private fun wordRibbonText(): Color = rememberWordFluentPalette().text
+
+@Composable
+private fun wordRibbonSecondaryText(): Color = rememberWordFluentPalette().secondaryText
+
+@Composable
+private fun wordRibbonDisabledText(): Color = rememberWordFluentPalette().secondaryText.copy(alpha = 0.55f)
+
+@Composable
+private fun wordRibbonMenuSurface(): Color = rememberWordFluentPalette().ribbonSurface
+
 
 private val PRESET_COLORS = listOf(
     Color(0xFF1A1A1A), Color(0xFFC00000), Color(0xFF2B579A), Color(0xFF1E7A34),
@@ -79,8 +99,8 @@ fun HomeRibbon(
     Row(
         modifier = Modifier.fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .background(WordRibbonBackground)
-            .padding(horizontal = 4.dp, vertical = 2.dp),
+            .background(wordRibbonBackground())
+            .padding(horizontal = 5.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(1.dp)
     ) {
@@ -88,12 +108,12 @@ fun HomeRibbon(
         RibbonGroup("Clipboard") {
             Box {
                 Column(
-                    modifier = Modifier.width(40.dp).clip(RoundedCornerShape(2.dp))
+                    modifier = Modifier.width(44.dp).heightIn(min = 40.dp).clip(RoundedCornerShape(4.dp))
                         .clickable(enabled = enabled) { onPaste() }
                         .padding(horizontal = 2.dp, vertical = 1.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    FluentIcon("clipboard_paste", modifier = Modifier.size(18.dp), tint = WordRibbonAccent)
+                    FluentIcon("clipboard_paste", modifier = Modifier.size(18.dp), tint = wordRibbonAccent())
                     Text("Paste", fontSize = 6.5.sp, lineHeight = 7.sp)
                 }
                 RibbonDropArrow(onClick = { showPasteMenu = true }, enabled = enabled,
@@ -124,15 +144,15 @@ fun HomeRibbon(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RibbonIconButton("subtract", enabled) { onFontSizeChange((typingOrSelectionStyle.fontSize - 1).coerceAtLeast(8)) }
                 Box(
-                    modifier = Modifier.width(34.dp).height(24.dp).clip(RoundedCornerShape(2.dp))
-                        .background(Color.White).border(1.dp, WordRibbonBorder)
+                    modifier = Modifier.width(38.dp).height(28.dp).clip(RoundedCornerShape(4.dp))
+                        .background(wordRibbonSurface()).border(1.dp, wordRibbonBorder())
                 ) {
                     BasicTextField(
                         value = fontSizeText,
                         onValueChange = { fontSizeText = it.filter(Char::isDigit).take(2) },
                         enabled = enabled,
                         singleLine = true,
-                        textStyle = LocalTextStyle.current.copy(fontSize = 9.sp, color = Color(0xFF202020), textAlign = TextAlign.Center),
+                        textStyle = LocalTextStyle.current.copy(fontSize = 9.sp, color = wordRibbonText(), textAlign = TextAlign.Center),
                         modifier = Modifier.fillMaxSize().padding(horizontal = 3.dp, vertical = 4.dp),
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
                         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
@@ -164,7 +184,7 @@ fun HomeRibbon(
                 RibbonDropArrow(onClick = { showHighlightPicker = true }, enabled = enabled, modifier = Modifier.align(Alignment.BottomEnd).offset(y = (-1).dp))
                 DropdownMenu(expanded = showHighlightPicker, onDismissRequest = { showHighlightPicker = false }) {
                     Row(Modifier.padding(7.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Box(Modifier.size(22.dp).clip(CircleShape).background(Color.White).border(1.dp, WordRibbonBorder).clickable { onHighlightChange(null); showHighlightPicker = false }) {
+                        Box(Modifier.size(22.dp).clip(CircleShape).background(wordRibbonSurface()).border(1.dp, wordRibbonBorder()).clickable { onHighlightChange(null); showHighlightPicker = false }) {
                             FluentIcon("dismiss", modifier = Modifier.size(11.dp), tint = Color.Gray)
                         }
                         PRESET_HIGHLIGHTS.forEach { c ->
@@ -182,14 +202,18 @@ fun HomeRibbon(
             RibbonIconButton("text_indent_decrease_ltr", enabled, onIndentDecrease)
             RibbonIconButton("text_indent_increase_ltr", enabled, onIndentIncrease)
             Box {
+                val alignmentIcon = when (alignment) {
+                    TextAlign.Center -> "text_align_center"
+                    TextAlign.End -> "text_align_right"
+                    TextAlign.Justify -> "text_align_justify_low"
+                    else -> "text_align_left"
+                }
                 RibbonToggleIcon(
-                    when (alignment) {
-                        TextAlign.Center -> "text_align_center"
-                        TextAlign.End -> "text_align_right"
-                        TextAlign.Justify -> "text_align_justify_low"
-                        else -> "text_align_left"
-                    }, alignment != null, enabled
-                ) { showAlignMenu = true }
+                    alignmentIcon,
+                    selected = enabled && alignment != null,
+                    enabled = enabled,
+                    onClick = { showAlignMenu = true }
+                )
                 RibbonDropArrow(onClick = { showAlignMenu = true }, enabled = enabled, modifier = Modifier.align(Alignment.BottomEnd).offset(y = (-1).dp))
                 DropdownMenu(expanded = showAlignMenu, onDismissRequest = { showAlignMenu = false }) {
                     listOf(
@@ -229,7 +253,16 @@ fun HomeRibbon(
                 DropdownMenu(expanded = showStyleMenu, onDismissRequest = { showStyleMenu = false }) {
                     BuiltInStyles.ALL.forEach { st ->
                         DropdownMenuItem(
-                            text = { Text(st.name, fontSize = 12.sp, fontWeight = if (st.bold) FontWeight.Bold else FontWeight.Normal) },
+                            text = {
+                                Text(
+                                    st.name,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (st.bold) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            leadingIcon = if (st.id == currentStyleId) {
+                                { FluentIcon("checkmark", modifier = Modifier.size(15.dp), tint = wordRibbonAccent()) }
+                            } else null,
                             onClick = { onStyleChange(st.id); showStyleMenu = false }
                         )
                     }
@@ -243,13 +276,13 @@ fun HomeRibbon(
 private fun RibbonComboBox(label: String, enabled: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier.width(92.dp).height(24.dp).clip(RoundedCornerShape(2.dp))
-            .background(Color.White).border(1.dp, WordRibbonBorder)
+            .background(wordRibbonSurface()).border(1.dp, wordRibbonBorder())
             .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, fontSize = 9.sp, color = Color(0xFF202020), maxLines = 1, modifier = Modifier.weight(1f))
-        FluentIcon("chevron_down", modifier = Modifier.size(11.dp), tint = Color(0xFF555555))
+        Text(label, fontSize = 9.sp, color = wordRibbonText(), maxLines = 1, modifier = Modifier.weight(1f))
+        FluentIcon("chevron_down", modifier = Modifier.size(11.dp), tint = wordRibbonSecondaryText())
     }
 }
 
@@ -257,8 +290,8 @@ private fun RibbonComboBox(label: String, enabled: Boolean, onClick: () -> Unit)
 private fun RibbonStyleGallery(currentStyleId: String, enabled: Boolean, onStyleChange: (String) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         if (currentStyleId == "__mixed__") {
-            Box(Modifier.width(58.dp).height(34.dp).clip(RoundedCornerShape(2.dp)).background(Color.White).border(1.dp, WordRibbonBorder)) {
-                Text("Multiple", fontSize = 8.sp, color = Color(0xFF555555), modifier = Modifier.align(Alignment.Center))
+            Box(Modifier.width(58.dp).height(34.dp).clip(RoundedCornerShape(2.dp)).background(wordRibbonSurface()).border(1.dp, wordRibbonBorder())) {
+                Text("Multiple", fontSize = 8.sp, color = wordRibbonSecondaryText(), modifier = Modifier.align(Alignment.Center))
             }
         }
         BuiltInStyles.ALL.take(4).forEach { st ->
@@ -267,7 +300,7 @@ private fun RibbonStyleGallery(currentStyleId: String, enabled: Boolean, onStyle
                 st.name, fontSize = 7.sp, maxLines = 1,
                 modifier = Modifier.width(48.dp).height(24.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(if (selected) WordRibbonAccent.copy(alpha = 0.14f) else WordRibbonSurface)
+                    .background(if (selected) wordRibbonAccent().copy(alpha = 0.14f) else wordRibbonSurface())
                     .clickable(enabled = enabled) { onStyleChange(st.id) }
                     .padding(horizontal = 3.dp, vertical = 6.dp)
             )
@@ -279,11 +312,11 @@ private fun RibbonStyleGallery(currentStyleId: String, enabled: Boolean, onStyle
 private fun RibbonDropArrow(onClick: () -> Unit, enabled: Boolean, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier.size(11.dp).clip(RoundedCornerShape(2.dp))
-            .background(WordRibbonBackground.copy(alpha = 0.9f))
+            .background(wordRibbonBackground().copy(alpha = 0.9f))
             .clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        FluentIcon("chevron_down", modifier = Modifier.size(9.dp), tint = Color(0xFF555555))
+        FluentIcon("chevron_down", modifier = Modifier.size(9.dp), tint = wordRibbonSecondaryText())
     }
 }
 
@@ -293,10 +326,12 @@ private fun RibbonDropArrow(onClick: () -> Unit, enabled: Boolean, modifier: Mod
 
 @Composable
 fun InsertRibbon(
+    enabled: Boolean = true,
     onInsertDate: () -> Unit,
     onInsertDivider: () -> Unit,
     onInsertTable: () -> Unit,
     onInsertImage: () -> Unit,
+    onInsertBlankPage: () -> Unit,
     onInsertPageBreak: () -> Unit,
     onInsertLink: () -> Unit,
     onInsertBookmark: () -> Unit,
@@ -307,30 +342,30 @@ fun InsertRibbon(
 ) {
     CompactRibbonSurface {
         RibbonGroup("Pages") {
-            RibbonLabeledAction("document_add", "Blank Page", onInsertPageBreak)
-            RibbonLabeledAction("document", "Page Break", onInsertPageBreak)
+            RibbonLabeledAction("document_add", "Blank Page", onInsertBlankPage, enabled = enabled)
+            RibbonLabeledAction("document", "Page Break", onInsertPageBreak, enabled = enabled)
         }
         RibbonGroup("Tables") {
-            RibbonLabeledAction("table", "Table", onInsertTable)
+            RibbonLabeledAction("table", "Table", onInsertTable, enabled = enabled)
         }
         RibbonGroup("Illustrations") {
-            RibbonLabeledAction("image", "Pictures", onInsertImage)
+            RibbonLabeledAction("image", "Pictures", onInsertImage, enabled = enabled)
         }
         RibbonGroup("Links") {
-            RibbonLabeledAction("link", "Link", onInsertLink)
-            RibbonLabeledAction("bookmark", "Bookmark", onInsertBookmark)
+            RibbonLabeledAction("link", "Link", onInsertLink, enabled = enabled)
+            RibbonLabeledAction("bookmark", "Bookmark", onInsertBookmark, enabled = enabled)
         }
         RibbonGroup("Header & Footer") {
-            RibbonLabeledAction("text_header_1", "Header", onToggleHeader)
-            RibbonLabeledAction("text_footer", "Footer", onToggleFooter)
-            RibbonLabeledAction("number_symbol", "Page #", onInsertPageNumberField)
+            RibbonLabeledAction("text_header_1", "Header", onToggleHeader, enabled = enabled)
+            RibbonLabeledAction("text_footer", "Footer", onToggleFooter, enabled = enabled)
+            RibbonLabeledAction("number_symbol", "Page #", onInsertPageNumberField, enabled = enabled)
         }
         RibbonGroup("Text") {
-            RibbonLabeledAction("calendar", "Date", onInsertDate)
-            RibbonLabeledAction("text_insert", "Divider", onInsertDivider)
+            RibbonLabeledAction("calendar", "Date", onInsertDate, enabled = enabled)
+            RibbonLabeledAction("text_insert", "Divider", onInsertDivider, enabled = enabled)
         }
         RibbonGroup("Symbols") {
-            RibbonLabeledAction("omega", "Symbol", onInsertSymbol)
+            RibbonLabeledAction("omega", "Symbol", onInsertSymbol, enabled = enabled)
         }
     }
 }
@@ -342,23 +377,59 @@ fun InsertRibbon(
 @Composable
 fun LayoutRibbon(
     onPageSetup: () -> Unit,
-    onMargins: () -> Unit
+    onMargins: () -> Unit,
+    onMarginsPreset: (Float) -> Unit,
+    onOrientationChange: (String) -> Unit,
+    onIndentChange: (Float) -> Unit,
+    onSpacingChange: (Int, Int) -> Unit,
+    currentOrientation: String,
+    currentParagraph: ParagraphBlock?,
+    enabled: Boolean
 ) {
+    var showOrientationMenu by remember { mutableStateOf(false) }
+    var showMarginsMenu by remember { mutableStateOf(false) }
+    var showSpacingMenu by remember { mutableStateOf(false) }
     CompactRibbonSurface {
         RibbonGroup("Page Setup") {
             RibbonLabeledAction("document_text", "Size", onPageSetup)
-            RibbonLabeledAction("settings", "Orientation", onPageSetup)
-            RibbonLabeledAction("text_align_justify_low", "Margins", onMargins)
-        }
-        RibbonGroup("Page Background") {
-            RibbonLabeledAction("text_color", "Color") { }
-            RibbonLabeledAction("image", "Watermark") { }
-            RibbonLabeledAction("border_all", "Borders") { }
+            Box {
+                RibbonLabeledAction("settings", if (currentOrientation == "landscape") "Landscape" else "Portrait", onClick = { showOrientationMenu = true }, enabled = enabled)
+                DropdownMenu(expanded = showOrientationMenu, onDismissRequest = { showOrientationMenu = false }) {
+                    DropdownMenuItem(text = { Text("Portrait") }, onClick = { onOrientationChange("portrait"); showOrientationMenu = false })
+                    DropdownMenuItem(text = { Text("Landscape") }, onClick = { onOrientationChange("landscape"); showOrientationMenu = false })
+                }
+            }
+            Box {
+                RibbonLabeledAction("text_align_justify_low", "Margins", onClick = { showMarginsMenu = true }, enabled = enabled)
+                DropdownMenu(expanded = showMarginsMenu, onDismissRequest = { showMarginsMenu = false }) {
+                    listOf(36f to "Narrow", 54f to "Moderate", 72f to "Normal", 108f to "Wide").forEach { (margin, label) ->
+                        DropdownMenuItem(
+                            text = { Text("$label (${margin.toInt()} pt)") },
+                            onClick = { onMarginsPreset(margin); showMarginsMenu = false }
+                        )
+                    }
+                }
+            }
         }
         RibbonGroup("Paragraph") {
-            RibbonLabeledAction("text_indent_decrease_ltr", "Indent ↓") { }
-            RibbonLabeledAction("text_indent_increase_ltr", "Indent ↑") { }
-            RibbonLabeledAction("text_line_spacing", "Spacing") { }
+            RibbonLabeledAction("text_indent_decrease_ltr", "Indent ←", onClick = { onIndentChange(-18f) }, enabled = enabled)
+            RibbonLabeledAction("text_indent_increase_ltr", "Indent →", onClick = { onIndentChange(18f) }, enabled = enabled)
+            Box {
+                RibbonLabeledAction("text_line_spacing", "Spacing", onClick = { showSpacingMenu = true }, enabled = enabled)
+                DropdownMenu(expanded = showSpacingMenu, onDismissRequest = { showSpacingMenu = false }) {
+                    listOf(0 to "Tight", 6 to "Compact", 8 to "Normal", 14 to "Relaxed").forEach { (after, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = { onSpacingChange(0, after); showSpacingMenu = false }
+                        )
+                    }
+                }
+            }
+        }
+        RibbonGroup("Page Background") {
+            RibbonLabeledAction("document_text", "Page", onPageSetup)
+            RibbonLabeledAction("border_all", "Borders", onPageSetup)
+            RibbonLabeledAction("image", "Watermark", onPageSetup)
         }
     }
 }
@@ -371,7 +442,8 @@ fun LayoutRibbon(
 fun ReferencesRibbon(
     navPanelOpen: Boolean, bookmarks: List<Bookmark>,
     onInsertToc: () -> Unit, onJumpToBookmark: (String) -> Unit, onDeleteBookmark: (String) -> Unit,
-    onInsertFootnote: () -> Unit, onInsertEndnote: () -> Unit, onToggleNavPanel: () -> Unit
+    onInsertFootnote: () -> Unit, onInsertEndnote: () -> Unit, onToggleNavPanel: () -> Unit,
+    onCrossReference: () -> Unit = {}
 ) {
     var showBookmarkMenu by remember { mutableStateOf(false) }
     CompactRibbonSurface {
@@ -383,16 +455,16 @@ fun ReferencesRibbon(
             RibbonLabeledAction("note_add", "Endnote", onInsertEndnote)
         }
         RibbonGroup("Citations") {
-            RibbonLabeledAction("book", "Sources") { }
-            RibbonLabeledAction("document_text", "Bibliography") { }
+            RibbonLabeledAction("book", "Sources", onClick = { })
+            RibbonLabeledAction("document_text", "Bibliography", onClick = { })
         }
         RibbonGroup("Captions") {
-            RibbonLabeledAction("text_add", "Caption") { }
-            RibbonLabeledAction("list", "Cross-ref") { }
+            RibbonLabeledAction("text_add", "Caption", onClick = { })
+            RibbonLabeledAction("list", "Cross-ref", onCrossReference)
         }
         RibbonGroup("Navigate") {
             Box {
-                RibbonLabeledAction("bookmark", "Bookmark") { showBookmarkMenu = true }
+                RibbonLabeledAction("bookmark", "Bookmark", onClick = { showBookmarkMenu = true })
                 BookmarkMenu(
                     bookmarks = bookmarks, expanded = showBookmarkMenu,
                     onDismiss = { showBookmarkMenu = false }, onJump = onJumpToBookmark, onDelete = onDeleteBookmark
@@ -410,20 +482,25 @@ fun ReferencesRibbon(
 @Composable
 fun ReviewRibbon(
     enabled: Boolean,
+    commentCount: Int,
+    unresolvedCount: Int,
+    noteCount: Int,
     onFind: () -> Unit,
     onAddComment: () -> Unit,
     onShowComments: () -> Unit,
+    onReviewCenter: () -> Unit,
     onToggleReadOnly: () -> Unit
 ) {
     CompactRibbonSurface {
         RibbonGroup("Proofing") {
-            RibbonLabeledAction("text_grammar_error", "Spelling") { }
+            RibbonLabeledAction("text_grammar_error", "Spelling", onClick = { })
             RibbonLabeledAction("search", "Find", onFind)
-            RibbonLabeledAction("document_text", "Word Count") { }
+            RibbonLabeledAction("document_text", "Word Count", onClick = { })
         }
         RibbonGroup("Comments") {
-            RibbonLabeledAction("comment_add", "New Comment", onAddComment)
-            RibbonLabeledAction("comment", "Comments", onShowComments)
+            RibbonLabeledAction("comment_add", "New Comment", onAddComment, enabled = enabled)
+            RibbonLabeledAction("comment", if (unresolvedCount > 0) "Comments $unresolvedCount" else "Comments", onShowComments, enabled = enabled || commentCount > 0)
+            RibbonLabeledAction("panel_left", "Review Pane", onReviewCenter, enabled = enabled || commentCount > 0 || noteCount > 0)
         }
         RibbonGroup("Protect") {
             RibbonLabeledAction(if (enabled) "edit" else "edit_off", if (enabled) "Editing" else "Read Only", onToggleReadOnly)
@@ -477,7 +554,7 @@ private fun CompactRibbonSurface(content: @Composable RowScope.() -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .background(WordRibbonBackground)
+            .background(wordRibbonBackground())
             .padding(horizontal = 3.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(1.dp),
@@ -492,12 +569,12 @@ private fun RibbonGroup(label: String, content: @Composable RowScope.() -> Unit)
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(
-            modifier = Modifier.height(26.dp),
+            modifier = Modifier.height(30.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(1.dp),
             content = content
         )
-        Text(label, fontSize = 6.2.sp, color = Color(0xFF666666), maxLines = 1)
+        Text(label, fontSize = 6.8.sp, color = wordRibbonSecondaryText(), maxLines = 1)
     }
     RibbonDivider()
 }
@@ -505,14 +582,14 @@ private fun RibbonGroup(label: String, content: @Composable RowScope.() -> Unit)
 @Composable
 private fun RibbonToggleLabeled(icon: String, selected: Boolean, label: String, onClick: () -> Unit) {
     Column(
-        modifier = Modifier.width(45.dp).height(36.dp).clip(RoundedCornerShape(2.dp))
-            .background(if (selected) WordRibbonAccent.copy(alpha = 0.13f) else Color.Transparent)
+        modifier = Modifier.width(50.dp).height(42.dp).clip(RoundedCornerShape(4.dp))
+            .background(if (selected) wordRibbonAccent().copy(alpha = 0.13f) else Color.Transparent)
             .clickable { onClick() }
             .padding(2.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        FluentIcon(icon, null, tint = if (selected) WordRibbonAccent else Color(0xFF333333), modifier = Modifier.size(16.dp), filled = selected)
-        Text(label, fontSize = 6.5.sp, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        FluentIcon(icon, null, tint = if (selected) wordRibbonAccent() else wordRibbonText(), modifier = Modifier.size(16.dp), filled = selected)
+        Text(label, fontSize = 6.8.sp, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -531,7 +608,7 @@ fun WordDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
         shape = RoundedCornerShape(3.dp),
-        containerColor = Color.White,
+        containerColor = wordRibbonMenuSurface(),
         tonalElevation = 0.dp,
         shadowElevation = 8.dp,
         modifier = Modifier.widthIn(min = 190.dp, max = 270.dp)
@@ -560,25 +637,25 @@ fun WordMenuItem(
     ) {
         Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
             if (checked) {
-                FluentIcon("checkmark", "Selected", modifier = Modifier.size(14.dp), tint = WordRibbonAccent)
+                FluentIcon("checkmark", "Selected", modifier = Modifier.size(14.dp), tint = wordRibbonAccent())
             } else if (icon != null) {
-                FluentIcon(icon, label, modifier = Modifier.size(15.dp), tint = if (enabled) Color(0xFF333333) else Color(0xFFAAAAAA))
+                FluentIcon(icon, label, modifier = Modifier.size(15.dp), tint = if (enabled) wordRibbonText() else wordRibbonDisabledText())
             }
         }
         Spacer(Modifier.width(8.dp))
         Text(
-            label, fontSize = 11.sp, color = if (enabled) Color(0xFF222222) else Color(0xFF999999),
+            label, fontSize = 11.sp, color = if (enabled) wordRibbonText() else wordRibbonDisabledText(),
             modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis
         )
         if (shortcut != null) {
-            Text(shortcut, fontSize = 9.sp, color = Color(0xFF777777))
+            Text(shortcut, fontSize = 9.sp, color = wordRibbonSecondaryText())
         }
     }
 }
 
 @Composable
 fun WordMenuDivider() {
-    HorizontalDivider(Modifier.padding(vertical = 3.dp), color = Color(0xFFE4E4E4))
+    HorizontalDivider(Modifier.padding(vertical = 3.dp), color = wordRibbonBorder())
 }
 
 // ============================================================================================
@@ -586,16 +663,16 @@ fun WordMenuDivider() {
 // ============================================================================================
 
 @Composable fun RibbonDivider() {
-    Box(Modifier.width(1.dp).height(37.dp).padding(vertical = 3.dp).background(WordRibbonBorder))
+    Box(Modifier.width(1.dp).height(37.dp).padding(vertical = 3.dp).background(wordRibbonBorder()))
 }
 
 @Composable
 fun RibbonChip(label: String, enabled: Boolean, onClick: () -> Unit) {
     Text(
-        label, fontSize = 7.5.sp, color = Color(0xFF202020), maxLines = 1,
+        label, fontSize = 7.5.sp, color = wordRibbonText(), maxLines = 1,
         modifier = Modifier.clip(RoundedCornerShape(2.dp))
-            .background(WordRibbonSurface)
-            .border(1.dp, WordRibbonBorder, RoundedCornerShape(2.dp))
+            .background(wordRibbonSurface())
+            .border(1.dp, wordRibbonBorder(), RoundedCornerShape(2.dp))
             .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 5.dp, vertical = 4.dp)
     )
@@ -604,8 +681,9 @@ fun RibbonChip(label: String, enabled: Boolean, onClick: () -> Unit) {
 @Composable
 fun RibbonIconButton(icon: String, enabled: Boolean, onClick: () -> Unit) {
     Box(
-        modifier = Modifier.size(24.dp)
-            .clip(RoundedCornerShape(2.dp))
+        modifier = Modifier.size(30.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(if (enabled) Color.Transparent else wordRibbonBackground().copy(alpha = 0.35f))
             .clickable(enabled = enabled, onClick = onClick)
             .semantics { contentDescription = icon.replace('_', ' ') },
         contentAlignment = Alignment.Center
@@ -617,26 +695,33 @@ fun RibbonIconButton(icon: String, enabled: Boolean, onClick: () -> Unit) {
 @Composable
 fun RibbonToggleIcon(icon: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Box(
-        modifier = Modifier.size(24.dp).clip(RoundedCornerShape(2.dp))
-            .background(if (selected) WordRibbonAccent.copy(alpha = 0.15f) else Color.Transparent)
-            .border(if (selected) 1.dp else 0.dp, if (selected) WordRibbonAccent.copy(alpha = 0.35f) else Color.Transparent, RoundedCornerShape(2.dp))
+        modifier = Modifier.size(30.dp).clip(RoundedCornerShape(4.dp))
+            .background(if (selected) wordRibbonAccent().copy(alpha = 0.15f) else Color.Transparent)
+            .border(if (selected) 1.dp else 0.dp, if (selected) wordRibbonAccent().copy(alpha = 0.35f) else Color.Transparent, RoundedCornerShape(2.dp))
             .clickable(enabled = enabled) { onClick() }
             .semantics { contentDescription = icon.replace('_', ' ') },
         contentAlignment = Alignment.Center
     ) {
-        FluentIcon(icon, null, tint = if (selected) WordRibbonAccent else Color(0xFF333333), modifier = Modifier.size(16.dp), filled = selected)
+        FluentIcon(icon, null, tint = if (selected) wordRibbonAccent() else wordRibbonText(), modifier = Modifier.size(16.dp), filled = selected)
     }
 }
 
 @Composable
-fun RibbonLabeledAction(icon: String, label: String, onClick: () -> Unit) {
+fun RibbonLabeledAction(
+    icon: String,
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
+    val tint = if (enabled) wordRibbonText() else wordRibbonDisabledText()
     Column(
-        modifier = Modifier.width(44.dp).height(36.dp).clip(RoundedCornerShape(2.dp))
-            .clickable { onClick() }.padding(2.dp),
+        modifier = Modifier.width(50.dp).height(42.dp).clip(RoundedCornerShape(4.dp))
+            .background(if (enabled) Color.Transparent else wordRibbonBackground().copy(alpha = 0.25f))
+            .clickable(enabled = enabled) { onClick() }.padding(2.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        FluentIcon(icon, null, tint = Color(0xFF333333), modifier = Modifier.size(16.dp))
-        Text(label, fontSize = 6.5.sp, textAlign = TextAlign.Center, lineHeight = 7.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        FluentIcon(icon, null, tint = tint, modifier = Modifier.size(16.dp))
+        Text(label, color = tint, fontSize = 6.8.sp, textAlign = TextAlign.Center, lineHeight = 7.4.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -749,6 +834,108 @@ fun CommentsDialog(
                             Row {
                                 if (!c.resolved) TextButton(onClick = { onResolve(c.id) }) { Text("Resolve") }
                                 TextButton(onClick = { onDelete(c.id) }) { Text("Delete") }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
+    )
+}
+
+@Composable
+fun ReviewCenterDialog(
+    comments: List<DocumentComment>,
+    notes: List<DocumentNote>,
+    onJump: (String) -> Unit,
+    onResolve: (String, Boolean) -> Unit,
+    onDeleteComment: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var tab by remember { mutableIntStateOf(0) }
+    var showResolved by remember { mutableStateOf(true) }
+    val visibleComments = comments.filter { showResolved || !it.resolved }
+    val unresolved = comments.count { !it.resolved }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Review center")
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "${comments.size} comments • $unresolved open • ${notes.size} notes",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(Modifier.heightIn(max = 500.dp)) {
+                TabRow(selectedTabIndex = tab) {
+                    Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Comments") })
+                    Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Notes") })
+                }
+                Spacer(Modifier.height(8.dp))
+                if (tab == 0) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = showResolved, onCheckedChange = { showResolved = it })
+                        Text("Show resolved", fontSize = 12.sp)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    if (visibleComments.isEmpty()) {
+                        Text("No comments match this filter.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    } else {
+                        Column(Modifier.verticalScroll(rememberScrollState())) {
+                            visibleComments.forEach { c ->
+                                Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                    Column(Modifier.padding(10.dp)) {
+                                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                            Box(Modifier.size(7.dp).clip(CircleShape).background(
+                                                if (c.resolved) MaterialTheme.colorScheme.outline else bluebirdColors.AccentBlue
+                                            ))
+                                            Spacer(Modifier.width(7.dp))
+                                            Text(c.author.ifBlank { "Author" }, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                            Text(if (c.resolved) "Resolved" else "Open", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        if (c.quotedText.isNotBlank()) {
+                                            Text(
+                                                "“${c.quotedText}”", fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 3, overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.padding(top = 5.dp)
+                                            )
+                                        }
+                                        Text(c.text, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                            TextButton(onClick = { onJump(c.blockId); onDismiss() }, enabled = c.blockId.isNotBlank()) { Text("Go to") }
+                                            TextButton(onClick = { onResolve(c.id, !c.resolved) }) { Text(if (c.resolved) "Reopen" else "Resolve") }
+                                            TextButton(onClick = { onDeleteComment(c.id) }) { Text("Delete") }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if (notes.isEmpty()) {
+                        Text("No footnotes or endnotes yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    } else {
+                        Column(Modifier.verticalScroll(rememberScrollState())) {
+                            notes.forEach { n ->
+                                Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                    Column(Modifier.padding(10.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("${n.marker}.", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(if (n.isEndnote) "Endnote" else "Footnote", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Text(n.text, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp))
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                            TextButton(onClick = { onJump(n.blockId); onDismiss() }, enabled = n.blockId.isNotBlank()) { Text("Go to") }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1029,6 +1216,49 @@ fun BookmarkMenu(bookmarks: List<Bookmark>, expanded: Boolean, onDismiss: () -> 
 }
 
 @Composable
+fun CrossReferenceDialog(
+    targets: List<ReferenceTarget>,
+    onDismiss: () -> Unit,
+    onInsert: (ReferenceTarget, Boolean) -> Unit
+) {
+    var selectedId by remember(targets) { mutableStateOf(targets.firstOrNull()?.id) }
+    var includePage by remember { mutableStateOf(true) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Cross-reference") },
+        text = {
+            Column(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+                Text("Reference", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+                if (targets.isEmpty()) {
+                    Text("Add a heading or bookmark first.", fontSize = 12.sp)
+                } else {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        targets.forEach { target ->
+                            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
+                                .background(if (target.id == selectedId) bluebirdColors.AccentBlue.copy(alpha = 0.10f) else Color.Transparent)
+                                .clickable { selectedId = target.id }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = target.id == selectedId, onClick = { selectedId = target.id })
+                                Text(target.label, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = includePage, onCheckedChange = { includePage = it })
+                    Text("Include page number", fontSize = 12.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = selectedId != null, onClick = { targets.firstOrNull { it.id == selectedId }?.let { onInsert(it, includePage) } }) { Text("Insert") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
 fun RecoveryDialog(count: Int, onRestore: () -> Unit, onDiscard: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDiscard,
@@ -1095,7 +1325,7 @@ fun TableContextRibbon(
 private fun CompactRibbonRow(content: @Composable RowScope.() -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-            .background(WordRibbonBackground).padding(horizontal = 4.dp, vertical = 3.dp),
+            .background(wordRibbonBackground()).padding(horizontal = 4.dp, vertical = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         content = content
     )
@@ -1104,12 +1334,12 @@ private fun CompactRibbonRow(content: @Composable RowScope.() -> Unit) {
 @Composable
 private fun RibbonCompactAction(icon: String, label: String, onClick: () -> Unit) {
     Column(
-        modifier = Modifier.width(42.dp).clip(RoundedCornerShape(4.dp))
+        modifier = Modifier.width(48.dp).heightIn(min = 42.dp).clip(RoundedCornerShape(6.dp))
             .clickable { onClick() }.padding(3.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        FluentIcon(icon, null, tint = bluebirdColors.AccentBlue, modifier = Modifier.size(16.dp))
-        Text(label, fontSize = 7.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        FluentIcon(icon, null, tint = wordRibbonAccent(), modifier = Modifier.size(18.dp))
+        Text(label, color = wordRibbonText(), fontSize = 7.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -1126,42 +1356,59 @@ fun TextSelectionMiniToolbar(
     onUnderline: () -> Unit,
     onFontSizeChange: (Int) -> Unit,
     onHighlight: () -> Unit,
-    onColor: () -> Unit
+    onColor: () -> Unit,
+    onCopy: () -> Unit = {},
+    onCut: () -> Unit = {},
+    onClearFormatting: () -> Unit = {},
+    onDismiss: () -> Unit = {}
 ) {
     Surface(
-        modifier = modifier.wrapContentWidth().height(34.dp),
-        shape = RoundedCornerShape(4.dp),
-        shadowElevation = 5.dp,
-        tonalElevation = 2.dp,
-        color = Color.White
+        modifier = modifier.wrapContentWidth().heightIn(min = 38.dp, max = 44.dp),
+        shape = RoundedCornerShape(10.dp),
+        shadowElevation = 8.dp,
+        tonalElevation = 3.dp,
+        color = wordRibbonMenuSurface()
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 3.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(1.dp)
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             MiniFormatButton("text_bold", style.bold, enabled, onBold)
             MiniFormatButton("text_italic", style.italic, enabled, onItalic)
             MiniFormatButton("text_underline", style.underline, enabled, onUnderline)
+            RibbonMiniDivider()
             MiniFormatButton("subtract", false, enabled) { onFontSizeChange((style.fontSize - 1).coerceAtLeast(8)) }
-            Text(style.fontSize.toString(), fontSize = 9.sp, modifier = Modifier.width(22.dp), textAlign = TextAlign.Center)
+            Text(style.fontSize.toString(), fontSize = 9.sp, color = wordRibbonText(), modifier = Modifier.width(24.dp), textAlign = TextAlign.Center)
             MiniFormatButton("add", false, enabled) { onFontSizeChange((style.fontSize + 1).coerceAtMost(96)) }
+            RibbonMiniDivider()
             MiniFormatButton("color_background", false, enabled, onHighlight)
             MiniFormatButton("text_color", false, enabled, onColor)
+            RibbonMiniDivider()
+            MiniFormatButton("content_copy", false, enabled, onCopy)
+            MiniFormatButton("content_cut", false, enabled, onCut)
+            MiniFormatButton("text_clear_formatting", false, enabled, onClearFormatting)
+            RibbonMiniDivider()
+            MiniFormatButton("dismiss", false, enabled, onDismiss)
         }
     }
+}
+
+@Composable
+private fun RibbonMiniDivider() {
+    Box(Modifier.padding(horizontal = 2.dp).width(1.dp).height(20.dp).background(wordRibbonBorder()))
 }
 
 @Composable
 private fun MiniFormatButton(icon: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.size(28.dp).clip(RoundedCornerShape(3.dp))
-            .background(if (selected) WordRibbonAccent.copy(alpha = 0.13f) else Color.Transparent)
-            .border(if (selected) 1.dp else 0.dp, if (selected) WordRibbonAccent.copy(alpha = 0.35f) else Color.Transparent, RoundedCornerShape(3.dp))
+            .background(if (selected) wordRibbonAccent().copy(alpha = 0.13f) else Color.Transparent)
+            .border(if (selected) 1.dp else 0.dp, if (selected) wordRibbonAccent().copy(alpha = 0.35f) else Color.Transparent, RoundedCornerShape(3.dp))
             .clickable(enabled = enabled, onClick = onClick)
             .semantics { contentDescription = icon.replace('_', ' ') },
         contentAlignment = Alignment.Center
     ) {
-        FluentIcon(icon, modifier = Modifier.size(15.dp), tint = if (selected) WordRibbonAccent else Color(0xFF303030), filled = selected)
+        FluentIcon(icon, modifier = Modifier.size(15.dp), tint = if (selected) wordRibbonAccent() else wordRibbonText(), filled = selected)
     }
 }

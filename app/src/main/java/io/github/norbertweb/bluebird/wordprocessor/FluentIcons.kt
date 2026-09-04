@@ -5,23 +5,91 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
+
 import fluent.ui.system.icons.FluentIcons
-import fluent.ui.system.icons.filled.*
-import fluent.ui.system.icons.regular.*
+import fluent.ui.system.icons.regular.Add
+import fluent.ui.system.icons.regular.ArrowReply
+import fluent.ui.system.icons.regular.ArrowRotateClockwise
+import fluent.ui.system.icons.regular.CalendarLtr
+import fluent.ui.system.icons.regular.Checkmark
+import fluent.ui.system.icons.regular.CheckmarkCircle
+import fluent.ui.system.icons.regular.ChevronDown
+import fluent.ui.system.icons.regular.ClipboardPaste
+import fluent.ui.system.icons.regular.Copy
+import fluent.ui.system.icons.regular.Cut
+import fluent.ui.system.icons.regular.Delete
+import fluent.ui.system.icons.regular.Dismiss
+import fluent.ui.system.icons.regular.Document
+import fluent.ui.system.icons.regular.DocumentPdf
+import fluent.ui.system.icons.regular.DocumentText
+import fluent.ui.system.icons.regular.Edit
+import fluent.ui.system.icons.regular.FolderOpen
+import fluent.ui.system.icons.regular.FullScreenMaximize
+import fluent.ui.system.icons.regular.FullScreenMinimize
+import fluent.ui.system.icons.regular.Grid
+import fluent.ui.system.icons.regular.Image
+import fluent.ui.system.icons.regular.Link
+import fluent.ui.system.icons.regular.List
+import fluent.ui.system.icons.regular.LockClosed
+import fluent.ui.system.icons.regular.MoreHorizontal
+import fluent.ui.system.icons.regular.Pin
+import fluent.ui.system.icons.regular.Print
+import fluent.ui.system.icons.regular.Save
+import fluent.ui.system.icons.regular.Search
+import fluent.ui.system.icons.regular.Settings
+import fluent.ui.system.icons.regular.Share
+import fluent.ui.system.icons.regular.Subtract
+import fluent.ui.system.icons.regular.Table
+import fluent.ui.system.icons.regular.TextFont
+import fluent.ui.system.icons.regular.WindowConsole
 
 /**
- * Single icon gateway for Word Impress.
+ * Word Processor icon gateway.
  *
- * Artwork is now supplied by io.github.niyajali:fluentui-system-icons:1.0.1.
- * The API exposes Microsoft Fluent System Icons as type-safe Compose ImageVectors,
- * so the word processor no longer depends on Android drawable/resource-name lookup.
- *
- * The string names are intentionally kept stable so the rest of the existing UI does
- * not need to change while the underlying icon provider is migrated.
+ * Follows the same pattern as the main shell's FluentIcon.kt: a flat object
+ * of vals exposing FluentIcons.Regular.X directly, plus a name->icon lookup
+ * for WordImpress's toolbar/menu code. No Painter conversion — Icon() only
+ * ever needs the ImageVector itself.
  */
+private object WordImpressIcon {
+    val Add             = FluentIcons.Regular.Add
+    val ArrowRedo        = FluentIcons.Regular.ArrowReply
+    val ArrowUndo        = FluentIcons.Regular.ArrowReply
+    val ArrowRotateClockwise = FluentIcons.Regular.ArrowRotateClockwise
+    val Calendar         = FluentIcons.Regular.CalendarLtr
+    val Checkmark        = FluentIcons.Regular.Checkmark
+    val CheckmarkCircle  = FluentIcons.Regular.CheckmarkCircle
+    val ChevronDown      = FluentIcons.Regular.ChevronDown
+    val ClipboardPaste   = FluentIcons.Regular.ClipboardPaste
+    val Copy             = FluentIcons.Regular.Copy
+    val Cut              = FluentIcons.Regular.Cut
+    val Delete           = FluentIcons.Regular.Delete
+    val Dismiss          = FluentIcons.Regular.Dismiss
+    val Document         = FluentIcons.Regular.Document
+    val DocumentPdf      = FluentIcons.Regular.DocumentPdf
+    val DocumentText     = FluentIcons.Regular.DocumentText
+    val Edit             = FluentIcons.Regular.Edit
+    val FolderOpen       = FluentIcons.Regular.FolderOpen
+    val FullScreenMaximize = FluentIcons.Regular.FullScreenMaximize
+    val FullScreenMinimize = FluentIcons.Regular.FullScreenMinimize
+    val Grid             = FluentIcons.Regular.Grid
+    val Image            = FluentIcons.Regular.Image
+    val Link             = FluentIcons.Regular.Link
+    val List             = FluentIcons.Regular.List
+    val LockClosed       = FluentIcons.Regular.LockClosed
+    val MoreHorizontal   = FluentIcons.Regular.MoreHorizontal
+    val Pin              = FluentIcons.Regular.Pin
+    val Print            = FluentIcons.Regular.Print
+    val Save             = FluentIcons.Regular.Save
+    val Search           = FluentIcons.Regular.Search
+    val Settings         = FluentIcons.Regular.Settings
+    val Share            = FluentIcons.Regular.Share
+    val Subtract         = FluentIcons.Regular.Subtract
+    val Table            = FluentIcons.Regular.Table
+    val TextFont         = FluentIcons.Regular.TextFont
+    val WindowConsole    = FluentIcons.Regular.WindowConsole
+}
+
 @Composable
 fun FluentIcon(
     name: String,
@@ -31,65 +99,62 @@ fun FluentIcon(
     filled: Boolean = false,
     size: Int = 24
 ) {
-    // `size` is retained for source compatibility with the existing UI. Fluent's
-    // Compose vectors are resolution-independent, so their rendered size is controlled
-    // by the caller's Modifier.size(...).
-    @Suppress("UNUSED_VARIABLE")
-    val requestedSize = size
+    @Suppress("UNUSED_PARAMETER")
+    val ignoredFilled = filled
+    @Suppress("UNUSED_PARAMETER")
+    val ignoredSize = size
     Icon(
-        imageVector = fluentImageVector(name, filled),
+        imageVector = fluentImageVector(name),
         contentDescription = contentDescription,
         tint = tint,
         modifier = modifier
     )
 }
 
-/**
- * Convenience painter for places that need a Painter instead of an Icon composable.
- */
-@Composable
-fun fluentIconPainter(name: String, filled: Boolean = false, size: Int = 24): Painter {
-    @Suppress("UNUSED_VARIABLE")
-    val requestedSize = size
-    return rememberVectorPainter(fluentImageVector(name, filled))
-}
-
-private fun fluentImageVector(name: String, filled: Boolean): ImageVector = when (name) {
-    "add" -> if (filled) FluentIcons.Filled.Add else FluentIcons.Regular.Add
-    "arrow_clockwise" -> if (filled) FluentIcons.Filled.ArrowClockwise else FluentIcons.Regular.ArrowClockwise
-    "arrow_redo" -> if (filled) FluentIcons.Filled.ArrowRedo else FluentIcons.Regular.ArrowRedo
-    "arrow_rotate_clockwise" -> if (filled) FluentIcons.Filled.ArrowRotateClockwise else FluentIcons.Regular.ArrowRotateClockwise
-    "arrow_undo" -> if (filled) FluentIcons.Filled.ArrowUndo else FluentIcons.Regular.ArrowUndo
-    "checkmark" -> if (filled) FluentIcons.Filled.Checkmark else FluentIcons.Regular.Checkmark
-    "chevron_down" -> if (filled) FluentIcons.Filled.ChevronDown else FluentIcons.Regular.ChevronDown
-    "clipboard_paste" -> if (filled) FluentIcons.Filled.ClipboardPaste else FluentIcons.Regular.ClipboardPaste
-    "circle" -> if (filled) FluentIcons.Filled.Circle else FluentIcons.Regular.Circle
-    "copy" -> if (filled) FluentIcons.Filled.Copy else FluentIcons.Regular.Copy
-    "cut" -> if (filled) FluentIcons.Filled.Cut else FluentIcons.Regular.Cut
-    "delete" -> if (filled) FluentIcons.Filled.Delete else FluentIcons.Regular.Delete
-    "dismiss" -> if (filled) FluentIcons.Filled.Dismiss else FluentIcons.Regular.Dismiss
-    "document_page_number" -> if (filled) FluentIcons.Filled.DocumentPageNumber else FluentIcons.Regular.DocumentPageNumber
-    "document_pdf" -> if (filled) FluentIcons.Filled.DocumentPdf else FluentIcons.Regular.DocumentPdf
-    "document_text" -> if (filled) FluentIcons.Filled.DocumentText else FluentIcons.Regular.DocumentText
-    "text_color" -> if (filled) FluentIcons.Filled.TextColor else FluentIcons.Regular.TextColor
-    "color_background" -> if (filled) FluentIcons.Filled.ColorBackground else FluentIcons.Regular.ColorBackground
-    "text_clear_formatting" -> if (filled) FluentIcons.Filled.TextClearFormatting else FluentIcons.Regular.TextClearFormatting
-    "text_indent_decrease_ltr" -> FluentIcons.Regular.TextLineSpacing
-    "text_indent_increase_ltr" -> FluentIcons.Regular.TextLineSpacing
-    "text_line_spacing" -> if (filled) FluentIcons.Filled.TextLineSpacing else FluentIcons.Regular.TextLineSpacing
-    "full_screen_minimize" -> if (filled) FluentIcons.Filled.FullScreenMinimize else FluentIcons.Regular.FullScreenMinimize
-    "lock_closed" -> if (filled) FluentIcons.Filled.LockClosed else FluentIcons.Regular.LockClosed
-    "more_vertical" -> if (filled) FluentIcons.Filled.MoreVertical else FluentIcons.Regular.MoreVertical
-    "panel_left" -> if (filled) FluentIcons.Filled.PanelLeft else FluentIcons.Regular.PanelLeft
-    "save" -> if (filled) FluentIcons.Filled.Save else FluentIcons.Regular.Save
-    "search" -> if (filled) FluentIcons.Filled.Search else FluentIcons.Regular.Search
-    "settings" -> if (filled) FluentIcons.Filled.Settings else FluentIcons.Regular.Settings
-    "subtract" -> if (filled) FluentIcons.Filled.Subtract else FluentIcons.Regular.Subtract
-    "table_delete_column" -> if (filled) FluentIcons.Filled.TableDeleteColumn else FluentIcons.Regular.TableDeleteColumn
-    "table_delete_row" -> if (filled) FluentIcons.Filled.TableDeleteRow else FluentIcons.Regular.TableDeleteRow
-    "table_insert_column" -> if (filled) FluentIcons.Filled.TableInsertColumn else FluentIcons.Regular.TableInsertColumn
-    "table_insert_row" -> if (filled) FluentIcons.Filled.TableInsertRow else FluentIcons.Regular.TableInsertRow
-    "zoom_in" -> if (filled) FluentIcons.Filled.ZoomIn else FluentIcons.Regular.ZoomIn
-    "zoom_out" -> if (filled) FluentIcons.Filled.ZoomOut else FluentIcons.Regular.ZoomOut
-    else -> if (filled) FluentIcons.Filled.Dismiss else FluentIcons.Regular.Dismiss
+private fun fluentImageVector(name: String): androidx.compose.ui.graphics.vector.ImageVector = when (name) {
+    "add" -> WordImpressIcon.Add
+    "arrow_clockwise", "arrow_rotate_clockwise" -> WordImpressIcon.ArrowRotateClockwise
+    "arrow_redo" -> WordImpressIcon.ArrowRedo
+    "arrow_undo" -> WordImpressIcon.ArrowUndo
+    "checkmark" -> WordImpressIcon.Checkmark
+    "chevron_down" -> WordImpressIcon.ChevronDown
+    "clipboard_paste" -> WordImpressIcon.ClipboardPaste
+    "circle" -> WordImpressIcon.CheckmarkCircle
+    "copy", "content_copy" -> WordImpressIcon.Copy
+    "cut", "content_cut" -> WordImpressIcon.Cut
+    "delete" -> WordImpressIcon.Delete
+    "dismiss" -> WordImpressIcon.Dismiss
+    "subtract" -> WordImpressIcon.Subtract
+    "save" -> WordImpressIcon.Save
+    "search" -> WordImpressIcon.Search
+    "settings" -> WordImpressIcon.Settings
+    "lock_closed" -> WordImpressIcon.LockClosed
+    "more_vertical" -> WordImpressIcon.MoreHorizontal
+    "panel_left" -> WordImpressIcon.Grid
+    "panel_bottom" -> WordImpressIcon.WindowConsole
+    "full_screen_maximize" -> WordImpressIcon.FullScreenMaximize
+    "full_screen_minimize" -> WordImpressIcon.FullScreenMinimize
+    "zoom_in" -> WordImpressIcon.FullScreenMaximize
+    "zoom_out" -> WordImpressIcon.FullScreenMinimize
+    "document", "document_add" -> WordImpressIcon.Document
+    "document_text", "document_page_number" -> WordImpressIcon.DocumentText
+    "document_pdf" -> WordImpressIcon.DocumentPdf
+    "image" -> WordImpressIcon.Image
+    "link" -> WordImpressIcon.Link
+    "calendar" -> WordImpressIcon.Calendar
+    "table", "table_insert_row", "table_delete_row", "table_insert_column", "table_delete_column" -> WordImpressIcon.Table
+    "print" -> WordImpressIcon.Print
+    "share" -> WordImpressIcon.Share
+    "text_bold", "text_italic", "text_underline", "text_strikethrough", "text_superscript", "text_subscript",
+    "text_line_spacing", "text_color", "color_background", "text_clear_formatting", "text_insert", "text_add" -> WordImpressIcon.TextFont
+    "text_bullet_list", "text_number_list_ltr", "text_number_list", "list" -> WordImpressIcon.List
+    "text_align_left", "text_align_center", "text_align_right", "text_align_justify_low",
+    "text_indent_decrease_ltr", "text_indent_increase_ltr" -> WordImpressIcon.TextFont
+    "text_header_1", "text_footer", "book", "text_grammar_error", "number_symbol", "omega" -> WordImpressIcon.DocumentText
+    "bookmark" -> WordImpressIcon.Pin
+    "comment", "comment_add", "note_add" -> WordImpressIcon.DocumentText
+    "ruler_horizontal", "border_all", "arrow_expand" -> WordImpressIcon.Grid
+    "edit", "edit_off" -> WordImpressIcon.Edit
+    "folder_open" -> WordImpressIcon.FolderOpen
+    else -> WordImpressIcon.DocumentText
 }
