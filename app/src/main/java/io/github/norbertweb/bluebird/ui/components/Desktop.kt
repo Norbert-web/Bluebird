@@ -868,6 +868,30 @@ fun loadDesktopFileInfo(file: File, context: android.content.Context): DesktopFi
             )
         }
 
+        ext == "exe" -> {
+            val executable = BluebirdExecutable.read(file)
+            val iconBmp = executable?.let { descriptor ->
+                runCatching {
+                    BluebirdExecutable.resolveIcon(file, descriptor)
+                        .takeIf { it.isFile }
+                        ?.let { bitmapFile -> BitmapFactory.decodeFile(bitmapFile.absolutePath) }
+                }.getOrNull()
+            }
+            DesktopFileInfo(
+                id = file.absolutePath, file = file, name = file.name,
+                type = DesktopItemType.OTHER_FILE, iconBitmap = iconBmp
+            )
+        }
+        ext == "bpk" -> {
+            val cacheKey = "bpk:${file.absolutePath}:${file.lastModified()}:${file.length()}"
+            val packageIcon = DesktopIconCache.get(cacheKey) ?: runCatching {
+                BpkPackageIcon.decode(file)?.let { DesktopIconCache.put(cacheKey, it) }
+            }.getOrNull()
+            DesktopFileInfo(
+                id = file.absolutePath, file = file, name = file.name,
+                type = DesktopItemType.OTHER_FILE, iconBitmap = packageIcon
+            )
+        }
         ext == "webapp" -> {
             val lines = file.readLines()
             fun field(key: String) = lines.find { it.startsWith("$key=") }?.removePrefix("$key=")?.trim()
@@ -918,6 +942,44 @@ fun openDesktopItem(
     context: android.content.Context,
     viewModel: LauncherViewModel
 ) {
+    if (item.file.extension.equals("exe", ignoreCase = true)) {
+        val descriptor = BluebirdExecutable.read(item.file)
+        if (descriptor != null) {
+            val root = runCatching { BluebirdExecutable.resolveSourceRoot(item.file, descriptor) }.getOrNull()
+            val entry = runCatching { BluebirdExecutable.resolveEntry(item.file, descriptor) }.getOrNull()
+            if (root != null && entry != null &&
+                (entry.path == root.path || entry.path.startsWith(root.path + File.separator)) &&
+                entry.isFile
+            ) {
+                val iconFile = BluebirdExecutable.resolveIcon(item.file, descriptor)
+                viewModel.openWindow(
+                    screen = LauncherScreen.WEB_APP_VIEWER,
+                    extras = mapOf(
+                        "bpkAppId" to descriptor.appId,
+                        "bpkAppName" to descriptor.name,
+                        "bpkAppLocalDir" to root.absolutePath,
+                        "bpkAppEntry" to entry.relativeTo(root).path
+                    ),
+                    customIconPath = iconFile.takeIf { it.isFile }?.absolutePath
+                )
+                return
+            }
+        }
+    }
+    if (item.file.extension.equals("bpk", ignoreCase = true)) {
+        val iconCache = File(context.cacheDir, "bluebird/bpk-icons")
+        val packageIconFile = BpkPackageIcon.cache(item.file, iconCache)
+        viewModel.openWindow(
+            screen = LauncherScreen.PROGRAM_MANAGER,
+            extras = buildMap {
+                put("bpkPath", item.file.absolutePath)
+                put("windowTitle", "Install ${item.file.nameWithoutExtension}")
+            },
+            customIconPath = packageIconFile?.absolutePath
+        )
+        return
+    }
+
     when (item.type) {
         DesktopItemType.FOLDER ->
             viewModel.openWindow(
@@ -968,13 +1030,13 @@ fun openDesktopItem(
                 }
             }
         }
-        DesktopItemType.WEB_APP_SHORTCUT ->
-            viewModel.openWebAppWindow(
-                id = item.webAppId ?: item.id,
-                name = item.name,
-                url = item.webAppUrl ?: "",
-                iconPath = item.webAppIconPath
-            )
+        DesktopItemType.WEB_APP_SHORTCUT -> {
+            // Legacy .webapp pointers are no longer managed as applications.
+            // They are treated as ordinary files; new installs use .bpk/.exe.
+            if (!viewModel.openFileInternally(context, item.file.absolutePath)) {
+                viewModel.openFileWithSystem(context, item.file.absolutePath)
+            }
+        }
         else -> {
             // Desktop files use the exact same native Bluebird routing as File Explorer.
             // Only unsupported formats fall through to the Android chooser.
@@ -1231,7 +1293,7 @@ private val BLUEBIRD_DEFAULT_APPS = listOf(
     DefaultShortcut("Task Manager", builtInScreen = LauncherScreen.TASK_MANAGER),
     DefaultShortcut("Recycle Bin", builtInScreen = LauncherScreen.RECYCLE_BIN),
     DefaultShortcut("Bluebird Store", builtInScreen = LauncherScreen.BLUEBIRD_STORE),
-    DefaultShortcut("Web App Manager", builtInScreen = LauncherScreen.WEB_APP_MANAGER)
+    DefaultShortcut("Program Manager", builtInScreen = LauncherScreen.PROGRAM_MANAGER)
 )
 
 // Kept as optional Android defaults for devices where these packages actually exist.
@@ -3188,7 +3250,7 @@ private fun DesktopIcon(
             LauncherScreen.TASK_MANAGER -> FluentIcon.TaskList
             LauncherScreen.RECYCLE_BIN -> FluentIcon.Delete
             LauncherScreen.BLUEBIRD_STORE -> FluentIcon.Moon
-            LauncherScreen.WEB_APP_MANAGER -> FluentIcon.Globe
+            LauncherScreen.PROGRAM_MANAGER -> FluentIcon.Apps
             else -> {
                 val targetFile = shortcutTargetFile
                 if (targetFile != null) {
@@ -4145,7 +4207,7 @@ fun AppPickerDialog(
                             "Task Manager" to LauncherScreen.TASK_MANAGER,
                             "Recycle Bin" to LauncherScreen.RECYCLE_BIN,
                             "Bluebird Store" to LauncherScreen.BLUEBIRD_STORE,
-                            "Web App Manager" to LauncherScreen.WEB_APP_MANAGER
+                            "Program Manager" to LauncherScreen.PROGRAM_MANAGER
                         ).filter { it.first.contains(searchQuery, true) }
                     }
                     if (builtIns.isNotEmpty()) {

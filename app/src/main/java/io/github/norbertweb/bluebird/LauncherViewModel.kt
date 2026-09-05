@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.BitmapDrawable
 import android.media.AudioManager
 import android.net.Uri
 import android.os.BatteryManager
@@ -23,7 +24,10 @@ import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import io.github.norbertweb.bluebird.ui.components.BluebirdRemoteNotification
+import io.github.norbertweb.bluebird.ui.components.BluebirdExecutable
 import io.github.norbertweb.bluebird.ui.components.DesktopFileInfo
+import io.github.norbertweb.bluebird.ui.components.BpkPackageManager
+import io.github.norbertweb.bluebird.ui.components.InstalledBpkApp
 import io.github.norbertweb.bluebird.ui.components.DesktopItemType
 import io.github.norbertweb.bluebird.ui.components.ToastNotifData
 import io.github.norbertweb.bluebird.ui.components.toToastData
@@ -46,6 +50,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
+import java.util.zip.ZipFile
 
 // ─── Data Models ─────────────────────────────────────────────────────────────
 
@@ -84,7 +89,7 @@ enum class LauncherScreen {
     DESKTOP, SETTINGS, FILE_EXPLORER, BROWSER, TASK_MANAGER,
     CALCULATOR, CALENDAR, PHOTOS, MEDIA_PLAYER, IMAGE_VIEWER,
     WORD_IMPRESS, BLUEBIRD_STORE, RECYCLE_BIN, PremiumTextEditorScreen,
-    TERMINAL, WEB_APP_MANAGER, WEB_APP_VIEWER, COPY_PROGRESS
+    TERMINAL, PROGRAM_MANAGER, WEB_APP_VIEWER, COPY_PROGRESS
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -144,6 +149,8 @@ data class WindowState(
     val id: String = UUID.randomUUID().toString(),
     val extras: Map<String, String> = emptyMap(),
     val iconKey: String = "",
+    /** Stable application identity used by Taskbar/Start instead of title matching. */
+    val appPackageName: String = "",
     // Path (relative to context.filesDir) to a real bitmap icon — e.g. a fetched
     // favicon for a web app. When present, taskbar/title-bar render this bitmap
     // instead of looking iconKey up in the fixed Material-icon set.
@@ -165,7 +172,7 @@ object WindowIconKey {
     const val RECYCLE_BIN   = "delete"
     const val PremiumTextEditorScreen = ""
     const val TERMINAL        = "terminal"
-    const val WEB_APP_MANAGER = "language"
+    const val PROGRAM_MANAGER = "language"
     // Fallback glyph for a web app window when it has no customIconPath yet
     // (e.g. favicon fetch failed) — grouping key is "webapp:<id>", this is just the glyph.
     const val WEB_APP          = "web_app"
@@ -263,7 +270,8 @@ data class LauncherUiState(
     val wallpaperPickerTarget: WallpaperTarget = WallpaperTarget.HOME,
     val recentApps: List<AppInfo> = emptyList(),
     val recentFiles: List<String> = emptyList(),
-    val installedWebApps: List<io.github.norbertweb.bluebird.ui.components.InstalledWebApp> = emptyList(),
+    val installedBpkApps: List<InstalledBpkApp> = emptyList(),
+    val pinnedBpkStartIds: Set<String> = emptySet(),
 
 
     // ── Extended Settings ──────────────────────────────────────────────────
@@ -418,7 +426,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         loadPersistedData()
         // Installed apps are loaded lazily after the first desktop frame.
         // This keeps PackageManager/icon decoding out of the critical launch path.
-        loadInstalledWebApps()
+        loadInstalledBpkApps()
         loadBackgroundEffects()
         startBatteryMonitor()
         // Remote announcements are fetched only when explicitly requested.
@@ -428,10 +436,20 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         checkNotificationListenerPermission()
     }
 
-    private fun loadInstalledWebApps() {
-        val loaded = io.github.norbertweb.bluebird.ui.components.WebAppPreferences(getApplication()).load()
-        _uiState.value = _uiState.value.copy(installedWebApps = loaded)
+    private fun loadInstalledBpkApps() {
+        val context = getApplication<Application>()
+        val manager = BpkPackageManager(context)
+        val apps = manager.apps()
+        val pinned = try {
+            val raw = prefs.getString("pinned_bpk_start", "[]") ?: "[]"
+            gson.fromJson<List<String>>(raw, object : TypeToken<List<String>>() {}.type)?.toSet() ?: emptySet()
+        } catch (_: Exception) { emptySet() }
+        _uiState.value = _uiState.value.copy(
+            installedBpkApps = apps,
+            pinnedBpkStartIds = pinned.intersect(apps.map { it.id }.toSet())
+        )
     }
+
 
     // ─── Background effects (particle animations + live wallpapers) ───
 
@@ -731,6 +749,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 RecycleBinItemSaved(it.id, it.originalPath, it.name, it.deletedAt, it.sizeBytes)
             }))
             putString("pinned_taskbar_apps", gson.toJson(state.pinnedTaskbarApps.map { it.packageName }))
+            putString("pinned_bpk_start", gson.toJson(state.pinnedBpkStartIds.toList()))
             putString("recent_apps",         gson.toJson(state.recentApps.map { AppInfoSaved(it.name, it.packageName) }))
             putStringSet("recent_files",     state.recentFiles.toSet())
             val posMap = mutableMapOf<String, Pair<Float, Float>>()
@@ -913,19 +932,30 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                         icon        = info.loadIcon(pm)
                     )
                 }
+            val bpkApps = BpkPackageManager(getApplication<Application>()).apps()
+            val bpkInfos = bpkApps.map { bpkAppInfo(it) }
+            val allApps = apps + bpkInfos
+
             val pinnedPackagesJson = prefs.getString("pinned_taskbar_apps", "[]") ?: "[]"
                 val savedPackages      = try {
                     val type = object : TypeToken<List<String>>() {}.type
                     gson.fromJson<List<String>>(pinnedPackagesJson, type)
                 } catch (e: Exception) { emptyList() }
 
-                val pinned = if (savedPackages.isEmpty()) {
+                val pinnedAndroid = if (savedPackages.isEmpty()) {
                     val defaults = listOf("com.android.chrome", "com.google.android.gm",
                         "com.android.calculator2", "com.google.android.youtube")
-                    apps.filter { it.packageName in defaults }.take(5)
+                    allApps.filter { it.packageName in defaults }.take(5)
                 } else {
-                    savedPackages.mapNotNull { pkg -> apps.find { it.packageName == pkg } }
+                    savedPackages.asSequence()
+                        .distinct()
+                        .mapNotNull { pkg -> allApps.find { it.packageName == pkg } }
+                        .distinctBy { it.packageName }
+                        .toList()
                 }
+                // Start pins are independent from Taskbar pins. A BPK selected for
+                // Start must not silently appear on the Taskbar.
+                val pinned = pinnedAndroid.distinctBy { it.packageName }
                 _uiState.value = _uiState.value.copy(pinnedTaskbarApps = pinned)
 
                 val recentAppsJson = prefs.getString("recent_apps", "[]") ?: "[]"
@@ -933,14 +963,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     val type = object : TypeToken<List<AppInfoSaved>>() {}.type
                     gson.fromJson(recentAppsJson, type)
                 } catch (e: Exception) { emptyList() }
-            val recent = recentAppsSaved.mapNotNull { saved -> apps.find { it.packageName == saved.packageName } }
+            val recent = recentAppsSaved.mapNotNull { saved -> allApps.find { it.packageName == saved.packageName } }
 
             // Publish the complete app snapshot once.  Previously this method emitted
             // three StateFlow values in succession, causing Start Menu/Taskbar/Search
             // to recompose repeatedly during app discovery.
             withContext(Dispatchers.Main) {
                 _uiState.value = _uiState.value.copy(
-                    installedApps = apps,
+                    installedApps = allApps,
                     pinnedTaskbarApps = pinned,
                     recentApps = recent
                 )
@@ -975,7 +1005,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun pinAppToTaskbar(app: AppInfo) {
         val current = _uiState.value.pinnedTaskbarApps
         if (current.any { it.packageName == app.packageName }) return
-        _uiState.value = _uiState.value.copy(pinnedTaskbarApps = current + app)
+        _uiState.value = _uiState.value.copy(
+            pinnedTaskbarApps = (current + app).distinctBy { it.packageName }
+        )
         saveAll()
     }
 
@@ -1551,20 +1583,59 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     // ─── Windows ─────────────────────────────────────────────────────────────
+    private fun readBpkIdentity(packageFile: File): Triple<String, String, String?> {
+        var name = packageFile.nameWithoutExtension.ifBlank { "Bluebird Application" }
+        var appId = packageFile.nameWithoutExtension.ifBlank { "unknown" }
+        var iconPath: String? = null
+        runCatching {
+            ZipFile(packageFile).use { zip ->
+                val entry = zip.getEntry("manifest.json")
+                if (entry != null) {
+                    val json = zip.getInputStream(entry).use { input -> JSONObject(input.bufferedReader(Charsets.UTF_8).readText()) }
+                    name = json.optString("name", name).trim().ifBlank { name }
+                    appId = json.optString("id", appId).trim().ifBlank { appId }
+                }
+            }
+        }
+        val cacheRoot = File(getApplication<Application>().filesDir, "bpk-icon-cache")
+        iconPath = runCatching {
+            io.github.norbertweb.bluebird.ui.components.BpkPackageIcon.cache(packageFile, cacheRoot)?.absolutePath
+        }.getOrNull()
+        return Triple(name, appId, iconPath)
+    }
+
     fun openWindow(
         screen: LauncherScreen,
         extras: Map<String, String> = emptyMap(),
         customIconPath: String? = null
     ) {
         dismissAllOverlays()
+        var effectiveExtras = extras
+        var effectiveCustomIconPath = customIconPath
+        var effectiveTitle: String? = null
+        var effectivePackageName: String? = extras["appPackageName"]
+        if (screen == LauncherScreen.PROGRAM_MANAGER && !extras["bpkPath"].isNullOrBlank()) {
+            val packageFile = File(extras["bpkPath"]!!)
+            if (packageFile.isFile) {
+                val (bpkName, bpkId, cachedIcon) = readBpkIdentity(packageFile)
+                effectiveTitle = "Install $bpkName"
+                effectiveCustomIconPath = cachedIcon ?: customIconPath
+                effectivePackageName = "bpk-installer:$bpkId"
+                effectiveExtras = extras + mapOf(
+                    "windowTitle" to effectiveTitle,
+                    "appPackageName" to effectivePackageName.orEmpty(),
+                    "windowIconPath" to (effectiveCustomIconPath ?: "")
+                )
+            }
+        }
         // If a window for this screen already exists, restore + focus it (handles minimized case).
-        // Web apps match on webAppId specifically, since the same app can be reopened via the
-        // Desktop shortcut or the Web App Manager with slightly different extras.
+        // Packaged apps match on bpkAppId so the same application reopens/focuses consistently
+        // whether launched from Desktop, File Explorer, Start, Taskbar, or Program Manager.
         val existing = _uiState.value.openWindows.find {
             if (screen == LauncherScreen.WEB_APP_VIEWER && it.screen == LauncherScreen.WEB_APP_VIEWER) {
-                it.extras["webAppId"] == extras["webAppId"]
+                it.extras["bpkAppId"] == effectiveExtras["bpkAppId"]
             } else {
-                it.screen == screen && it.extras == extras
+                it.screen == screen && it.extras == effectiveExtras
             }
         }
         if (existing != null) {
@@ -1588,16 +1659,20 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             LauncherScreen.BLUEBIRD_STORE      -> "Bluebird Store"
             LauncherScreen.RECYCLE_BIN   -> "Recycle Bin"
             LauncherScreen.TERMINAL        -> "Terminal"
-            LauncherScreen.WEB_APP_MANAGER -> "Web Apps"
+            LauncherScreen.PROGRAM_MANAGER -> "Program Manager"
             LauncherScreen.WEB_APP_VIEWER -> "Web Apps Viewer"
 
             else                         -> "Window"
+        }
+        val resolvedTitle = effectiveTitle ?: when (screen) {
+            LauncherScreen.PROGRAM_MANAGER -> "Program Manager"
+            else -> title
         }
 
         val iconKey = when (screen) {
             // Unique per web app (not the generic manager icon) so each installed
             // web app groups/stacks independently on the taskbar.
-            LauncherScreen.WEB_APP_VIEWER -> "webapp:${extras["webAppId"] ?: "unknown"}"
+            LauncherScreen.WEB_APP_VIEWER -> "bpk:${extras["bpkAppId"] ?: "unknown"}"
             LauncherScreen.PremiumTextEditorScreen   -> WindowIconKey.PremiumTextEditorScreen
             LauncherScreen.SETTINGS      -> WindowIconKey.SETTINGS
             LauncherScreen.FILE_EXPLORER -> WindowIconKey.FILE_EXPLORER
@@ -1612,7 +1687,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             LauncherScreen.BLUEBIRD_STORE      -> WindowIconKey.BLUEBIRD_STORE
             LauncherScreen.RECYCLE_BIN   -> WindowIconKey.RECYCLE_BIN
             LauncherScreen.TERMINAL        -> WindowIconKey.TERMINAL
-            LauncherScreen.WEB_APP_MANAGER -> WindowIconKey.WEB_APP_MANAGER
 
 
 
@@ -1620,8 +1694,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
 
         val window  = WindowState(
-            screen = screen, title = title, extras = extras,
-            iconKey = iconKey, customIconPath = customIconPath
+            screen = screen, title = resolvedTitle, extras = effectiveExtras,
+            iconKey = iconKey,
+            appPackageName = effectivePackageName ?: effectiveExtras["appPackageName"] ?: "",
+            customIconPath = effectiveCustomIconPath
         )
         val current = _uiState.value.openWindows.toMutableList()
         current.add(window)
@@ -1688,6 +1764,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun maximizeWindow(windowId: String) {
         val state = _uiState.value
         val target = state.openWindows.firstOrNull { it.id == windowId } ?: return
+        if (target.screen == LauncherScreen.PROGRAM_MANAGER && !target.extras["bpkPath"].isNullOrBlank()) return
         val updated = state.openWindows.map {
             if (it.id == windowId) it.copy(isMaximized = !it.isMaximized) else it
         }
@@ -1695,8 +1772,173 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     // ─── App Launching & File Opening ─────────────────────────────────────────
+    fun bpkAppInfo(app: InstalledBpkApp): AppInfo {
+        val icon = runCatching { BitmapFactory.decodeFile(app.iconPath)?.let { BitmapDrawable(getApplication<Application>().resources, it) } }.getOrNull()
+        return AppInfo(
+            name = app.name,
+            packageName = "bpk:${app.id}",
+            icon = icon
+        )
+    }
+
+    fun launchBpkApp(appId: String) {
+        val app = BpkPackageManager(getApplication<Application>()).apps().firstOrNull { it.id == appId } ?: return
+        dismissAllOverlays()
+        openWindow(
+            screen = LauncherScreen.WEB_APP_VIEWER,
+            extras = mapOf(
+                "bpkAppId" to app.id,
+                "bpkAppName" to app.name,
+                "bpkAppLocalDir" to app.installDir,
+                "bpkAppEntry" to app.entry,
+                "bpkAppExecutable" to app.executablePath,
+                "appPackageName" to "bpk:${app.id}",
+                "windowTitle" to app.name
+            ),
+            customIconPath = app.iconPath
+        )
+        val recent = _uiState.value.recentApps.toMutableList()
+        val info = bpkAppInfo(app)
+        recent.removeAll { it.packageName == info.packageName }
+        recent.add(0, info)
+        _uiState.value = _uiState.value.copy(recentApps = recent.take(10))
+        saveAll()
+    }
+
+    fun completeBpkInstallation(
+        installed: InstalledBpkApp,
+        actions: io.github.norbertweb.bluebird.ui.components.BpkInstallActions
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>()
+            val currentApps = BpkPackageManager(context).apps()
+            val info = withContext(Dispatchers.Main) { bpkAppInfo(installed) }
+            withContext(Dispatchers.Main) {
+                val pinnedTaskbar = if (actions.pinToTaskbar) {
+                    (_uiState.value.pinnedTaskbarApps + info).distinctBy { it.packageName }
+                } else {
+                    _uiState.value.pinnedTaskbarApps.distinctBy { it.packageName }
+                }
+
+                val pinnedStart = if (actions.addToStart) {
+                    _uiState.value.pinnedBpkStartIds + installed.id
+                } else {
+                    _uiState.value.pinnedBpkStartIds - installed.id
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    installedBpkApps = currentApps,
+                    pinnedTaskbarApps = pinnedTaskbar,
+                    pinnedBpkStartIds = pinnedStart
+                )
+                prefs.edit()
+                    .putString("pinned_bpk_start", gson.toJson(pinnedStart.toList()))
+                    .apply()
+                saveAll()
+
+                if (actions.createDesktopShortcut) {
+                    addDesktopShortcutFromFile(
+                        installed.executablePath,
+                        installed.name
+                    )
+                }
+            }
+        }
+    }
+
+    /** Reinstall using the cached package while preserving shell placement preferences. */
+    fun reinstallBpkApplication(appId: String): Job = viewModelScope.launch(Dispatchers.IO) {
+        val context = getApplication<Application>()
+        BpkPackageManager(context).reinstall(appId)
+        withContext(Dispatchers.Main.immediate) {
+            refreshInstalledApplicationSnapshot()
+        }
+    }
+
+    /** Synchronous-in-coroutine variant used by Program Manager actions. */
+    suspend fun reinstallBpkApplicationAndWait(appId: String) {
+        val context = getApplication<Application>()
+        withContext(Dispatchers.IO) { BpkPackageManager(context).reinstall(appId) }
+        withContext(Dispatchers.Main.immediate) { refreshInstalledApplicationSnapshot() }
+    }
+
+    /** Synchronous-in-coroutine uninstall used by Program Manager so errors are visible. */
+    suspend fun uninstallBpkApplicationAndWait(appId: String) {
+        withContext(Dispatchers.IO) {
+            val context = getApplication<Application>()
+            val registryApp = BpkPackageManager(context).apps().firstOrNull { it.id == appId }
+                ?: throw IllegalArgumentException("Application is not installed")
+            withContext(Dispatchers.Main.immediate) {
+                val ids = _uiState.value.openWindows
+                    .filter { it.screen == LauncherScreen.WEB_APP_VIEWER && it.extras["bpkAppId"] == appId }
+                    .map { it.id }
+                ids.forEach(::closeWindow)
+                val packageName = "bpk:$appId"
+                _uiState.value = _uiState.value.copy(
+                    pinnedTaskbarApps = _uiState.value.pinnedTaskbarApps.filterNot { it.packageName == packageName },
+                    pinnedBpkStartIds = _uiState.value.pinnedBpkStartIds - appId
+                )
+            }
+            desktopDir.listFiles()?.forEach { shortcut ->
+                if (!shortcut.isFile || !shortcut.name.endsWith(".desktop", true)) return@forEach
+                val contents = runCatching { shortcut.readText(Charsets.UTF_8) }.getOrDefault("")
+                if (contents.lines().any { it.startsWith("path=") && it.removePrefix("path=").trim() == registryApp.executablePath }) {
+                    runCatching { shortcut.delete() }
+                }
+            }
+            check(BpkPackageManager(context).uninstall(appId)) { "Could not uninstall application" }
+        }
+        withContext(Dispatchers.Main.immediate) {
+            refreshDesktopFiles()
+            refreshInstalledApplicationSnapshot()
+            saveAll()
+        }
+    }
+
+    private fun refreshInstalledApplicationSnapshot() {
+        val context = getApplication<Application>()
+        val apps = BpkPackageManager(context).apps().distinctBy { it.id }
+        val bpkInfos = apps.map { bpkAppInfo(it) }.distinctBy { it.packageName }
+        val pinnedPackages = _uiState.value.pinnedTaskbarApps.map { it.packageName }.toSet()
+        val pinnedTaskbar = _uiState.value.pinnedTaskbarApps
+            .asSequence()
+            .filterNot { it.packageName.startsWith("bpk:") }
+            .distinctBy { it.packageName }
+            .toMutableList()
+        pinnedTaskbar.addAll(
+            apps.asSequence()
+                .filter { it.packageNameLike() in pinnedPackages }
+                .map { bpkAppInfo(it) }
+                .distinctBy { it.packageName }
+        )
+        _uiState.value = _uiState.value.copy(
+            installedBpkApps = apps,
+            installedApps = _uiState.value.installedApps.filterNot { it.packageName.startsWith("bpk:") } + bpkInfos,
+            pinnedTaskbarApps = pinnedTaskbar
+        )
+    }
+
+    private fun InstalledBpkApp.packageNameLike(): String = "bpk:$id"
+
+    fun pinBpkToStart(appId: String) {
+        val updated = _uiState.value.pinnedBpkStartIds + appId
+        _uiState.value = _uiState.value.copy(pinnedBpkStartIds = updated)
+        prefs.edit().putString("pinned_bpk_start", gson.toJson(updated.toList())).apply()
+    }
+
+    fun unpinBpkFromStart(appId: String) {
+        val updated = _uiState.value.pinnedBpkStartIds - appId
+        _uiState.value = _uiState.value.copy(pinnedBpkStartIds = updated)
+        prefs.edit().putString("pinned_bpk_start", gson.toJson(updated.toList())).apply()
+    }
+
     fun openApp(context: Context, appInfo: AppInfo) {
         dismissAllOverlays()
+        if (appInfo.packageName.startsWith("bpk:")) {
+            val appId = appInfo.packageName.removePrefix("bpk:")
+            launchBpkApp(appId)
+            return
+        }
         try {
             val intent = context.packageManager.getLaunchIntentForPackage(appInfo.packageName)
             intent?.let { it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(it) }
@@ -1824,6 +2066,19 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         if (!file.isFile) return false
         val ext = file.extension.lowercase()
         val screenAndExtras = when {
+            ext == "exe" -> {
+                val descriptor = BluebirdExecutable.read(file) ?: return false
+                val root = runCatching { BluebirdExecutable.resolveSourceRoot(file, descriptor) }.getOrNull() ?: return false
+                val entry = runCatching { BluebirdExecutable.resolveEntry(file, descriptor) }.getOrNull() ?: return false
+                if (!entry.isFile || !(entry.path == root.path || entry.path.startsWith(root.path + File.separator))) return false
+                LauncherScreen.WEB_APP_VIEWER to mapOf(
+                    "bpkAppId" to descriptor.appId,
+                    "bpkAppName" to descriptor.name,
+                    "bpkAppLocalDir" to root.absolutePath,
+                    "bpkAppEntry" to entry.relativeTo(root).path,
+                    "bpkAppExecutable" to file.absolutePath
+                )
+            }
             ext in setOf("jpg", "jpeg", "png", "gif", "bmp", "webp") ->
                 LauncherScreen.IMAGE_VIEWER to mapOf("filePath" to filePath)
             ext in setOf("mp3", "wav", "ogg", "flac", "aac", "m4a", "mp4", "mkv", "avi", "mov", "webm", "3gp") ->
@@ -1861,120 +2116,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         "io.github.norbertweb.io.github.norbertweb.bluebird"                                    -> "application/x-io.github.norbertweb.bluebird-shortcut"
         "webapp"                                     -> "application/x-io.github.norbertweb.bluebird-webapp"
         else                                         -> "*/*"
-    }
-
-    // ─── Web Apps ──────────────────────────────────────────────────────────────
-
-    /** Opens (or focuses) a web app in its own internal window, with its own taskbar entry. */
-    fun openWebAppWindow(id: String, name: String, url: String, iconPath: String?) {
-        // Prefer the full installed-app record (has htmlContent/isCustom/emoji/accent) when
-        // it's still registered — e.g. opening via the Desktop .webapp shortcut only carries
-        // id/name/url/iconPath, but the app may still be fully known to the manager.
-        val known = _uiState.value.installedWebApps.find { it.id == id }
-        val extras = if (known != null) mapOf(
-            "webAppId" to known.id, "webAppName" to known.name, "webAppUrl" to known.url,
-            "webAppHtml" to known.htmlContent, "webAppCustom" to known.isCustom.toString(),
-            "webAppEmoji" to known.iconEmoji, "webAppIcon" to known.iconPath,
-            "webAppAccent" to known.accentColor.toString()
-        ) else mapOf(
-            "webAppId" to id, "webAppName" to name, "webAppUrl" to url,
-            "webAppIcon" to (iconPath ?: "")
-        )
-        openWindow(
-            screen = LauncherScreen.WEB_APP_VIEWER,
-            extras = extras,
-            customIconPath = (known?.iconPath ?: iconPath)?.ifBlank { null }
-        )
-    }
-
-    /**
-     * Installs a web app: saves the (already-fetched) real favicon once under a
-     * stable id-keyed filename, writes a real `.webapp` shortcut file onto the
-     * Desktop so File Explorer / Desktop / Recycle Bin all see the same object,
-     * and registers it with WebAppPreferences so it still shows in the Web App
-     * Manager grid even if the io.github.norbertweb.io.github.norbertweb.bluebird shortcut gets deleted (same relationship
-     * native app shortcuts already have to their real apps).
-     */
-    fun installWebApp(
-        name: String,
-        url: String,
-        favicon: Bitmap?,
-        accentColor: Long,
-        isCustom: Boolean = false,
-        htmlContent: String = ""
-    ) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val id = UUID.randomUUID().toString()
-            var iconRelPath: String? = null
-
-            if (favicon != null) {
-                try {
-                    val iconDir = File(getApplication<Application>().filesDir, "webapp_icons")
-                    iconDir.mkdirs()
-                    val iconFile = File(iconDir, "$id.png")
-                    iconFile.outputStream().use { out ->
-                        favicon.compress(Bitmap.CompressFormat.PNG, 100, out)
-                    }
-                    iconRelPath = "webapp_icons/${id}.png"
-                } catch (_: Exception) { /* falls back to no icon */ }
-            }
-
-            // Real shortcut file on the Desktop — what makes this a first-class,
-            // File-Explorer-visible object instead of just a preferences entry.
-            var safeLabel = name.replace("/", "_").ifBlank { "Web App" }
-            var shortcutFile = File(desktopDir, "$safeLabel.webapp")
-            var count = 1
-            while (shortcutFile.exists()) {
-                shortcutFile = File(desktopDir, "$safeLabel (${count++}).webapp")
-            }
-            try {
-                shortcutFile.writeText(
-                    buildString {
-                        append("type=webapp\n")
-                        append("id=$id\n")
-                        append("name=$name\n")
-                        append("url=$url\n")
-                        if (iconRelPath != null) append("icon=$iconRelPath\n")
-                    }
-                )
-            } catch (_: Exception) { /* non-fatal — app still installs below */ }
-
-            val app = io.github.norbertweb.bluebird.ui.components.InstalledWebApp(
-                id = id, name = name, url = url, iconPath = iconRelPath ?: "",
-                accentColor = accentColor, isCustom = isCustom, htmlContent = htmlContent
-            )
-            val webPrefs = io.github.norbertweb.bluebird.ui.components.WebAppPreferences(getApplication())
-            val updated  = webPrefs.load() + app
-            webPrefs.save(updated)
-
-            withContext(Dispatchers.Main) {
-                _uiState.value = _uiState.value.copy(installedWebApps = updated)
-                refreshDesktopFiles()
-            }
-        }
-    }
-
-    /** Removes a web app from the manager, its Desktop shortcut(s), and its cached favicon. */
-    fun uninstallWebApp(id: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val webPrefs = io.github.norbertweb.bluebird.ui.components.WebAppPreferences(getApplication())
-            val updated  = webPrefs.load().filter { it.id != id }
-            webPrefs.save(updated)
-
-            try {
-                desktopDir.listFiles { f -> f.extension.equals("webapp", ignoreCase = true) }
-                    ?.forEach { f ->
-                        val fileId = f.readLines().find { it.startsWith("id=") }?.removePrefix("id=")?.trim()
-                        if (fileId == id) f.delete()
-                    }
-                File(getApplication<Application>().filesDir, "webapp_icons/$id.png").delete()
-            } catch (_: Exception) { /* best-effort cleanup */ }
-
-            withContext(Dispatchers.Main) {
-                _uiState.value = _uiState.value.copy(installedWebApps = updated)
-                refreshDesktopFiles()
-            }
-        }
     }
 
     // ─── Unified clipboard — replaces Desktop's and File Explorer's separate,

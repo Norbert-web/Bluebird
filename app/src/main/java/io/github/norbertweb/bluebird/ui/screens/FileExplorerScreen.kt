@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.graphics.Bitmap
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -61,6 +62,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 
 import io.github.norbertweb.bluebird.LauncherViewModel
+import io.github.norbertweb.bluebird.ui.components.BluebirdExecutable
+import io.github.norbertweb.bluebird.ui.components.BpkPackageIcon
 import io.github.norbertweb.bluebird.LauncherScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fluent.ui.system.icons.FluentIcons
@@ -129,7 +132,8 @@ data class RealFileItem(
     val isDirectory: Boolean = file.isDirectory,
     val size: Long = if (file.isFile) file.length() else 0L,
     val lastModified: Long = file.lastModified(),
-    val extension: String = file.extension.lowercase()
+    val extension: String = file.extension.lowercase(),
+    val iconBitmap: Bitmap? = null
 )
 
 
@@ -148,6 +152,8 @@ fun getFileIcon(item: RealFileItem): ImageVector = when {
     item.extension in listOf("ppt", "pptx") -> FluentIcons.Regular.SlideLayout
     item.extension in listOf("html", "htm") -> FluentIcons.Regular.Code
     item.extension == "webapp" -> FluentIcons.Regular.Globe
+    item.extension == "bpk" -> FluentIcons.Regular.FolderZip
+    item.extension == "exe" -> FluentIcons.Regular.Apps
     item.extension == "io.github.norbertweb.io.github.norbertweb.bluebird" -> FluentIcons.Regular.Apps
     else -> FluentIcons.Regular.Document
 }
@@ -162,6 +168,8 @@ fun getFileIconColor(item: RealFileItem): Color = when {
     item.extension in listOf("doc", "docx") -> Color(0xFF2196F3)
     item.extension in listOf("xls", "xlsx") -> Color(0xFF4CAF50)
     item.extension == "webapp" -> Color(0xFF0078D4)
+    item.extension == "bpk" -> Color(0xFF0078D4)
+    item.extension == "exe" -> Color(0xFF0078D4)
     item.extension == "io.github.norbertweb.io.github.norbertweb.bluebird" -> Color(0xFF0078D4)
     else -> Color(0xFF9E9E9E)
 }
@@ -538,7 +546,24 @@ private fun FileExplorerContent(
                     val loaded = ArrayList<RealFileItem>()
                     rawFiles
                         .filter { state.showHidden || !it.name.startsWith(".") }
-                        .forEach { loaded += RealFileItem(it) }
+                        .forEach { file ->
+                            val icon = when {
+                                file.extension.equals("exe", true) -> {
+                                    BluebirdExecutable.read(file)?.let { descriptor ->
+                                        runCatching {
+                                            BluebirdExecutable.resolveIcon(file, descriptor)
+                                                .takeIf { it.isFile }
+                                                ?.let { BitmapFactory.decodeFile(it.absolutePath) }
+                                        }.getOrNull()
+                                    }
+                                }
+                                file.extension.equals("bpk", true) -> {
+                                    BpkPackageIcon.decode(file)
+                                }
+                                else -> null
+                            }
+                            loaded += RealFileItem(file, iconBitmap = icon)
+                        }
                     withContext(Dispatchers.Main.immediate) {
                         if (generation == loadGeneration && dir == state.currentDir) {
                             // Publish one immutable snapshot. Search and sorting are derived locally.
@@ -1339,6 +1364,47 @@ private fun openFileFromExplorer(
     viewModel: LauncherViewModel?
 ) {
     if (item.isDirectory) return
+
+    if (item.file.extension.equals("exe", ignoreCase = true) && viewModel != null) {
+        val descriptor = BluebirdExecutable.read(item.file)
+        if (descriptor != null) {
+            val root = runCatching { BluebirdExecutable.resolveSourceRoot(item.file, descriptor) }.getOrNull()
+            val entry = runCatching { BluebirdExecutable.resolveEntry(item.file, descriptor) }.getOrNull()
+            if (root != null && entry != null &&
+                (entry.path == root.path || entry.path.startsWith(root.path + File.separator)) &&
+                entry.isFile
+            ) {
+                val iconFile = BluebirdExecutable.resolveIcon(item.file, descriptor)
+                viewModel.openWindow(
+                    screen = LauncherScreen.WEB_APP_VIEWER,
+                    extras = mapOf(
+                        "bpkAppId" to descriptor.appId,
+                        "bpkAppName" to descriptor.name,
+                        "bpkAppLocalDir" to root.absolutePath,
+                        "bpkAppEntry" to entry.relativeTo(root).path
+                    ),
+                    customIconPath = iconFile.takeIf { it.isFile }?.absolutePath
+                )
+                return
+            }
+        }
+    }
+
+    if (item.file.extension.equals("bpk", ignoreCase = true) && viewModel != null) {
+        val packageIcon = BpkPackageIcon.decode(item.file)
+        val iconCache = File(context.cacheDir, "bluebird/bpk-icons")
+        val packageIconFile = BpkPackageIcon.cache(item.file, iconCache)
+        viewModel.openWindow(
+            screen = LauncherScreen.PROGRAM_MANAGER,
+            extras = buildMap {
+                put("bpkPath", item.file.absolutePath)
+                put("windowTitle", "Install ${item.file.nameWithoutExtension}")
+            },
+            customIconPath = packageIconFile?.absolutePath
+        )
+        return
+    }
+
     if (viewModel?.openFileInternally(context, item.file.absolutePath) == true) return
 
     // Unsupported formats still get normal Android handling.
@@ -1885,6 +1951,14 @@ private fun FileExplorerThumbnail(
                 ) {
                     Icon(FluentIcons.Filled.Play, null, tint = Color.White, modifier = Modifier.padding(4.dp))
                 }
+            }
+            item.iconBitmap != null -> {
+                Image(
+                    bitmap = item.iconBitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.size(iconSize).clip(RoundedCornerShape(6.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
             }
             else -> {
                 Icon(getFileIcon(item), null, tint = getFileIconColor(item), modifier = Modifier.size(iconSize))

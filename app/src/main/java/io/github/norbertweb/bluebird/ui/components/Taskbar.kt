@@ -684,7 +684,7 @@ private fun TaskbarCenterCluster(
     val groupedWindows: Map<String, List<WindowState>> = remember(uiState.openWindows) {
         uiState.openWindows.groupBy { it.iconKey.ifBlank { it.title } }
     }
-    val pinnedApps = uiState.pinnedTaskbarApps
+    val pinnedApps = uiState.pinnedTaskbarApps.distinctBy { it.packageName }
     val pinnedAppNames = remember(pinnedApps) { pinnedApps.map { it.name.lowercase(Locale.getDefault()) } }
     val windowPinnedState = remember(uiState.openWindows, pinnedAppNames) {
         uiState.openWindows.associate { window ->

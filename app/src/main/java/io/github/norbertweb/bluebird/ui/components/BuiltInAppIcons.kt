@@ -48,7 +48,7 @@ fun builtInAppDisplayName(screen: io.github.norbertweb.bluebird.LauncherScreen):
         io.github.norbertweb.bluebird.LauncherScreen.IMAGE_VIEWER -> "Image Viewer"
         io.github.norbertweb.bluebird.LauncherScreen.PremiumTextEditorScreen -> "Text Editor"
         io.github.norbertweb.bluebird.LauncherScreen.TERMINAL -> "Terminal"
-        io.github.norbertweb.bluebird.LauncherScreen.WEB_APP_MANAGER -> "Web App Manager"
+
         else -> null
     }
 
@@ -72,7 +72,7 @@ fun builtInAppDisplayNameForWindowKey(key: String): String? =
         io.github.norbertweb.bluebird.WindowIconKey.RECYCLE_BIN -> "Recycle Bin"
         io.github.norbertweb.bluebird.WindowIconKey.IMAGE_VIEWER -> "Image Viewer"
         io.github.norbertweb.bluebird.WindowIconKey.PremiumTextEditorScreen -> "Text Editor"
-        io.github.norbertweb.bluebird.WindowIconKey.WEB_APP_MANAGER -> "Web App Manager"
+
         else -> null // TERMINAL has no entry in iconForKey() either (falls to FluentIcon.Window) —
                      // pre-existing gap, unrelated to this change; WEB_APP/COPY_PROGRESS are
                      // per-instance windows with no single fixed icon.

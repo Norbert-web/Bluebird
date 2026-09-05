@@ -478,7 +478,7 @@ fun iconForKey(key: String): androidx.compose.ui.graphics.vector.ImageVector = w
     io.github.norbertweb.bluebird.WindowIconKey.WORD_IMPRESS     -> FluentIcon.DocumentText
     io.github.norbertweb.bluebird.WindowIconKey.BLUEBIRD_STORE   -> FluentIcon.Moon
     io.github.norbertweb.bluebird.WindowIconKey.RECYCLE_BIN      -> FluentIcon.Delete
-    io.github.norbertweb.bluebird.WindowIconKey.WEB_APP_MANAGER  -> FluentIcon.Globe
+
     io.github.norbertweb.bluebird.WindowIconKey.WEB_APP          -> FluentIcon.Globe
     io.github.norbertweb.bluebird.WindowIconKey.COPY_PROGRESS    -> FluentIcon.Copy
     else                                                          -> FluentIcon.Window

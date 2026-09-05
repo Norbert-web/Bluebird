@@ -50,6 +50,7 @@ import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -135,7 +136,7 @@ private fun defaultSizeFor(screen: LauncherScreen): Pair<Float, Float> = when (s
     LauncherScreen.BLUEBIRD_STORE        -> 500f to 560f
     LauncherScreen.CALENDAR        -> 560f to 480f
     LauncherScreen.TERMINAL        -> 700f to 480f
-    LauncherScreen.WEB_APP_MANAGER -> 800f to 560f
+    LauncherScreen.PROGRAM_MANAGER -> 760f to 560f
     LauncherScreen.COPY_PROGRESS   -> 420f to 280f
     else                           -> 750f to 520f
 }
@@ -265,17 +266,21 @@ fun FloatingWindow(
     val savedGeometry = remember(windowState.id) {
         viewModel.getWindowGeometry(windowState.id)
     }
-    val (defaultW, defaultH) = remember(windowState.screen) { defaultSizeFor(windowState.screen) }
+    val isFixedBpkInstaller = windowState.screen == LauncherScreen.PROGRAM_MANAGER &&
+        !windowState.extras["bpkPath"].isNullOrBlank()
+    val (defaultW, defaultH) = remember(windowState.screen, isFixedBpkInstaller) {
+        if (isFixedBpkInstaller) 520f to 620f else defaultSizeFor(windowState.screen)
+    }
 
     var offsetX        by remember { mutableStateOf(savedGeometry?.offsetX ?: 80f) }
     var offsetY        by remember { mutableStateOf(savedGeometry?.offsetY ?: 40f) }
-    var windowWidthDp  by remember { mutableStateOf(savedGeometry?.widthDp  ?: defaultW) }
-    var windowHeightDp by remember { mutableStateOf(savedGeometry?.heightDp ?: defaultH) }
+    var windowWidthDp  by remember { mutableStateOf(if (isFixedBpkInstaller) defaultW else (savedGeometry?.widthDp ?: defaultW)) }
+    var windowHeightDp by remember { mutableStateOf(if (isFixedBpkInstaller) defaultH else (savedGeometry?.heightDp ?: defaultH)) }
 
     // ── Persist geometry after the user pauses, rather than once per drag frame.
     // Dragging can produce dozens of state changes per second; the old keyed
     // LaunchedEffect restarted a coroutine and wrote the geometry for every one.
-    LaunchedEffect(windowState.id) {
+    if (!isFixedBpkInstaller) LaunchedEffect(windowState.id) {
         snapshotFlow {
             WindowGeometry(offsetX, offsetY, windowWidthDp, windowHeightDp)
         }
@@ -382,7 +387,7 @@ fun FloatingWindow(
                             )
 
                             if (edge == ResizeEdge.NONE || windowState.isMaximized || isPip ||
-                                windowState.screen == LauncherScreen.COPY_PROGRESS) continue
+                                windowState.screen == LauncherScreen.COPY_PROGRESS || isFixedBpkInstaller) continue
 
                             onFocus()
                             down.consume()
@@ -437,6 +442,7 @@ fun FloatingWindow(
                         showSnapPicker = false
                         onMaximize()
                     },
+                    isFixedBpkInstaller = isFixedBpkInstaller,
                     onSnapPickerToggle = { showSnapPicker = !showSnapPicker },
                     onPip           = { isPip = true },
                     onAlwaysOnTop   = { alwaysOnTop = !alwaysOnTop },
@@ -462,7 +468,7 @@ fun FloatingWindow(
                     )
                 }
 
-                if (!windowState.isMaximized) {
+                if (!windowState.isMaximized && !isFixedBpkInstaller) {
                     ResizeHandles(isDark = isDark)
                 }
             } else {
@@ -484,7 +490,7 @@ fun FloatingWindow(
         }
 
         // ── Snap Layout Picker overlay (anchored to the window's maximize button) ─
-        if (showSnapPicker) {
+        if (showSnapPicker && !isFixedBpkInstaller) {
             SnapLayoutPicker(
                 isDark          = isDark,
                 canvasW         = with(density) { canvasWidthPx.toDp().value },
@@ -515,15 +521,16 @@ fun FloatingWindow(
                 isDark          = isDark,
                 alwaysOnTop     = alwaysOnTop,
                 windowOpacity   = windowOpacity,
+                canMaximize     = !isFixedBpkInstaller,
                 anchorX         = animOffsetX + 10f,
                 anchorY         = animOffsetY + 34f,
                 onDismiss       = { showContextMenu = false },
                 onMinimize      = { showContextMenu = false; onMinimize() },
-                onMaximize      = { showContextMenu = false; onMaximize() },
+                onMaximize      = { showContextMenu = false; if (!isFixedBpkInstaller) onMaximize() },
                 onClose         = { showContextMenu = false; onClose() },
                 onToggleAlwaysOnTop = { alwaysOnTop = !alwaysOnTop },
                 onOpacityChange = { windowOpacity = it },
-                onPip           = { showContextMenu = false; isPip = true }
+                onPip           = { showContextMenu = false; if (!isFixedBpkInstaller) isPip = true }
             )
         }
     }
@@ -666,6 +673,7 @@ private fun WindowContextMenu(
     isDark: Boolean,
     alwaysOnTop: Boolean,
     windowOpacity: Float,
+    canMaximize: Boolean = true,
     anchorX: Float,
     anchorY: Float,
     onDismiss: () -> Unit,
@@ -695,7 +703,7 @@ private fun WindowContextMenu(
     ) {
         Column {
             ContextMenuItem("Minimize",       itemCol, onClick = onMinimize)
-            ContextMenuItem("Maximize / Restore", itemCol, onClick = onMaximize)
+            if (canMaximize) ContextMenuItem("Maximize / Restore", itemCol, onClick = onMaximize)
             ContextMenuItem("Picture-in-Picture 📌", itemCol, onClick = onPip)
             Box(Modifier.fillMaxWidth().height(1.dp).background(divider).padding(vertical = 2.dp))
             ContextMenuItem(
@@ -922,6 +930,7 @@ fun WindowContent(
     onClose: () -> Unit,
     onMinimize: () -> Unit,
     onMaximize: () -> Unit,
+    isFixedBpkInstaller: Boolean = false,
     onSnapPickerToggle: () -> Unit,
     onPip: () -> Unit,
     onAlwaysOnTop: () -> Unit,
@@ -930,6 +939,8 @@ fun WindowContent(
     onDrag: ((Float, Float) -> Unit)? = null,
     onDragEnd: (() -> Unit)? = null
 ) {
+    val extras = windowState.extras
+    val context = LocalContext.current
     Column(modifier = Modifier.fillMaxSize()) {
 
         // ── Title bar ─────────────────────────────────────────────────────────
@@ -952,14 +963,15 @@ fun WindowContent(
                 }
         ) {
             WindowTitleBar(
-                title              = windowState.title,
+                title              = extras["windowTitle"] ?: windowState.title,
                 iconKey            = windowState.iconKey,
-                customIconPath     = windowState.customIconPath,
+                customIconPath     = extras["windowIconPath"] ?: windowState.customIconPath,
                 isDark             = isDark,
                 windowSize         = windowSize,
                 isMaximized        = windowState.isMaximized,
                 alwaysOnTop        = alwaysOnTop,
-                canMaximize        = windowState.screen != LauncherScreen.COPY_PROGRESS,
+                canMaximize        = windowState.screen != LauncherScreen.COPY_PROGRESS && !isFixedBpkInstaller,
+                showDisabledMaximize = isFixedBpkInstaller,
                 onMinimize         = onMinimize,
                 onMaximize         = onMaximize,
                 onSnapPickerToggle = onSnapPickerToggle,
@@ -969,7 +981,6 @@ fun WindowContent(
 
         // ── Screen content ────────────────────────────────────────────────────
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            val extras = windowState.extras
             when (windowState.screen) {
                 LauncherScreen.PremiumTextEditorScreen -> PremiumTextEditorScreen(isDark, filePath = extras["filePath"] ?: "")
                 LauncherScreen.SETTINGS      -> SettingsScreen(
@@ -995,37 +1006,43 @@ fun WindowContent(
                 LauncherScreen.BLUEBIRD_STORE   -> MessagesScreen(isDark)
                 LauncherScreen.RECYCLE_BIN -> RecycleBinScreen(isDark, viewModel)
                 LauncherScreen.TERMINAL    -> TerminalScreen(isDark)
-                LauncherScreen.WEB_APP_MANAGER -> {
-                    WebAppManagerScreen(
-                        isDark      = isDark,
-                        viewModel   = viewModel,
-                        onLaunchApp = { app ->
-                            // Open a dedicated viewer window for this web app, with its
-                            // real favicon (if we have one) as the window/taskbar icon.
-                            viewModel.openWindow(
-                                screen = LauncherScreen.WEB_APP_VIEWER,
-                                extras = mapOf("webAppId" to app.id, "webAppName" to app.name,
-                                    "webAppUrl" to app.url, "webAppHtml" to app.htmlContent,
-                                    "webAppCustom" to app.isCustom.toString(),
-                                    "webAppEmoji" to app.iconEmoji,
-                                    "webAppIcon" to app.iconPath,
-                                    "webAppAccent" to app.accentColor.toString()),
-                                customIconPath = app.iconPath.ifBlank { null }
-                            )
-                        }
-                    )
+                LauncherScreen.PROGRAM_MANAGER -> {
+                    val bpkPath = extras["bpkPath"]
+                    if (!bpkPath.isNullOrBlank()) {
+                        val packageFile = File(bpkPath)
+                        BpkInstallerDialog(
+                            packageFile = packageFile,
+                            isDark = isDark,
+                            onInstalled = { installed, actions ->
+                                viewModel.completeBpkInstallation(installed, actions)
+                            },
+                            onDismiss = { viewModel.closeWindow(windowState.id) }
+                        )
+                    } else {
+                        ProgramManagerScreen(
+                            isDark = isDark,
+                            viewModel = viewModel,
+                            onLaunchApp = { app -> viewModel.launchBpkApp(app.id) }
+                        )
+                    }
                 }
                 LauncherScreen.WEB_APP_VIEWER -> {
-                    val app = remember(windowState.id) {
-                        io.github.norbertweb.bluebird.ui.components.InstalledWebApp(
-                            id          = extras["webAppId"] ?: "",
-                            name        = extras["webAppName"] ?: "Web App",
-                            url         = extras["webAppUrl"] ?: "https://example.com",
-                            iconEmoji   = extras["webAppEmoji"] ?: "🌐",
-                            iconPath    = extras["webAppIcon"] ?: "",
-                            accentColor = extras["webAppAccent"]?.toLongOrNull() ?: 0xFF4C63D9L,
-                            isCustom    = extras["webAppCustom"] == "true",
-                            htmlContent = extras["webAppHtml"] ?: ""
+                    val context = LocalContext.current
+                    val app = remember(windowState.id, extras) {
+                        val localDir = extras["bpkAppLocalDir"] ?: ""
+                        val manifest = localDir.takeIf { it.isNotBlank() }?.let {
+                            BpkPackageManager(context).readManifestFromInstall(File(it))
+                        }
+                        InstalledBpkApp(
+                            id = manifest?.id ?: extras["bpkAppId"].orEmpty(),
+                            name = manifest?.name ?: extras["bpkAppName"] ?: "Application",
+                            version = manifest?.version.orEmpty(),
+                            publisher = manifest?.publisher.orEmpty(),
+                            installDir = localDir,
+                            executablePath = extras["bpkAppExecutable"].orEmpty(),
+                            entry = manifest?.entry ?: extras["bpkAppEntry"] ?: "app/index.html",
+                            iconPath = manifest?.let { File(localDir, it.icon).absolutePath } ?: extras["bpkAppIcon"].orEmpty(),
+                            installedAt = 0L
                         )
                     }
                     WebAppViewerScreen(isDark = isDark, app = app)
@@ -1055,6 +1072,7 @@ fun WindowTitleBar(
     isMaximized: Boolean = false,
     alwaysOnTop: Boolean = false,
     canMaximize: Boolean = true,
+    showDisabledMaximize: Boolean = false,
     onMinimize: () -> Unit,
     onMaximize: () -> Unit,
     onSnapPickerToggle: () -> Unit,
@@ -1122,12 +1140,13 @@ fun WindowTitleBar(
         // Maximize / Restore □ (tap) + long-press = snap picker — hidden entirely for
         // windows that don't support it (e.g. the copy/move progress dialog), matching
         // real Windows 11 behavior where non-resizable dialogs simply omit this button.
-        if (canMaximize) {
+        if (canMaximize || showDisabledMaximize) {
             bluebirdTitleButton(
                 label        = if (isMaximized) "❐" else "□",
-                hoverBg      = if (isDark) DS.pressedDark else DS.pressedLight,
-                onClick      = onMaximize,
-                onLongPress  = onSnapPickerToggle   // touch-friendly snap picker
+                hoverBg      = if (showDisabledMaximize) Color.Transparent else if (isDark) DS.pressedDark else DS.pressedLight,
+                hoverTextCol = if (showDisabledMaximize) textCol.copy(alpha = 0.22f) else Color.Unspecified,
+                onClick      = if (showDisabledMaximize) ({}) else onMaximize,
+                onLongPress  = if (showDisabledMaximize) null else onSnapPickerToggle
             )
         }
 
