@@ -36,6 +36,7 @@ import io.github.norbertweb.bluebird.RealNotification
 import io.github.norbertweb.bluebird.ui.theme.LocalIsDarkTheme
 import io.github.norbertweb.bluebird.ui.theme.LocalTextScale
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
+import io.github.norbertweb.bluebird.system.BluebirdAccessibilityService
 
 // ─── Remote Notification Model ────────────────────────────────────────────────
 
@@ -103,7 +104,7 @@ fun ActionCenter(
     var rotationLocked  by rememberSaveable { mutableStateOf(false) }
     var nfcOn           by rememberSaveable { mutableStateOf(false) }
     var energySaverOn   by rememberSaveable { mutableStateOf(false) }
-    var accessibilityOn by rememberSaveable { mutableStateOf(false) }
+    val accessibilityOn = BluebirdAccessibilityService.isEnabled(context)
     var expanded         by rememberSaveable { mutableStateOf(false) }
 
     AcrylicSurface(
@@ -231,12 +232,9 @@ fun ActionCenter(
                 )
             )
 
-            // Second page — mirrors the extra tiles Windows 11 tucks behind
-            // the "expand" chevron: Night light, Mobile hotspot, Cast,
-            // Rotation lock, Touch keyboard, NFC, Energy saver, Accessibility.
-            // TODO(wire): swap each local `var` + no-op action below for real
-            // LauncherUiState fields / LauncherViewModel calls once they
-            // exist (e.g. uiState.nightLightOn, viewModel.toggleNightLight()).
+            // Second page — Bluebird's extra system actions and controls.
+            // Actions with a public Android global API use the shared
+            // BluebirdAccessibilityService instead of fake local state.
             val secondaryToggles = listOf(
                 ToggleData(
                     label    = "Night Light",
@@ -283,10 +281,16 @@ fun ActionCenter(
                 ),
                 ToggleData(
                     label    = "Touch KB",
-                    subLabel = if (touchKeyboardOn) "Shown" else "Hidden",
+                    subLabel = if (touchKeyboardOn) "Hidden" else "Auto",
                     icon     = FluentIcon.Keyboard,
-                    active   = touchKeyboardOn,
-                    onClick  = { touchKeyboardOn = !touchKeyboardOn }
+                    active   = !touchKeyboardOn,
+                    onClick  = {
+                        if (!BluebirdAccessibilityService.isEnabled(context)) {
+                            BluebirdAccessibilityService.openAccessibilitySettings(context)
+                        } else if (BluebirdAccessibilityService.toggleTouchKeyboard()) {
+                            touchKeyboardOn = !touchKeyboardOn
+                        }
+                    }
                 ),
                 ToggleData(
                     label    = "NFC",
@@ -315,14 +319,39 @@ fun ActionCenter(
                     subLabel = if (accessibilityOn) "On" else "Off",
                     icon     = FluentIcon.Accessibility,
                     active   = accessibilityOn,
+                    onClick  = { BluebirdAccessibilityService.openAccessibilitySettings(context) }
+                ),
+                ToggleData(
+                    label    = "Screenshot",
+                    subLabel = if (accessibilityOn) "Capture" else "Enable service",
+                    icon     = FluentIcon.Flash,
+                    active   = accessibilityOn,
                     onClick  = {
-                        accessibilityOn = !accessibilityOn
-                        try {
-                            context.startActivity(
-                                Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS)
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            )
-                        } catch (e: Exception) { e.printStackTrace() }
+                        if (!BluebirdAccessibilityService.screenshot()) {
+                            BluebirdAccessibilityService.openAccessibilitySettings(context)
+                        }
+                    }
+                ),
+                ToggleData(
+                    label    = "Notifications",
+                    subLabel = if (accessibilityOn) "Open" else "Enable service",
+                    icon     = FluentIcon.Alert,
+                    active   = accessibilityOn,
+                    onClick  = {
+                        if (!BluebirdAccessibilityService.openNotifications()) {
+                            BluebirdAccessibilityService.openAccessibilitySettings(context)
+                        }
+                    }
+                ),
+                ToggleData(
+                    label    = "Quick Settings",
+                    subLabel = if (accessibilityOn) "Open" else "Enable service",
+                    icon     = FluentIcon.Settings,
+                    active   = accessibilityOn,
+                    onClick  = {
+                        if (!BluebirdAccessibilityService.openQuickSettings()) {
+                            BluebirdAccessibilityService.openAccessibilitySettings(context)
+                        }
                     }
                 )
             )

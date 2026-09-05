@@ -267,7 +267,7 @@ internal val builtInApps = listOf(
     Triple("Text Editor",  FluentIcon.TextFont,      LauncherScreen.PremiumTextEditorScreen),
 
     Triple("Terminal", FluentIcon.Console,          LauncherScreen.TERMINAL),
-    Triple("Web App Manager",  FluentIcon.Globe,    LauncherScreen.WEB_APP_MANAGER)
+
 
 
 )
@@ -337,7 +337,7 @@ fun StartMenu(
     }
     // Fullscreen reads as a real "home screen" rather than a floating panel, so drop the
     // rounded corners/border in that mode.
-    val cornerRadius = if (isFullscreen) 0.dp else DS.cornerRadius
+    val cornerRadius = if (isFullscreen) 0.dp else 28.dp
 
     // Bluebird no longer carries its own light/dark toggle — it follows the
     // device's system theme, read from the single source of truth in
@@ -802,7 +802,10 @@ private fun PinnedView(
     context: Context,
     layoutPrefs: LayoutPreferences
 ) {
-    val pinnedApps = uiState.pinnedTaskbarApps
+    val pinnedApps = uiState.installedBpkApps
+        .filter { it.id in uiState.pinnedBpkStartIds }
+        .map { viewModel.bpkAppInfo(it) }
+        .distinctBy { it.packageName }
     // Only the "Pinned" tab now exists on this screen — no System tray, no
     // Recommended (recent files) tray. A system app reaches this list the
     // same way a regular app does: "Add to Start" from All Apps.
@@ -988,7 +991,13 @@ private fun AllAppsView(
                                 incrementAppOpenCount(context, app.packageName)
                                 viewModel.openApp(context, app)
                             },
-                            onPinToStart = { viewModel.pinAppToTaskbar(app) },
+                            onPinToStart = {
+                                if (app.packageName.startsWith("bpk:")) {
+                                    viewModel.pinBpkToStart(app.packageName.removePrefix("bpk:"))
+                                } else {
+                                    viewModel.pinAppToTaskbar(app)
+                                }
+                            },
                             onPinToTaskbar = { viewModel.pinAppToTaskbar(app) },
                             category = AppCategory.ALL
                         )
@@ -1228,7 +1237,13 @@ private fun SearchResultsView(
                             incrementAppOpenCount(context, app.packageName)
                             viewModel.openApp(context, app)
                         },
-                        onPinToStart = { viewModel.pinAppToTaskbar(app) },
+                        onPinToStart = {
+                            if (app.packageName.startsWith("bpk:")) {
+                                viewModel.pinBpkToStart(app.packageName.removePrefix("bpk:"))
+                            } else {
+                                viewModel.pinAppToTaskbar(app)
+                            }
+                        },
                         onPinToTaskbar = { viewModel.pinAppToTaskbar(app) },
                         category = AppCategory.ALL
                     )

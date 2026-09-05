@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.norbertweb.bluebird.ui.theme.bluebirdColors
+import io.github.norbertweb.bluebird.system.BluebirdAccessibilityService
 
 // ─────────────────────────────────────────────────────────
 // POWER MENU — scoped to Bluebird itself, not the device.
@@ -73,7 +74,22 @@ fun PowerMenuButton(isDark: Boolean, textPrimary: androidx.compose.ui.graphics.C
                 .background(if (isDark) DS.surfaceDark else DS.glassLight, RoundedCornerShape(DS.sectionCorner))
                 .border(1.dp, if (isDark) DS.borderDark else DS.borderLight, RoundedCornerShape(DS.sectionCorner))
         ) {
-            PowerMenuItem(label = "Reload", icon = FluentIcon.ArrowSync, isDark = isDark) {
+            PowerMenuItem(label = "Lock screen", icon = FluentIcon.Accessibility, isDark = isDark) {
+                showPowerMenu = false
+                if (!BluebirdAccessibilityService.lockScreen()) {
+                    BluebirdAccessibilityService.openAccessibilitySettings(context)
+                }
+            }
+            PowerMenuItem(label = "Turn off screen", icon = FluentIcon.Power, isDark = isDark) {
+                showPowerMenu = false
+                // Android exposes device screen locking as the public
+                // accessibility global action. Keep this separate in the
+                // Bluebird UI so the requested power-menu semantics remain clear.
+                if (!BluebirdAccessibilityService.lockScreen()) {
+                    BluebirdAccessibilityService.openAccessibilitySettings(context)
+                }
+            }
+            PowerMenuItem(label = "Restart", icon = FluentIcon.ArrowSync, isDark = isDark) {
                 showPowerMenu = false
                 restartBluebird(context)
             }

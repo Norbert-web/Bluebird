@@ -28,7 +28,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -149,18 +148,28 @@ fun SearchOverlay(
     // Recent searches — persisted so they survive the overlay closing (previously lost on close).
     val recentSearches = remember { mutableStateListOf<String>().apply { addAll(loadRecentSearches(context)) } }
 
-    // Panel width — snaps directly to the target size instead of animating,
-    // consistent with the rest of the app now having no motion on layout changes.
+    // Responsive Windows 11-style sizing: keep the overlay generous on phones,
+    // tablets and landscape without letting it become an oversized desktop card.
+    val screenWidth = configuration.screenWidthDp.dp
+    val screenHeight = configuration.screenHeightDp.dp
+    val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
+
     val panelWidth = when (sizeMode) {
-        SearchSizeMode.COMPACT    -> 540.dp
-        SearchSizeMode.EXPANDED   -> 680.dp
-        SearchSizeMode.FULLSCREEN -> configuration.screenWidthDp.dp
+        SearchSizeMode.COMPACT -> minOf(
+            screenWidth - 32.dp,
+            if (isLandscape) 620.dp else 520.dp
+        )
+        SearchSizeMode.EXPANDED -> minOf(
+            screenWidth - 24.dp,
+            if (isLandscape) 820.dp else 680.dp
+        )
+        SearchSizeMode.FULLSCREEN -> screenWidth
     }
-    // In full screen we want the panel to occupy essentially the whole screen height too,
-    // rather than the old `wrapContentHeight()` which let the keyboard cover most of it.
+
     val maxPanelHeight = when (sizeMode) {
-        SearchSizeMode.FULLSCREEN -> configuration.screenHeightDp.dp
-        else -> configuration.screenHeightDp.dp * 0.85f
+        SearchSizeMode.COMPACT -> minOf(screenHeight * if (isLandscape) 0.72f else 0.58f, 520.dp)
+        SearchSizeMode.EXPANDED -> minOf(screenHeight * if (isLandscape) 0.84f else 0.76f, 700.dp)
+        SearchSizeMode.FULLSCREEN -> screenHeight
     }
 
     // Focus requester for auto-focus
@@ -203,7 +212,9 @@ fun SearchOverlay(
         runCatching { keyboardController?.show() }
     }
 
-    val cornerRadius = if (isFullscreen) 0.dp else DS.overlayCorner // was a local 16dp, now matches the shared Start Menu radius language
+    // Rounded in every mode so the search surface keeps the same modern desktop language.
+    // Fullscreen uses a slightly tighter radius because it reaches the screen edges.
+    val cornerRadius = if (isFullscreen) 24.dp else 28.dp
 
     Surface(
         modifier = modifier
@@ -226,25 +237,12 @@ fun SearchOverlay(
         border = BorderStroke(0.5.dp, surfaceBorder)
     ) {
         Column {
-            // ── Top gradient accent line ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.dp)
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                bluebirdColors.AccentBlue,
-                                Color(0xFF7C5CFA),
-                                bluebirdColors.AccentBlue
-                            )
-                        )
-                    )
-            )
-
             Column(
                 modifier = Modifier
-                    .padding(16.dp)
+                    .padding(
+                        horizontal = if (isFullscreen) 24.dp else 20.dp,
+                        vertical = if (isFullscreen) 22.dp else 18.dp
+                    )
                     // Scrollable so content is never clipped/hidden when the keyboard
                     // shrinks the available height — it just scrolls instead of disappearing.
                     .verticalScroll(rememberScrollState())
@@ -260,15 +258,15 @@ fun SearchOverlay(
                     Row(
                         modifier = Modifier
                             .weight(1f)
-                            .height(40.dp)
-                            .clip(RoundedCornerShape(20.dp))
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(23.dp))
                             .background(if (isDark) DS.surfaceDark else DS.surfaceLight)
                             .border(
                                 1.dp,
                                 if (searchQuery.isNotEmpty()) bluebirdColors.AccentBlue.copy(0.5f) else surfaceBorder,
-                                RoundedCornerShape(20.dp)
+                                RoundedCornerShape(23.dp)
                             )
-                            .padding(horizontal = 14.dp),
+                            .padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -321,10 +319,10 @@ fun SearchOverlay(
                     Box {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(10.dp))
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(13.dp))
                                 .background(if (isDark) DS.surfaceDark else DS.surfaceLight)
-                                .border(0.5.dp, surfaceBorder, RoundedCornerShape(10.dp))
+                                .border(0.5.dp, surfaceBorder, RoundedCornerShape(13.dp))
                                 .clickable { showSizeMenu = true },
                             contentAlignment = Alignment.Center
                         ) {
@@ -336,7 +334,7 @@ fun SearchOverlay(
                                 },
                                 contentDescription = "Panel size: ${sizeMode.name}",
                                 tint = textColor.copy(0.6f),
-                                modifier = Modifier.size(15.dp)
+                                modifier = Modifier.size(17.dp)
                             )
                         }
                         DropdownMenu(
@@ -451,9 +449,17 @@ private fun IdleSearchContent(
     onRecentClick: (String) -> Unit,
     onClearRecent: () -> Unit
 ) {
-    val gridColumns = if (isExpanded) 8 else 6
-    val appCount = if (isFullscreen) 32 else if (isExpanded) 16 else 12
-    val gridMaxHeight = if (isFullscreen) 480.dp else if (isExpanded) 200.dp else 160.dp
+    val gridColumns = when {
+        isFullscreen -> 8
+        isExpanded -> 6
+        else -> 4
+    }
+    val appCount = if (isFullscreen) 32 else if (isExpanded) 18 else 8
+    val gridMaxHeight = when {
+        isFullscreen -> 520.dp
+        isExpanded -> 300.dp
+        else -> 220.dp
+    }
 
     // ── Recommended / Top Apps ──
     SectionHeader(
@@ -630,7 +636,7 @@ private fun BestMatchItem(app: AppInfo, isDark: Boolean, textColor: Color, onCli
             .background(bg)
             .border(0.5.dp, bluebirdColors.AccentBlue.copy(0.3f), RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(10.dp),
+            .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -640,7 +646,7 @@ private fun BestMatchItem(app: AppInfo, isDark: Boolean, textColor: Color, onCli
                 drawable = app.icon,
                 contentDescription = app.name,
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(46.dp)
                     .clip(RoundedCornerShape(10.dp))
             )
             // Best match indicator
@@ -688,14 +694,14 @@ private fun AppResultRow(app: AppInfo, query: String, isDark: Boolean, textColor
             .clip(RoundedCornerShape(7.dp))
             .background(bg)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         AppIconSmall(
             drawable = app.icon,
             contentDescription = app.name,
-            modifier = Modifier.size(28.dp).clip(RoundedCornerShape(6.dp))
+            modifier = Modifier.size(34.dp).clip(RoundedCornerShape(8.dp))
         )
         Column(modifier = Modifier.weight(1f)) {
             // Highlight matched text
@@ -732,7 +738,7 @@ private fun WebSearchRow(query: String, isDark: Boolean, textColor: Color, onCli
             .background(if (isDark) DS.surfaceDark else DS.surfaceLight) // was a local one-off color pair
             .border(0.5.dp, bluebirdColors.AccentBlue.copy(0.2f), RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -887,14 +893,14 @@ private fun TopAppItem(app: AppInfo, isDark: Boolean, onClick: () -> Unit) {
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(4.dp)
+            .padding(horizontal = 6.dp, vertical = 7.dp)
     ) {
         AppIconSmall(
             drawable = app.icon,
             contentDescription = app.name,
-            modifier = Modifier.size(34.dp).clip(RoundedCornerShape(8.dp))
+            modifier = Modifier.size(42.dp).clip(RoundedCornerShape(11.dp))
         )
-        Spacer(Modifier.height(3.dp))
+        Spacer(Modifier.height(5.dp))
         Text(
             app.name,
             style = MaterialTheme.typography.labelSmall,
@@ -902,7 +908,7 @@ private fun TopAppItem(app: AppInfo, isDark: Boolean, onClick: () -> Unit) {
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            fontSize = 9.sp
+            fontSize = 10.sp
         )
     }
 }
