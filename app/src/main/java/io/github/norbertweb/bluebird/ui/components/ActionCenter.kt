@@ -80,10 +80,18 @@ fun ActionCenter(
     val context = LocalContext.current
     val textScale = LocalTextScale.current
 
-    // Remote (Bluebird team) notifications now live in the ViewModel — it
-    // polls notify.json on a timer so both this panel and the toast host
-    // (NotificationToastHost) share the exact same fetched list, and
-    // dismissing an announcement in either place dismisses it in both.
+    // Remote (Bluebird team) notifications live in the ViewModel, which
+    // deliberately does NOT poll on a background timer — see the "Remote
+    // (Bluebird team) announcements" writeup above refreshRemoteNotificationsIfDue()
+    // in LauncherViewModel. Opening this panel is one of the two triggers
+    // that ask for a fresh copy of notify.json; the call is throttled
+    // internally (currently every 2h) so opening/closing Action Center
+    // repeatedly never causes more than one real network request per
+    // interval.
+    LaunchedEffect(Unit) {
+        viewModel.refreshRemoteNotificationsIfDue()
+    }
+
     val remoteNotifications = uiState.remoteNotifications
     val dismissedRemoteIds  = uiState.dismissedRemoteNotificationIds
 

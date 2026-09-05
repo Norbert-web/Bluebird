@@ -52,6 +52,33 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipFile
 
+// ─── Remote (Bluebird team) announcements — config ────────────────────────────
+//
+// See the "Remote (Bluebird team) announcements" section further down in
+// LauncherViewModel for the full design writeup. Short version: no
+// background polling — fetches are triggered by app-open / Action-Center-open
+// and throttled to at most once per REMOTE_NOTIF_MIN_INTERVAL_MS.
+
+private const val REMOTE_NOTIF_URL =
+    "https://raw.githubusercontent.com/Norbert-web/bluebird-releases/main/assets/bluebird/notify.json"
+private const val REMOTE_NOTIF_MIN_INTERVAL_MS = 2 * 60 * 60 * 1000L // 2 hours
+
+/**
+ * Stable fingerprint of everything about a remote notification that a user
+ * would actually perceive as "different" content. Deliberately excludes
+ * [BluebirdRemoteNotification.id] and [BluebirdRemoteNotification.timestamp] —
+ * so if the Bluebird team re-publishes the same announcement under a new id,
+ * or just bumps its timestamp, it's recognized as already-seen and won't
+ * pop a duplicate toast.
+ */
+private fun BluebirdRemoteNotification.contentSignatureHash(): String {
+    val raw = listOf(type, priority, title, body, actionLabel.orEmpty(), actionUrl.orEmpty(), badgeColor)
+        .joinToString("\u0001")
+    val digestBytes = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(raw.toByteArray(Charsets.UTF_8))
+    return digestBytes.joinToString("") { "%02x".format(it) }
+}
+
 // ─── Data Models ─────────────────────────────────────────────────────────────
 
 data class AppInfo(
@@ -429,7 +456,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         loadInstalledBpkApps()
         loadBackgroundEffects()
         startBatteryMonitor()
-        // Remote announcements are fetched only when explicitly requested.
+        // Remote (Bluebird team) announcements are NOT fetched here — there's
+        // no background polling. See refreshRemoteNotificationsIfDue(): it's
+        // called from MainActivity on app launch and from ActionCenter when
+        // the panel opens, each throttled to REMOTE_NOTIF_MIN_INTERVAL_MS so
+        // reopening the app/panel repeatedly doesn't turn into a poll.
         initSystemDesktopItems()
         refreshDesktopFiles()
         startDesktopObserver()
@@ -1442,42 +1473,113 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     // ─── Remote (Bluebird team) announcements ─────────────────────────────────
-    // Polls notify.json periodically. Newly-seen ids get pushed as toasts;
-    // already-seen ids (persisted across restarts) are shown silently in the
-    // Action Center panel only, so reinstalling/relaunching the app doesn't
-    // replay every historical announcement as a popup.
+    //
+    // Fetches a small notify.json manifest published by the Bluebird team and
+    // turns each entry into an Action Center item, plus a one-time toast the
+    // first time it's seen. Design constraints this section is built around:
+    //
+    //  1. No background timer / WorkManager job. The app has no legitimate
+    //     reason to touch the network while it isn't in the foreground, so
+    //     every trigger is tied to something the user is already doing:
+    //       - app launch          -> MainActivity calls refreshRemoteNotificationsIfDue()
+    //       - Action Center opens -> ActionCenter calls refreshRemoteNotificationsIfDue()
+    //     Both are throttled to at most once per REMOTE_NOTIF_MIN_INTERVAL_MS
+    //     (2h) via lastRemoteFetchAt, so neither call site needs to worry
+    //     about calling "too often" — launching the app twice in a row, or
+    //     opening/closing Action Center repeatedly, does at most one real
+    //     network request per interval.
+    //
+    //  2. A toast should only ever fire for genuinely new *content* — not
+    //     just a new id. Two persisted ledgers make that possible:
+    //       - seenRemoteIds:           ids already shown in Action Center at
+    //                                  least once. Only used to detect the
+    //                                  very first fetch ever (isFirstEverRun),
+    //                                  so a fresh install doesn't toast every
+    //                                  historical announcement at once.
+    //       - seenRemoteContentHashes: contentSignatureHash() of every
+    //                                  notification already toasted. A
+    //                                  notification only toasts if its
+    //                                  content hash is new, so republishing
+    //                                  the same announcement under a new id
+    //                                  (or just touching its timestamp)
+    //                                  does not cause a duplicate popup.
+    //
+    //  3. Expired notifications (expires_at in the past) are dropped before
+    //     they ever reach uiState — they never show in Action Center and
+    //     never toast, without needing dismissedRemoteNotificationIds
+    //     bookkeeping for them.
+
     private val seenRemoteIds: MutableSet<String> by lazy {
         (prefs.getStringSet("seen_remote_notif_ids", emptySet()) ?: emptySet()).toMutableSet()
     }
+    private val seenRemoteContentHashes: MutableSet<String> by lazy {
+        (prefs.getStringSet("seen_remote_notif_hashes", emptySet()) ?: emptySet()).toMutableSet()
+    }
     private var remoteBootstrapped = prefs.getBoolean("remote_notif_bootstrapped", false)
+    private var lastRemoteFetchAt: Long
+        get() = prefs.getLong("remote_notif_last_fetch_at", 0L)
+        set(value) { prefs.edit().putLong("remote_notif_last_fetch_at", value).apply() }
+
+    /** Prevents two near-simultaneous triggers (e.g. app-open + Action-Center-open) from racing into overlapping fetches. */
+    private var remoteFetchInFlight = false
 
     private fun saveSeenRemoteIds() {
         prefs.edit().putStringSet("seen_remote_notif_ids", seenRemoteIds).apply()
     }
+    private fun saveSeenRemoteContentHashes() {
+        prefs.edit().putStringSet("seen_remote_notif_hashes", seenRemoteContentHashes).apply()
+    }
 
     /**
-     * Explicitly refresh Bluebird announcements. There is intentionally no periodic
-     * poll: opening/keeping the launcher alive must not create recurring network work.
+     * The "safe to call often" entry point — call this from any UI trigger
+     * that represents the user actively looking at the app (app launch,
+     * Action Center opening). Only reaches the network if more than
+     * [REMOTE_NOTIF_MIN_INTERVAL_MS] has passed since the last attempt;
+     * otherwise it's a no-op, so callers never need their own throttling.
+     */
+    fun refreshRemoteNotificationsIfDue() {
+        val elapsed = System.currentTimeMillis() - lastRemoteFetchAt
+        if (elapsed < REMOTE_NOTIF_MIN_INTERVAL_MS) return
+        refreshRemoteNotifications()
+    }
+
+    /**
+     * Forces an immediate fetch, bypassing the interval guard. Not called
+     * automatically anywhere — wire this to an explicit "Refresh" action if
+     * one gets added to Action Center; everyday triggers should use
+     * [refreshRemoteNotificationsIfDue] instead.
      */
     fun refreshRemoteNotifications() {
+        if (remoteFetchInFlight) return
+        remoteFetchInFlight = true
         viewModelScope.launch(Dispatchers.IO) {
-            fetchRemoteNotificationsOnce()
+            try {
+                fetchRemoteNotificationsOnce()
+            } finally {
+                remoteFetchInFlight = false
+            }
         }
     }
 
     private suspend fun fetchRemoteNotificationsOnce() {
         try {
-            val raw  = URL("https://raw.githubusercontent.com/Norbert-web/bluebird-releases/main/assets/bluebird/notify.json")
-                .readText(Charsets.UTF_8)
+            val raw = URL(REMOTE_NOTIF_URL).readText(Charsets.UTF_8)
+            // Recorded as soon as we've successfully reached the network,
+            // regardless of what happens during parsing below — a malformed
+            // manifest shouldn't make us hammer the server on every app open.
+            lastRemoteFetchAt = System.currentTimeMillis()
+
             val root = JSONObject(raw)
             val arr  = root.getJSONArray("notifications")
+            val now  = java.time.Instant.now()
+
             val list = (0 until arr.length()).mapNotNull { i ->
                 val obj = arr.getJSONObject(i)
                 val action = if (obj.has("action") && !obj.isNull("action")) {
                     val a = obj.getJSONObject("action")
                     Pair(a.optString("label"), a.optString("url"))
                 } else null
-                BluebirdRemoteNotification(
+                val notif = BluebirdRemoteNotification(
                     id          = obj.getString("id"),
                     type        = obj.optString("type", "announcement"),
                     priority    = obj.optString("priority", "normal"),
@@ -1489,30 +1591,45 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     actionUrl   = action?.second,
                     badgeColor  = obj.optString("badge_color", "#0078D4")
                 )
+                val isExpired = notif.expiresAt?.let { expiresAt ->
+                    try { java.time.Instant.parse(expiresAt).isBefore(now) } catch (_: Exception) { false }
+                } ?: false
+                if (isExpired) null else notif
             }
 
-            val freshIds       = list.map { it.id }.filter { it !in seenRemoteIds }
+            val newHashes = list
+                .map { it to it.contentSignatureHash() }
+                .filter { (_, hash) -> hash !in seenRemoteContentHashes }
+
             val isFirstEverRun = !remoteBootstrapped
 
             withContext(Dispatchers.Main) {
                 _uiState.value = _uiState.value.copy(remoteNotifications = list)
                 if (bannersAllowed() && !isFirstEverRun) {
-                    list.filter { it.id in freshIds }.forEach { notif ->
+                    newHashes.forEach { (notif, _) ->
                         _toastEvents.tryEmit(notif.toToastData())
                     }
                 }
             }
 
-            if (freshIds.isNotEmpty()) {
-                seenRemoteIds.addAll(freshIds)
-                saveSeenRemoteIds()
+            if (newHashes.isNotEmpty()) {
+                seenRemoteContentHashes.addAll(newHashes.map { it.second })
+                saveSeenRemoteContentHashes()
             }
+            seenRemoteIds.addAll(list.map { it.id })
+            saveSeenRemoteIds()
+
             if (isFirstEverRun) {
                 remoteBootstrapped = true
                 prefs.edit().putBoolean("remote_notif_bootstrapped", true).apply()
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            // lastRemoteFetchAt is only set above, after a successful
+            // network read — so a failure here (no connectivity, DNS,
+            // timeout, etc.) leaves it untouched and the very next due
+            // check will simply try again, rather than waiting out the
+            // full interval on a failed attempt.
         }
     }
 

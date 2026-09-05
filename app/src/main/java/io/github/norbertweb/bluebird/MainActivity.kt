@@ -92,6 +92,16 @@ class MainActivity : ComponentActivity() {
             val context = LocalContext.current
             val systemDarkTheme = isSystemInDarkTheme()
 
+            // Ask for a fresh copy of the Bluebird team's notify.json on every
+            // app launch. This is one of two triggers for it (the other is
+            // Action Center opening, in ActionCenter.kt) — both go through
+            // refreshRemoteNotificationsIfDue(), which only actually hits the
+            // network if it's been more than ~2h since the last attempt, so
+            // this is safe to call on every single launch/recomposition.
+            LaunchedEffect(Unit) {
+                viewModel.refreshRemoteNotificationsIfDue()
+            }
+
             LaunchedEffect(uiState.brightness) {
                 window?.attributes = window?.attributes?.apply {
                     screenBrightness = uiState.brightness
@@ -176,6 +186,11 @@ class MainActivity : ComponentActivity() {
         window?.attributes = window?.attributes?.apply {
             screenBrightness = viewModel.uiState.value.brightness
         }
+
+        // Also covers "coming back from another app", not just a fresh
+        // process launch — still throttled internally to ~2h, so this is
+        // cheap even if the user is switching in and out constantly.
+        viewModel.refreshRemoteNotificationsIfDue()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
