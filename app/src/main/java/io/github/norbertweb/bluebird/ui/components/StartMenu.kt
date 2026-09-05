@@ -185,6 +185,37 @@ internal fun unpinBuiltInApp(context: Context, name: String) {
 }
 
 // ─────────────────────────────────────────────────────────
+// Pinned real (device-installed) apps — apps from All Apps whose
+// packageName is NOT "bpk:"-prefixed have no ViewModel-backed Start
+// list the way bpk apps (pinnedBpkStartIds) and built-in apps
+// (PINNED_BUILTIN_KEY above) do. "Add to Start" on these used to fall
+// through to pinAppToTaskbar(), which is why it silently pinned to the
+// Taskbar instead — the same call the "Pin to Taskbar" option makes.
+// This gives them their own persisted Start-pin list, same pattern as
+// built-in apps.
+// ─────────────────────────────────────────────────────────
+private const val PINNED_INSTALLED_START_KEY = "pinned_installed_start_apps"
+
+internal fun getPinnedInstalledStartPackages(context: Context): Set<String> {
+    val prefs = context.getSharedPreferences(START_MENU_PREFS, Context.MODE_PRIVATE)
+    return prefs.getStringSet(PINNED_INSTALLED_START_KEY, emptySet()) ?: emptySet()
+}
+
+internal fun pinInstalledAppToStart(context: Context, packageName: String) {
+    val prefs = context.getSharedPreferences(START_MENU_PREFS, Context.MODE_PRIVATE)
+    val updated = (prefs.getStringSet(PINNED_INSTALLED_START_KEY, emptySet()) ?: emptySet()).toMutableSet()
+    updated.add(packageName)
+    prefs.edit().putStringSet(PINNED_INSTALLED_START_KEY, updated).apply()
+}
+
+internal fun unpinInstalledAppFromStart(context: Context, packageName: String) {
+    val prefs = context.getSharedPreferences(START_MENU_PREFS, Context.MODE_PRIVATE)
+    val updated = (prefs.getStringSet(PINNED_INSTALLED_START_KEY, emptySet()) ?: emptySet()).toMutableSet()
+    updated.remove(packageName)
+    prefs.edit().putStringSet(PINNED_INSTALLED_START_KEY, updated).apply()
+}
+
+// ─────────────────────────────────────────────────────────
 // Persisted Start Menu size + layout preference
 // (fixes: size choice previously reset every time the Start Menu closed)
 // ─────────────────────────────────────────────────────────
@@ -802,10 +833,6 @@ private fun PinnedView(
     context: Context,
     layoutPrefs: LayoutPreferences
 ) {
-    val pinnedApps = uiState.installedBpkApps
-        .filter { it.id in uiState.pinnedBpkStartIds }
-        .map { viewModel.bpkAppInfo(it) }
-        .distinctBy { it.packageName }
     // Only the "Pinned" tab now exists on this screen — no System tray, no
     // Recommended (recent files) tray. A system app reaches this list the
     // same way a regular app does: "Add to Start" from All Apps.
@@ -813,6 +840,19 @@ private fun PinnedView(
     val pinnedBuiltInApps = remember(pinnedBuiltInNames) {
         builtInApps.filter { it.first in pinnedBuiltInNames }
     }
+    // Real (device-installed, non-"bpk:") apps pinned via "Add to Start"
+    // in All Apps / search — tracked separately from bpk apps since they
+    // don't have a pinnedBpkStartIds entry.
+    var pinnedInstalledStartPackages by remember { mutableStateOf(getPinnedInstalledStartPackages(context)) }
+    val pinnedInstalledApps = remember(pinnedInstalledStartPackages, uiState.installedApps) {
+        uiState.installedApps.filter { it.packageName in pinnedInstalledStartPackages }
+    }
+    val pinnedApps = (
+        uiState.installedBpkApps
+            .filter { it.id in uiState.pinnedBpkStartIds }
+            .map { viewModel.bpkAppInfo(it) }
+        + pinnedInstalledApps
+    ).distinctBy { it.packageName }
 
     fun addToDesktop(label: String, screen: LauncherScreen) {
         val dir = File(android.os.Environment.getExternalStorageDirectory(), "Desktop").apply { mkdirs() }
@@ -868,7 +908,14 @@ private fun PinnedView(
                             incrementAppOpenCount(context, app.packageName)
                             viewModel.openApp(context, app)
                         },
-                        onAppUnpin   = { app -> viewModel.unpinAppFromTaskbar(app) },
+                        onAppUnpin   = { app ->
+                            if (app.packageName in pinnedInstalledStartPackages) {
+                                unpinInstalledAppFromStart(context, app.packageName)
+                                pinnedInstalledStartPackages = getPinnedInstalledStartPackages(context)
+                            } else {
+                                viewModel.unpinAppFromTaskbar(app)
+                            }
+                        },
                         onAppPin     = { app -> viewModel.pinAppToTaskbar(app) },
                         isBuiltIn    = false,
                         category     = AppCategory.PINNED
@@ -995,7 +1042,7 @@ private fun AllAppsView(
                                 if (app.packageName.startsWith("bpk:")) {
                                     viewModel.pinBpkToStart(app.packageName.removePrefix("bpk:"))
                                 } else {
-                                    viewModel.pinAppToTaskbar(app)
+                                    pinInstalledAppToStart(context, app.packageName)
                                 }
                             },
                             onPinToTaskbar = { viewModel.pinAppToTaskbar(app) },
@@ -1241,7 +1288,7 @@ private fun SearchResultsView(
                             if (app.packageName.startsWith("bpk:")) {
                                 viewModel.pinBpkToStart(app.packageName.removePrefix("bpk:"))
                             } else {
-                                viewModel.pinAppToTaskbar(app)
+                                pinInstalledAppToStart(context, app.packageName)
                             }
                         },
                         onPinToTaskbar = { viewModel.pinAppToTaskbar(app) },
